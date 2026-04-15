@@ -2,6 +2,7 @@ import { View } from 'react-native';
 
 import { InfoCard } from '../../components/InfoCard';
 import { InputField } from '../../components/InputField';
+import { formatDateInput } from '../../services/intake';
 import type { IntakeStepComponentProps } from './types';
 
 export function BasicInfoScreen({
@@ -12,8 +13,8 @@ export function BasicInfoScreen({
   return (
     <View>
       <InfoCard
-        subtitle="Collect the core identity fields needed for patient registration and chart matching."
-        title="Identity"
+        subtitle="Match the same core patient information staff expect in the NexGEN chart."
+        title="Patient Information"
       >
         <InputField
           autoCapitalize="words"
@@ -33,17 +34,18 @@ export function BasicInfoScreen({
         />
         <InputField
           errorText={fieldErrors?.dateOfBirth}
+          helperText="Type numbers only and NexGen Flo will format the date for you."
           keyboardType="numbers-and-punctuation"
           label="Date of birth"
-          onChangeText={(value) => onChange('dateOfBirth', value)}
+          onChangeText={(value) => onChange('dateOfBirth', formatDateInput(value))}
           placeholder="MM/DD/YYYY"
           value={form.dateOfBirth}
         />
       </InfoCard>
 
       <InfoCard
-        subtitle="Add the best contact channels for appointment reminders and follow-up."
-        title="Contact"
+        subtitle="Capture the primary follow-up channels for reminders, results, and visit updates."
+        title="Contact Details"
       >
         <InputField
           errorText={fieldErrors?.phoneNumber}
@@ -62,6 +64,30 @@ export function BasicInfoScreen({
           optional
           placeholder="patient@example.com"
           value={form.email}
+        />
+      </InfoCard>
+
+      <InfoCard
+        subtitle="This helps staff and providers resolve urgent questions without restarting intake later in the visit."
+        title="Emergency Contact"
+      >
+        <InputField
+          autoCapitalize="words"
+          errorText={fieldErrors?.emergencyContactName}
+          label="Emergency contact name"
+          onChangeText={(value) => onChange('emergencyContactName', value)}
+          optional
+          placeholder="Terry Cruise"
+          value={form.emergencyContactName}
+        />
+        <InputField
+          errorText={fieldErrors?.emergencyContactPhone}
+          keyboardType="phone-pad"
+          label="Emergency contact phone"
+          onChangeText={(value) => onChange('emergencyContactPhone', value)}
+          optional
+          placeholder="(555) 555-1212"
+          value={form.emergencyContactPhone}
         />
       </InfoCard>
     </View>

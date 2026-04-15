@@ -26,6 +26,8 @@ import {
   createInitialIntakeForm,
   createInitialReturningPatientForm,
   intakeFlowSteps,
+  normalizeIntakeFormFields,
+  normalizeReturningPatientFields,
   type IntakeDraftRecord,
   type IntakeFormData,
   type IntakeStepKey,
@@ -685,18 +687,18 @@ function mergePersistedState(
     intake: {
       ...initial.intake,
       ...payload.intake,
-      form: {
+      form: normalizeIntakeFormFields({
         ...initial.intake.form,
         ...payload.intake?.form,
-      },
+      }) as IntakeFormData,
     },
     returningPatient: {
       ...initial.returningPatient,
       ...payload.returningPatient,
-      form: {
+      form: normalizeReturningPatientFields({
         ...initial.returningPatient.form,
         ...payload.returningPatient?.form,
-      },
+      }) as ReturningPatientFormData,
     },
     uploads: {
       ...initial.uploads,
@@ -826,10 +828,10 @@ function applyRemoteDraftToState(
     intake: {
       ...state.intake,
       currentStep: draft.currentStep,
-      form: {
+      form: normalizeIntakeFormFields({
         ...state.intake.form,
         ...draft.form,
-      },
+      }) as IntakeFormData,
       lastUpdatedAt: timestamp,
       source: state.intake.source,
       voiceImportedAt:
@@ -837,10 +839,10 @@ function applyRemoteDraftToState(
     },
     returningPatient: {
       ...state.returningPatient,
-      form: {
+      form: normalizeReturningPatientFields({
         ...state.returningPatient.form,
         ...draft.returningPatient,
-      },
+      }) as ReturningPatientFormData,
       lastUpdatedAt: timestamp,
     },
     voice: {
@@ -861,10 +863,10 @@ function reducer(
       return mergePersistedState(action.payload);
     case 'start_new_intake': {
       const timestamp = nowIso();
-      const nextForm = {
+      const nextForm = normalizeIntakeFormFields({
         ...createInitialIntakeForm(),
         ...action.payload?.prefill,
-      };
+      }) as IntakeFormData;
 
       return {
         ...state,
@@ -908,10 +910,10 @@ function reducer(
         activeFlowMode: 'intake',
         intake: {
           ...state.intake,
-          form: {
+          form: normalizeIntakeFormFields({
             ...state.intake.form,
             ...action.payload,
-          },
+          }) as IntakeFormData,
           lastUpdatedAt: nowIso(),
         },
       };
@@ -937,10 +939,10 @@ function reducer(
         ...state,
         activeFlowMode: 'returning',
         returningPatient: {
-          form: {
+          form: normalizeReturningPatientFields({
             ...state.returningPatient.form,
             ...action.payload,
-          },
+          }) as ReturningPatientFormData,
           lastUpdatedAt: nowIso(),
         },
       };
@@ -952,14 +954,14 @@ function reducer(
         activeFlowMode: 'intake',
         intake: {
           currentStep: 'symptoms',
-          form: {
+          form: normalizeIntakeFormFields({
             ...state.intake.form,
             patientType: 'Returning patient',
             firstName: state.returningPatient.form.firstName,
             lastName: state.returningPatient.form.lastName,
             dateOfBirth: state.returningPatient.form.dateOfBirth,
             phoneNumber: state.returningPatient.form.phoneNumber,
-          },
+          }) as IntakeFormData,
           lastUpdatedAt: timestamp,
           source: 'returning',
           voiceImportedAt: state.intake.voiceImportedAt,
@@ -1043,7 +1045,7 @@ function reducer(
         activeFlowMode: 'intake',
         intake: {
           currentStep: 'symptoms',
-          form: {
+          form: normalizeIntakeFormFields({
             ...state.intake.form,
             patientType: state.intake.form.patientType || 'New patient',
             chiefConcern: state.voice.handoff.symptomSummary,
@@ -1054,7 +1056,7 @@ function reducer(
               state.voice.handoff.allergyNotes || state.intake.form.allergyNotes,
             symptomNotes:
               state.voice.handoff.transcript || state.intake.form.symptomNotes,
-          },
+          }) as IntakeFormData,
           lastUpdatedAt: timestamp,
           source: 'voice',
           voiceImportedAt: timestamp,
@@ -1190,11 +1192,11 @@ function reducer(
         },
         intake: {
           currentStep: 'symptoms',
-          form: {
+          form: normalizeIntakeFormFields({
             ...state.intake.form,
             ...memoryPrefill,
             ...lookupPrefill,
-          },
+          }) as IntakeFormData,
           lastUpdatedAt: timestamp,
           source: 'returning',
           voiceImportedAt: state.intake.voiceImportedAt,

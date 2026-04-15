@@ -76,8 +76,8 @@ export function UploadScreen() {
     <ScreenContainer>
       <SectionHeader
         eyebrow="Document Intake"
-        subtitle="Capture insurance and identity documents in a clean, staff-friendly mobile experience."
-        title="Upload patient documents"
+        subtitle="Add insurance and photo ID in the same intake flow staff will review later in NexGEN."
+        title="Uploads"
       />
 
       <DraftBanner
@@ -128,8 +128,8 @@ export function UploadScreen() {
       </View>
 
       <InfoCard
-        subtitle="Insurance images are stored in the shared local draft so the preview remains when the patient changes tabs."
-        title="Insurance Card Actions"
+        subtitle="Upload the insurance card now or keep it saved locally until the backend draft is ready."
+        title="Insurance Upload"
       >
         <PrimaryButton
           icon="camera-outline"
@@ -185,8 +185,8 @@ export function UploadScreen() {
 
       <InfoCard
         style={styles.supportCard}
-        subtitle="Government ID capture uses the same polished local draft flow so previews remain available later in the intake."
-        title="Government ID Actions"
+        subtitle="Photo ID capture uses the same shared draft flow so identity review stays connected to the intake."
+        title="Photo ID Upload"
       >
         <PrimaryButton
           icon="camera-outline"
@@ -240,8 +240,8 @@ export function UploadScreen() {
 
       <InfoCard
         style={styles.supportCard}
-        subtitle="The upload module can expand into OCR, eligibility checks, and review queues without changing the UI shell."
-        title="Supported Next Documents"
+        subtitle="These upload checkpoints mirror what staff expects to confirm after the intake is submitted."
+        title="Upload Checklist"
       >
         {uploadChecklist.map((item) => (
           <View key={item} style={styles.checklistRow}>

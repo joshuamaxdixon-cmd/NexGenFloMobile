@@ -18,6 +18,11 @@ export type IntakeFormData = {
   firstName: string;
   lastName: string;
   dateOfBirth: string;
+  emergencyContactName: string;
+  emergencyContactPhone: string;
+  heightFt: string;
+  heightIn: string;
+  weightLb: string;
   phoneNumber: string;
   email: string;
   chiefConcern: string;
@@ -27,6 +32,7 @@ export type IntakeFormData = {
   medications: string;
   pharmacy: string;
   lastDose: string;
+  medicalConditions: string;
   allergies: string;
   allergyReaction: string;
   allergyNotes: string;
@@ -51,23 +57,23 @@ export const intakeFlowSteps = [
   },
   {
     key: 'basicInfo',
-    title: 'Basic Information',
-    subtitle: 'Capture identity and reliable follow-up details.',
+    title: 'Patient Info',
+    subtitle: 'Capture identity, contact, and emergency contact details.',
   },
   {
     key: 'symptoms',
-    title: 'Symptoms',
-    subtitle: 'Document the presenting concern with concise clinical context.',
+    title: 'Visit Details',
+    subtitle: 'Document why the patient is here today and any known measurements.',
   },
   {
     key: 'medications',
-    title: 'Medications',
-    subtitle: 'Review active medications and supporting pharmacy details.',
+    title: 'Medical Info',
+    subtitle: 'Review medications and relevant medical history before staff handoff.',
   },
   {
     key: 'allergies',
-    title: 'Allergies',
-    subtitle: 'Flag sensitivities, reactions, and safety notes.',
+    title: 'Allergies & Safety',
+    subtitle: 'Flag sensitivities, reactions, and any safety context the team should see first.',
   },
   {
     key: 'insurance',
@@ -108,12 +114,102 @@ export const patientTypeOptions = [
   },
 ] as const;
 
+function normalizeDigitsOnly(value: string, maxLength: number) {
+  return value.replace(/\D/g, '').slice(0, maxLength);
+}
+
+function normalizeWeightInput(value: string) {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return '';
+  }
+
+  const sanitized = trimmed.replace(/[^\d.]/g, '');
+  const [whole = '', ...rest] = sanitized.split('.');
+  const fraction = rest.join('').slice(0, 1);
+  const normalizedWhole = whole.slice(0, 4);
+
+  if (!sanitized.includes('.')) {
+    return normalizedWhole;
+  }
+
+  return fraction.length > 0 ? `${normalizedWhole}.${fraction}` : `${normalizedWhole}.`;
+}
+
+export function formatDateInput(value: string) {
+  const digits = normalizeDigitsOnly(value, 8);
+
+  if (digits.length <= 2) {
+    return digits;
+  }
+
+  if (digits.length <= 4) {
+    return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  }
+
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+}
+
+export function normalizeDateDisplay(value: string) {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return '';
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    const [year, month, day] = trimmed.split('-');
+    return `${month}/${day}/${year}`;
+  }
+
+  return formatDateInput(trimmed);
+}
+
+export function normalizeIntakeFormFields(
+  values: Partial<IntakeFormData>,
+): Partial<IntakeFormData> {
+  const nextValues = { ...values };
+
+  if (typeof nextValues.dateOfBirth === 'string') {
+    nextValues.dateOfBirth = normalizeDateDisplay(nextValues.dateOfBirth);
+  }
+  if (typeof nextValues.heightFt === 'string') {
+    nextValues.heightFt = normalizeDigitsOnly(nextValues.heightFt, 2);
+  }
+  if (typeof nextValues.heightIn === 'string') {
+    nextValues.heightIn = normalizeDigitsOnly(nextValues.heightIn, 2);
+  }
+  if (typeof nextValues.weightLb === 'string') {
+    nextValues.weightLb = normalizeWeightInput(nextValues.weightLb);
+  }
+
+  return nextValues;
+}
+
+export function normalizeReturningPatientFields(
+  values: Partial<ReturningPatientFormData>,
+): Partial<ReturningPatientFormData> {
+  const nextValues = { ...values };
+
+  if (typeof nextValues.dateOfBirth === 'string') {
+    nextValues.dateOfBirth = normalizeDateDisplay(nextValues.dateOfBirth);
+  }
+
+  return nextValues;
+}
+
 export function createInitialIntakeForm(): IntakeFormData {
   return {
     patientType: '',
     firstName: '',
     lastName: '',
     dateOfBirth: '',
+    emergencyContactName: '',
+    emergencyContactPhone: '',
+    heightFt: '',
+    heightIn: '',
+    weightLb: '',
     phoneNumber: '',
     email: '',
     chiefConcern: '',
@@ -123,6 +219,7 @@ export function createInitialIntakeForm(): IntakeFormData {
     medications: '',
     pharmacy: '',
     lastDose: '',
+    medicalConditions: '',
     allergies: '',
     allergyReaction: '',
     allergyNotes: '',
@@ -257,7 +354,7 @@ function normalizeDraftRecord(raw: unknown): IntakeDraftRecord {
 
   return {
     currentStep: readStep(record.current_step ?? record.currentStep),
-    form: form as Partial<IntakeFormData>,
+    form: normalizeIntakeFormFields(form as Partial<IntakeFormData>),
     id:
       readString(record.id) ??
       readString(record.draft_id) ??
@@ -267,7 +364,9 @@ function normalizeDraftRecord(raw: unknown): IntakeDraftRecord {
       (readRecord(record.janet_handoff ?? record.janetHandoff) as JanetHandoff | null) ??
       null,
     patientId: readNumber(record.patient_id) ?? readNumber(record.patientId),
-    returningPatient: returningPatient as Partial<ReturningPatientFormData>,
+    returningPatient: normalizeReturningPatientFields(
+      returningPatient as Partial<ReturningPatientFormData>,
+    ),
     status:
       readString(record.status) === 'submitted'
         ? 'submitted'

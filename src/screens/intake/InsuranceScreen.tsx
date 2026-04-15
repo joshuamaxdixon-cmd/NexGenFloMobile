@@ -12,8 +12,8 @@ export function InsuranceScreen({
   return (
     <View>
       <InfoCard
-        subtitle="Enter enough coverage information to support eligibility review and claims setup."
-        title="Coverage Details"
+        subtitle="Enter the same core coverage details the web intake uses before document capture and verification."
+        title="Insurance & Subscriber"
       >
         <InputField
           errorText={fieldErrors?.insuranceProvider}

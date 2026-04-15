@@ -1,4 +1,8 @@
-import type { IntakeFormData, ReturningPatientFormData } from './intake';
+import {
+  normalizeDateDisplay,
+  type IntakeFormData,
+  type ReturningPatientFormData,
+} from './intake';
 import { api } from './api';
 
 export type PatientLookupMatchStatus =
@@ -89,9 +93,11 @@ function normalizePatientSummary(value: unknown): PatientLookupSummary | null {
 
   return {
     dateOfBirth:
-      readString(record.date_of_birth) ??
-      readString(record.dateOfBirth) ??
-      '',
+      normalizeDateDisplay(
+        readString(record.date_of_birth) ??
+          readString(record.dateOfBirth) ??
+          '',
+      ),
     emailHint:
       readString(record.email_hint) ?? readString(record.emailHint) ?? null,
     firstName,
@@ -223,7 +229,9 @@ export function buildLookupPrefill(
     patientType: 'Returning patient',
     firstName: patient?.firstName ?? returningForm.firstName,
     lastName: patient?.lastName ?? returningForm.lastName,
-    dateOfBirth: patient?.dateOfBirth ?? returningForm.dateOfBirth,
+    dateOfBirth: normalizeDateDisplay(
+      patient?.dateOfBirth ?? returningForm.dateOfBirth,
+    ),
     phoneNumber: returningForm.phoneNumber,
     chiefConcern: lookupResponse.resumeContext?.reasonForVisit ?? '',
   };

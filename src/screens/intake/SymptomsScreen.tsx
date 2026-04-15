@@ -12,8 +12,8 @@ export function SymptomsScreen({
   return (
     <View>
       <InfoCard
-        subtitle="Capture the reason for visit with enough detail to support triage and staff review."
-        title="Presenting Concern"
+        subtitle="Capture the main reason for today’s visit before the staff review begins."
+        title="Visit Reason"
       >
         <InputField
           errorText={fieldErrors?.chiefConcern}
@@ -41,7 +41,7 @@ export function SymptomsScreen({
 
       <InfoCard
         subtitle="Use this space for anything the care team should see before the visit starts."
-        title="Additional Notes"
+        title="Clinical Notes"
       >
         <InputField
           label="Symptom notes"
@@ -50,6 +50,40 @@ export function SymptomsScreen({
           optional
           placeholder="Worse while walking upstairs, started after exercise..."
           value={form.symptomNotes}
+        />
+      </InfoCard>
+
+      <InfoCard
+        subtitle="These match the same optional measurements shown in the web intake’s medical step."
+        title="Measurements"
+      >
+        <InputField
+          errorText={fieldErrors?.heightFt}
+          helperText="Use feet and inches just like the web intake."
+          keyboardType="number-pad"
+          label="Height (ft)"
+          onChangeText={(value) => onChange('heightFt', value)}
+          optional
+          placeholder="5"
+          value={form.heightFt}
+        />
+        <InputField
+          errorText={fieldErrors?.heightIn}
+          keyboardType="number-pad"
+          label="Height (in)"
+          onChangeText={(value) => onChange('heightIn', value)}
+          optional
+          placeholder="6"
+          value={form.heightIn}
+        />
+        <InputField
+          errorText={fieldErrors?.weightLb}
+          keyboardType="decimal-pad"
+          label="Weight (lb)"
+          onChangeText={(value) => onChange('weightLb', value)}
+          optional
+          placeholder="140"
+          value={form.weightLb}
         />
       </InfoCard>
     </View>

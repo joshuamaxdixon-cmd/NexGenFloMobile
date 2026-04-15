@@ -4,6 +4,7 @@ import { DraftBanner } from '../components/DraftBanner';
 import { InfoCard } from '../components/InfoCard';
 import { InputField } from '../components/InputField';
 import { PrimaryButton } from '../components/PrimaryButton';
+import { formatDateInput } from '../services/intake';
 import type {
   ReturningPatientFieldErrors,
   ReturningPatientFormData,
@@ -79,7 +80,7 @@ export function ReturningPatientScreen({
           errorText={fieldErrors?.dateOfBirth}
           keyboardType="numbers-and-punctuation"
           label="Date of birth"
-          onChangeText={(value) => onChange('dateOfBirth', value)}
+          onChangeText={(value) => onChange('dateOfBirth', formatDateInput(value))}
           placeholder="MM/DD/YYYY"
           value={data.dateOfBirth}
         />

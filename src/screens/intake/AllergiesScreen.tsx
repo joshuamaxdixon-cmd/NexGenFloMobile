@@ -5,16 +5,19 @@ import { InputField } from '../../components/InputField';
 import type { IntakeStepComponentProps } from './types';
 
 export function AllergiesScreen({
+  fieldErrors,
   form,
   onChange,
 }: IntakeStepComponentProps) {
   return (
     <View>
       <InfoCard
-        subtitle="Surface allergy details and reactions early so clinicians see them before treatment."
-        title="Allergy Profile"
+        subtitle="Surface allergy details and reactions early so clinicians see them before treatment decisions."
+        title="Allergies & Safety"
       >
         <InputField
+          errorText={fieldErrors?.allergies}
+          helperText="Add one per line or separate entries with commas."
           label="Known allergies"
           multiline
           onChangeText={(value) => onChange('allergies', value)}
@@ -23,6 +26,7 @@ export function AllergiesScreen({
           value={form.allergies}
         />
         <InputField
+          errorText={fieldErrors?.allergyReaction}
           label="Reaction details"
           onChangeText={(value) => onChange('allergyReaction', value)}
           optional
@@ -30,6 +34,7 @@ export function AllergiesScreen({
           value={form.allergyReaction}
         />
         <InputField
+          errorText={fieldErrors?.allergyNotes}
           label="Additional safety notes"
           multiline
           onChangeText={(value) => onChange('allergyNotes', value)}

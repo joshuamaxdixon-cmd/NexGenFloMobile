@@ -120,6 +120,26 @@ export function validateIntakeStep(
     if (hasText(form.phoneNumber) && !looksLikePhone(form.phoneNumber)) {
       errors.phoneNumber = 'Enter a valid phone number.';
     }
+    if (
+      hasText(form.emergencyContactName) &&
+      !hasText(form.emergencyContactPhone)
+    ) {
+      errors.emergencyContactPhone =
+        'Add an emergency contact phone number or clear the contact.';
+    }
+    if (
+      hasText(form.emergencyContactPhone) &&
+      !hasText(form.emergencyContactName)
+    ) {
+      errors.emergencyContactName =
+        'Add an emergency contact name or clear the phone number.';
+    }
+    if (
+      hasText(form.emergencyContactPhone) &&
+      !looksLikePhone(form.emergencyContactPhone)
+    ) {
+      errors.emergencyContactPhone = 'Enter a valid emergency contact phone number.';
+    }
     if (!looksLikeEmail(form.email)) {
       errors.email = 'Enter a valid email address.';
     }
@@ -178,6 +198,19 @@ export function mapApiFieldErrorsToIntakeFields(
       'date_of_birth',
       'dateOfBirth',
     ),
+    emergencyContactName: firstFieldError(
+      fieldErrors,
+      'emergency_contact_name',
+      'emergencyContactName',
+    ),
+    emergencyContactPhone: firstFieldError(
+      fieldErrors,
+      'emergency_contact_phone',
+      'emergencyContactPhone',
+    ),
+    heightFt: firstFieldError(fieldErrors, 'height_ft', 'heightFt'),
+    heightIn: firstFieldError(fieldErrors, 'height_in', 'heightIn'),
+    weightLb: firstFieldError(fieldErrors, 'weight_lb', 'weightLb'),
     phoneNumber: firstFieldError(
       fieldErrors,
       'phone_number',
@@ -198,6 +231,12 @@ export function mapApiFieldErrorsToIntakeFields(
       'duration',
     ),
     painLevel: firstFieldError(fieldErrors, 'pain_level', 'painLevel'),
+    medicalConditions: firstFieldError(
+      fieldErrors,
+      'conditions',
+      'medical_conditions',
+      'medicalConditions',
+    ),
     insuranceProvider: firstFieldError(
       fieldErrors,
       'insurance_provider',
@@ -245,6 +284,29 @@ export function getReviewReadiness(options: {
   if (options.backendDraftStatus === 'error') {
     recommendations.push(
       'Backend draft sync needs attention. Review the sync message before submitting again.',
+    );
+  }
+  if (
+    !hasText(options.form.emergencyContactName) ||
+    !hasText(options.form.emergencyContactPhone)
+  ) {
+    recommendations.push(
+      'Emergency contact is still missing. Adding it now reduces provider completion delays later.',
+    );
+  }
+  if (!hasText(options.form.medications)) {
+    recommendations.push(
+      'No medications have been entered yet. Add them now if the patient knows what they take.',
+    );
+  }
+  if (!hasText(options.form.allergies)) {
+    recommendations.push(
+      'No allergies are listed yet. If there are none, staff can confirm that during review.',
+    );
+  }
+  if (!hasText(options.form.medicalConditions)) {
+    recommendations.push(
+      'Medical history or conditions are still blank. A short summary here can prevent provider follow-up questions.',
     );
   }
 

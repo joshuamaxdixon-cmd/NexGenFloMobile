@@ -33,6 +33,25 @@ function formatName(firstName: string, lastName: string) {
   return fullName.length > 0 ? fullName : 'Not provided yet';
 }
 
+function formatHeight(heightFt: string, heightIn: string) {
+  const feet = heightFt.trim();
+  const inches = heightIn.trim();
+
+  if (!feet && !inches) {
+    return 'Not provided yet';
+  }
+
+  if (!feet) {
+    return `${inches} in`;
+  }
+
+  if (!inches) {
+    return `${feet} ft`;
+  }
+
+  return `${feet} ft ${inches} in`;
+}
+
 function formatAttachmentStatus(
   hasLocalUpload: boolean,
   remoteStatus: BackendUploadEntryState['status'],
@@ -74,17 +93,21 @@ export function ReviewScreen({
   });
   const sections = [
     {
-      title: 'Patient Snapshot',
+      title: 'Patient Info',
       items: [
         ['Patient type', valueOrFallback(form.patientType)],
         ['Name', formatName(form.firstName, form.lastName)],
         ['Date of birth', valueOrFallback(form.dateOfBirth)],
+        ['Emergency contact', valueOrFallback(form.emergencyContactName)],
+        ['Emergency phone', valueOrFallback(form.emergencyContactPhone)],
+        ['Height', formatHeight(form.heightFt, form.heightIn)],
+        ['Weight', valueOrFallback(form.weightLb ? `${form.weightLb} lb` : '')],
         ['Phone', valueOrFallback(form.phoneNumber)],
         ['Email', valueOrFallback(form.email)],
       ],
     },
     {
-      title: 'Symptoms',
+      title: 'Visit Details',
       items: [
         ['Chief concern', valueOrFallback(form.chiefConcern)],
         ['Duration', valueOrFallback(form.symptomDuration)],
@@ -93,18 +116,19 @@ export function ReviewScreen({
       ],
     },
     {
-      title: 'Clinical Details',
+      title: 'Medical Info',
       items: [
         ['Medications', valueOrFallback(form.medications)],
         ['Preferred pharmacy', valueOrFallback(form.pharmacy)],
         ['Last dose', valueOrFallback(form.lastDose)],
+        ['Conditions / history', valueOrFallback(form.medicalConditions)],
         ['Allergies', valueOrFallback(form.allergies)],
         ['Reaction details', valueOrFallback(form.allergyReaction)],
         ['Allergy notes', valueOrFallback(form.allergyNotes)],
       ],
     },
     {
-      title: 'Coverage',
+      title: 'Insurance',
       items: [
         ['Insurance provider', valueOrFallback(form.insuranceProvider)],
         ['Member ID', valueOrFallback(form.memberId)],
@@ -178,8 +202,8 @@ export function ReviewScreen({
       ) : null}
 
       <InfoCard
-        subtitle="Review readiness, sync state, and document completeness before the intake is sent for staff review."
-        title="Submission Readiness"
+        subtitle="Review the same high-level readiness cues used in the web intake before the handoff to staff."
+        title="Check-In Review"
       >
         <View style={styles.readinessRow}>
           <Text style={styles.label}>Status</Text>
@@ -192,7 +216,7 @@ export function ReviewScreen({
             ]}
           >
             {reviewReadiness.isReady
-              ? 'Ready for live submission'
+              ? 'Ready for submission'
               : 'Needs attention before submit'}
           </Text>
         </View>
@@ -212,7 +236,7 @@ export function ReviewScreen({
         !reviewReadiness.recommendations.length ? (
           <Text style={typography.body}>
             This intake has the required clinical and coverage fields filled in
-            and is ready for backend submission.
+            and is ready for staff handoff.
           </Text>
         ) : null}
       </InfoCard>
@@ -238,7 +262,11 @@ export function ReviewScreen({
         </View>
       </InfoCard>
 
-      <InfoCard style={styles.sectionCard} title="Attachments">
+      <InfoCard
+        style={styles.sectionCard}
+        subtitle="Keep insurance and ID capture aligned with the web upload step before staff takes over."
+        title="Uploads"
+      >
         <View style={styles.row}>
           <Text style={styles.label}>Insurance image</Text>
           <Text style={styles.value}>

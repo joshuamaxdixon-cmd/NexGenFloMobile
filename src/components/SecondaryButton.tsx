@@ -1,0 +1,81 @@
+import type { ComponentProps } from 'react';
+import type { StyleProp, ViewStyle } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+
+import { colors, spacing, typography } from '../theme';
+
+type IconName = ComponentProps<typeof Ionicons>['name'];
+
+type SecondaryButtonProps = {
+  title: string;
+  onPress: () => void;
+  icon?: IconName;
+  disabled?: boolean;
+  loading?: boolean;
+  style?: StyleProp<ViewStyle>;
+};
+
+export function SecondaryButton({
+  title,
+  onPress,
+  icon,
+  disabled = false,
+  loading = false,
+  style,
+}: SecondaryButtonProps) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      disabled={disabled || loading}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.button,
+        pressed && !disabled && !loading && styles.pressed,
+        (disabled || loading) && styles.disabled,
+        style,
+      ]}
+    >
+      {loading ? (
+        <ActivityIndicator color={colors.primaryDeep} size="small" />
+      ) : icon ? (
+        <Ionicons color={colors.primaryDeep} name={icon} size={18} />
+      ) : null}
+      <Text
+        style={[
+          styles.label,
+          icon || loading ? styles.labelWithAdornment : null,
+        ]}
+      >
+        {title}
+      </Text>
+    </Pressable>
+  );
+}
+
+const styles = StyleSheet.create({
+  button: {
+    minHeight: 56,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+  },
+  pressed: {
+    transform: [{ scale: 0.99 }],
+  },
+  disabled: {
+    opacity: 0.45,
+  },
+  label: {
+    ...typography.button,
+    color: colors.primaryDeep,
+  },
+  labelWithAdornment: {
+    marginLeft: spacing.xs,
+  },
+});

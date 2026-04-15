@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "NexGenFloMobile",
+    "name": "NexGen Flo",
     "slug": "NexGenFloMobile",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -26,22 +26,17 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
-      "expo-router",
       [
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
-          "dark": {
-            "backgroundColor": "#000000"
-          }
+          "backgroundColor": "#F6F8FB"
         }
       ]
     ],
     "experiments": {
-      "typedRoutes": true,
       "reactCompiler": true
     }
   }

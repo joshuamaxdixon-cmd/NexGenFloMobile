@@ -1,0 +1,2371 @@
+import {
+  createContext,
+  startTransition,
+  useContext,
+  useEffect,
+  useReducer,
+  useRef,
+  type ReactNode,
+} from 'react';
+import { Directory, File, Paths } from 'expo-file-system';
+
+import {
+  ApiError,
+  checkApiHealth,
+  clearLastApiExchange,
+  getApiFieldErrors,
+  getApiDebugInfo,
+  type ApiFieldErrors,
+  type ApiConfigSource,
+} from './api';
+import {
+  fetchIntakeDraft,
+  saveIntakeDraft,
+  submitIntake,
+  updateIntakeDraft,
+  createInitialIntakeForm,
+  createInitialReturningPatientForm,
+  intakeFlowSteps,
+  type IntakeDraftRecord,
+  type IntakeFormData,
+  type IntakeStepKey,
+  type ReturningPatientFormData,
+} from './intake';
+import {
+  createEmptyJanetHandoff,
+  createInitialJanetVoiceDraft,
+  submitJanetHandoff,
+  type JanetHandoff,
+  type JanetVoiceDraft,
+} from './janet';
+import {
+  buildLookupPrefill,
+  lookupReturningPatient,
+  type PatientLookupResponse,
+  type PatientLookupResumeContext,
+  type PatientLookupSummary,
+  type ReturningPatientMemoryContext,
+} from './patients';
+import { logDevQaEvent, type DevQaAction } from './devQa';
+import {
+  uploadDocumentToApi,
+  type UploadDocumentAsset,
+  type UploadDocumentType,
+} from './uploads';
+
+export type DraftSource =
+  | 'home'
+  | 'manual'
+  | 'resume'
+  | 'returning'
+  | 'voice';
+
+export type DraftScope = 'all' | 'intake' | 'returning' | 'uploads' | 'voice';
+
+export type BackendConnectivityState = {
+  apiBaseUrl: string;
+  baseUrl: string;
+  checkedAt: string | null;
+  configSource: ApiConfigSource;
+  envBaseUrl: string | null;
+  errorMessage: string | null;
+  healthUrl: string;
+  legacyEnvBaseUrl: string | null;
+  message: string | null;
+  rawStatus: string | null;
+  requestId: string | null;
+  serverVersion: string | null;
+  status: 'checking' | 'error' | 'idle' | 'ready';
+};
+
+export type BackendDraftState = {
+  draftId: string | null;
+  fieldErrors: ApiFieldErrors | null;
+  lastFetchedAt: string | null;
+  lastSyncedAt: string | null;
+  message: string | null;
+  patientId: number | null;
+  status: 'error' | 'local-only' | 'synced' | 'syncing';
+  visitId: number | null;
+};
+
+export type BackendLookupState = {
+  fieldErrors: ApiFieldErrors | null;
+  lastCheckedAt: string | null;
+  memoryContext: ReturningPatientMemoryContext | null;
+  message: string | null;
+  patient: PatientLookupSummary | null;
+  resumeContext: PatientLookupResumeContext | null;
+  status: 'ambiguous' | 'error' | 'idle' | 'loading' | 'matched' | 'not_found';
+};
+
+export type BackendSubmitState = {
+  confirmationCode: string | null;
+  fieldErrors: ApiFieldErrors | null;
+  message: string | null;
+  status: 'error' | 'idle' | 'submitted' | 'submitting';
+  submittedAt: string | null;
+};
+
+export type BackendJanetState = {
+  appliedFields: string[];
+  lastSyncedAt: string | null;
+  message: string | null;
+  status: 'error' | 'idle' | 'sending' | 'sent';
+};
+
+export type BackendUploadEntryState = {
+  lastUploadedAt: string | null;
+  message: string | null;
+  previewUrl: string | null;
+  status: 'error' | 'idle' | 'uploaded' | 'uploading';
+  uploadId: string | null;
+};
+
+export type BackendQaState = {
+  lastAction: DevQaAction | null;
+  lastError: string | null;
+  lastResult: string | null;
+  lastUpdatedAt: string | null;
+};
+
+export type BackendState = {
+  connectivity: BackendConnectivityState;
+  draft: BackendDraftState;
+  janet: BackendJanetState;
+  lookup: BackendLookupState;
+  qa: BackendQaState;
+  submit: BackendSubmitState;
+  uploads: {
+    id: BackendUploadEntryState;
+    insurance: BackendUploadEntryState;
+  };
+};
+
+type IntakeDraftSlice = {
+  currentStep: IntakeStepKey;
+  form: IntakeFormData;
+  lastUpdatedAt: string | null;
+  source: DraftSource;
+  voiceImportedAt: string | null;
+};
+
+type ReturningPatientDraftSlice = {
+  form: ReturningPatientFormData;
+  lastUpdatedAt: string | null;
+};
+
+type UploadDraftSlice = {
+  id: UploadDocumentAsset | null;
+  insurance: UploadDocumentAsset | null;
+  lastUpdatedAt: string | null;
+};
+
+export type DraftStoreState = {
+  activeFlowMode: 'intake' | 'returning';
+  backend: BackendState;
+  hydrated: boolean;
+  intake: IntakeDraftSlice;
+  returningPatient: ReturningPatientDraftSlice;
+  uploads: UploadDraftSlice;
+  voice: JanetVoiceDraft;
+};
+
+type PersistedDraftStoreState = Omit<DraftStoreState, 'hydrated'>;
+
+type DraftStoreAction =
+  | {
+      type: 'apply_lookup_success';
+      payload: PatientLookupResponse;
+    }
+  | {
+      type: 'apply_remote_draft';
+      payload: IntakeDraftRecord;
+    }
+  | {
+      type: 'apply_voice_to_intake';
+    }
+  | {
+      type: 'clear_draft';
+      payload?: DraftScope;
+    }
+  | {
+      type: 'clear_backend_debug_state';
+    }
+  | {
+      type: 'clear_backend_stale_feedback';
+      payload?: {
+        resetQa?: boolean;
+      };
+    }
+  | {
+      type: 'continue_returning_patient';
+    }
+  | {
+      type: 'hydrate';
+      payload: PersistedDraftStoreState | null;
+    }
+  | {
+      type: 'open_returning_flow';
+      payload?: {
+        reset?: boolean;
+      };
+    }
+  | {
+      type: 'set_active_flow_mode';
+      payload: 'intake' | 'returning';
+    }
+  | {
+      type: 'set_backend_connectivity';
+      payload: Partial<BackendConnectivityState>;
+    }
+  | {
+      type: 'set_backend_draft';
+      payload: Partial<BackendDraftState>;
+    }
+  | {
+      type: 'set_backend_janet';
+      payload: Partial<BackendJanetState>;
+    }
+  | {
+      type: 'set_backend_qa';
+      payload: Partial<BackendQaState>;
+    }
+  | {
+      type: 'set_backend_lookup';
+      payload: Partial<BackendLookupState>;
+    }
+  | {
+      type: 'set_backend_submit';
+      payload: Partial<BackendSubmitState>;
+    }
+  | {
+      type: 'set_backend_upload';
+      payload: {
+        documentType: UploadDocumentType;
+        value: Partial<BackendUploadEntryState>;
+      };
+    }
+  | {
+      type: 'set_intake_step';
+      payload: IntakeStepKey;
+    }
+  | {
+      type: 'set_upload_asset';
+      payload: {
+        asset: UploadDocumentAsset | null;
+        documentType: UploadDocumentType;
+      };
+    }
+  | {
+      type: 'set_voice_editing';
+      payload: boolean;
+    }
+  | {
+      type: 'set_voice_handoff';
+      payload: JanetHandoff | null;
+    }
+  | {
+      type: 'set_voice_listening';
+      payload: boolean;
+    }
+  | {
+      type: 'set_voice_spell_mode';
+      payload: boolean;
+    }
+  | {
+      type: 'set_voice_transcript';
+      payload: string;
+    }
+  | {
+      type: 'start_new_intake';
+      payload?: {
+        prefill?: Partial<IntakeFormData>;
+        source?: DraftSource;
+        step?: IntakeStepKey;
+      };
+    }
+  | {
+      type: 'update_intake_form';
+      payload: Partial<IntakeFormData>;
+    }
+  | {
+      type: 'update_returning_patient';
+      payload: Partial<ReturningPatientFormData>;
+    }
+  | {
+      type: 'update_voice_handoff';
+      payload: Partial<JanetHandoff>;
+    };
+
+type DraftStoreContextValue = {
+  applyVoiceToIntake: () => void;
+  checkBackendHealth: () => Promise<boolean>;
+  clearBackendDebugState: () => void;
+  clearDraft: (scope?: DraftScope) => void;
+  continueReturningPatient: () => void;
+  fetchRemoteDraft: (draftId?: string | null) => Promise<boolean>;
+  lookupReturningPatient: () => Promise<boolean>;
+  openReturningFlow: (reset?: boolean) => void;
+  setIntakeStep: (step: IntakeStepKey) => void;
+  setUploadAsset: (
+    documentType: UploadDocumentType,
+    asset: UploadDocumentAsset | null,
+  ) => void;
+  setVoiceEditing: (isEditing: boolean) => void;
+  setVoiceHandoff: (handoff: JanetHandoff | null) => void;
+  setVoiceListening: (isListening: boolean) => void;
+  setVoiceSpellMode: (spellModeEnabled: boolean) => void;
+  setVoiceTranscript: (transcript: string) => void;
+  startNewIntake: (options?: {
+    prefill?: Partial<IntakeFormData>;
+    source?: DraftSource;
+    step?: IntakeStepKey;
+  }) => void;
+  state: DraftStoreState;
+  submitCurrentIntake: () => Promise<boolean>;
+  syncCurrentDraft: () => Promise<boolean>;
+  syncSelectedUpload: (documentType: UploadDocumentType) => Promise<boolean>;
+  syncVoiceHandoff: () => Promise<boolean>;
+  updateIntakeField: (field: keyof IntakeFormData, value: string) => void;
+  updateIntakeFields: (values: Partial<IntakeFormData>) => void;
+  updateReturningPatientField: (
+    field: keyof ReturningPatientFormData,
+    value: string,
+  ) => void;
+  updateVoiceHandoff: (values: Partial<JanetHandoff>) => void;
+};
+
+const DraftStoreContext = createContext<DraftStoreContextValue | null>(null);
+
+const draftDirectory = new Directory(Paths.document, 'nexgen-flo');
+const draftFile = new File(draftDirectory, 'draft-store.json');
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function hasText(value: string) {
+  return value.trim().length > 0;
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof ApiError && error.message.trim().length > 0) {
+    return error.message;
+  }
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+  return fallback;
+}
+
+function isDraftMissingError(error: unknown) {
+  return error instanceof ApiError && error.status === 404;
+}
+
+function isDraftConflictError(error: unknown) {
+  return error instanceof ApiError && error.status === 409;
+}
+
+function getConnectivityDebugState() {
+  const apiDebug = getApiDebugInfo();
+
+  return {
+    apiBaseUrl: apiDebug.resolvedApiBaseUrl,
+    baseUrl: apiDebug.resolvedBaseUrl,
+    configSource: apiDebug.configSource,
+    envBaseUrl: apiDebug.envApiBaseUrl,
+    healthUrl: apiDebug.healthUrl,
+    legacyEnvBaseUrl: apiDebug.legacyEnvApiBaseUrl,
+  } satisfies Pick<
+    BackendConnectivityState,
+    | 'apiBaseUrl'
+    | 'baseUrl'
+    | 'configSource'
+    | 'envBaseUrl'
+    | 'healthUrl'
+    | 'legacyEnvBaseUrl'
+  >;
+}
+
+function createInitialUploadEntryState(): BackendUploadEntryState {
+  return {
+    lastUploadedAt: null,
+    message: null,
+    previewUrl: null,
+    status: 'idle',
+    uploadId: null,
+  };
+}
+
+function createInitialBackendState(): BackendState {
+  return {
+    connectivity: {
+      ...getConnectivityDebugState(),
+      checkedAt: null,
+      errorMessage: null,
+      message: null,
+      rawStatus: null,
+      requestId: null,
+      serverVersion: null,
+      status: 'idle',
+    },
+    draft: {
+      draftId: null,
+      fieldErrors: null,
+      lastFetchedAt: null,
+      lastSyncedAt: null,
+      message: null,
+      patientId: null,
+      status: 'local-only',
+      visitId: null,
+    },
+    janet: {
+      appliedFields: [],
+      lastSyncedAt: null,
+      message: null,
+      status: 'idle',
+    },
+    lookup: {
+      fieldErrors: null,
+      lastCheckedAt: null,
+      memoryContext: null,
+      message: null,
+      patient: null,
+      resumeContext: null,
+      status: 'idle',
+    },
+    qa: {
+      lastAction: null,
+      lastError: null,
+      lastResult: null,
+      lastUpdatedAt: null,
+    },
+    submit: {
+      confirmationCode: null,
+      fieldErrors: null,
+      message: null,
+      status: 'idle',
+      submittedAt: null,
+    },
+    uploads: {
+      id: createInitialUploadEntryState(),
+      insurance: createInitialUploadEntryState(),
+    },
+  };
+}
+
+function createInitialPersistedState(): PersistedDraftStoreState {
+  return {
+    activeFlowMode: 'intake',
+    backend: createInitialBackendState(),
+    intake: {
+      currentStep: 'patientType',
+      form: createInitialIntakeForm(),
+      lastUpdatedAt: null,
+      source: 'home',
+      voiceImportedAt: null,
+    },
+    returningPatient: {
+      form: createInitialReturningPatientForm(),
+      lastUpdatedAt: null,
+    },
+    uploads: {
+      id: null,
+      insurance: null,
+      lastUpdatedAt: null,
+    },
+    voice: createInitialJanetVoiceDraft(),
+  };
+}
+
+function createClearedBackendDebugState(currentState: BackendState): BackendState {
+  const initialBackend = createInitialBackendState();
+
+  return {
+    ...currentState,
+    connectivity: initialBackend.connectivity,
+    draft: {
+      ...initialBackend.draft,
+      draftId: currentState.draft.draftId,
+      patientId: currentState.draft.patientId,
+      visitId: currentState.draft.visitId,
+      status:
+        currentState.draft.draftId ||
+        currentState.draft.patientId ||
+        currentState.draft.visitId
+          ? 'local-only'
+          : initialBackend.draft.status,
+    },
+    janet: initialBackend.janet,
+    lookup: initialBackend.lookup,
+    qa: initialBackend.qa,
+    submit: initialBackend.submit,
+    uploads: initialBackend.uploads,
+  };
+}
+
+function clearStaleBackendFeedbackState(
+  currentState: BackendState,
+  resetQa = false,
+): BackendState {
+  const initialBackend = createInitialBackendState();
+
+  return {
+    ...currentState,
+    connectivity:
+      currentState.connectivity.status === 'error'
+        ? initialBackend.connectivity
+        : {
+            ...currentState.connectivity,
+            errorMessage: null,
+          },
+    draft:
+      currentState.draft.status === 'error'
+        ? {
+            ...initialBackend.draft,
+            draftId: currentState.draft.draftId,
+            lastFetchedAt: currentState.draft.lastFetchedAt,
+            lastSyncedAt: currentState.draft.lastSyncedAt,
+            patientId: currentState.draft.patientId,
+            status:
+              currentState.draft.lastSyncedAt || currentState.draft.draftId
+                ? 'synced'
+                : 'local-only',
+            visitId: currentState.draft.visitId,
+          }
+        : {
+            ...currentState.draft,
+            fieldErrors: null,
+          },
+    janet:
+      currentState.janet.status === 'error'
+        ? initialBackend.janet
+        : currentState.janet,
+    lookup:
+      currentState.lookup.status === 'error'
+        ? initialBackend.lookup
+        : currentState.lookup,
+    qa: resetQa
+      ? initialBackend.qa
+      : {
+          ...currentState.qa,
+          lastError: null,
+        },
+    submit:
+      currentState.submit.status === 'error'
+        ? initialBackend.submit
+        : {
+            ...currentState.submit,
+            fieldErrors: null,
+          },
+    uploads: {
+      insurance:
+        currentState.uploads.insurance.status === 'error'
+          ? {
+              ...initialBackend.uploads.insurance,
+              lastUploadedAt: currentState.uploads.insurance.lastUploadedAt,
+              previewUrl: currentState.uploads.insurance.previewUrl,
+              uploadId: currentState.uploads.insurance.uploadId,
+            }
+          : currentState.uploads.insurance,
+      id:
+        currentState.uploads.id.status === 'error'
+          ? {
+              ...initialBackend.uploads.id,
+              lastUploadedAt: currentState.uploads.id.lastUploadedAt,
+              previewUrl: currentState.uploads.id.previewUrl,
+              uploadId: currentState.uploads.id.uploadId,
+            }
+          : currentState.uploads.id,
+    },
+  };
+}
+
+function createInitialDraftState(): DraftStoreState {
+  return {
+    ...createInitialPersistedState(),
+    hydrated: false,
+  };
+}
+
+function buildMemoryPrefill(memoryContext: ReturningPatientMemoryContext | null) {
+  if (!memoryContext) {
+    return {};
+  }
+
+  return memoryContext.steps.reduce<Partial<IntakeFormData>>((accumulator, step) => {
+    if (step.fieldKey === 'allergies') {
+      return {
+        ...accumulator,
+        allergies: step.items.join(', '),
+      };
+    }
+    if (step.fieldKey === 'medications') {
+      return {
+        ...accumulator,
+        medications: step.items.join(', '),
+      };
+    }
+    if (step.fieldKey === 'conditions') {
+      return {
+        ...accumulator,
+        symptomNotes: step.items.join(', '),
+      };
+    }
+    return accumulator;
+  }, {});
+}
+
+function mergePersistedState(
+  payload: PersistedDraftStoreState | null,
+): DraftStoreState {
+  const initial = createInitialPersistedState();
+
+  if (!payload) {
+    return {
+      ...initial,
+      hydrated: true,
+    };
+  }
+
+  return {
+    activeFlowMode:
+      payload.activeFlowMode === 'returning' ? 'returning' : 'intake',
+    backend: {
+      ...initial.backend,
+      ...payload.backend,
+      connectivity: {
+        ...initial.backend.connectivity,
+        ...payload.backend?.connectivity,
+        ...getConnectivityDebugState(),
+        status: 'idle',
+      },
+      draft: {
+        ...initial.backend.draft,
+        ...payload.backend?.draft,
+      },
+      janet: {
+        ...initial.backend.janet,
+        ...payload.backend?.janet,
+        status:
+          payload.backend?.janet?.status === 'sent'
+            ? 'sent'
+            : initial.backend.janet.status,
+      },
+      lookup: {
+        ...initial.backend.lookup,
+        ...payload.backend?.lookup,
+        status: 'idle',
+      },
+      qa: {
+        ...initial.backend.qa,
+        ...payload.backend?.qa,
+      },
+      submit: {
+        ...initial.backend.submit,
+        ...payload.backend?.submit,
+        status:
+          payload.backend?.submit?.status === 'submitted'
+            ? 'submitted'
+            : initial.backend.submit.status,
+      },
+      uploads: {
+        insurance: {
+          ...initial.backend.uploads.insurance,
+          ...payload.backend?.uploads?.insurance,
+        },
+        id: {
+          ...initial.backend.uploads.id,
+          ...payload.backend?.uploads?.id,
+        },
+      },
+    },
+    hydrated: true,
+    intake: {
+      ...initial.intake,
+      ...payload.intake,
+      form: {
+        ...initial.intake.form,
+        ...payload.intake?.form,
+      },
+    },
+    returningPatient: {
+      ...initial.returningPatient,
+      ...payload.returningPatient,
+      form: {
+        ...initial.returningPatient.form,
+        ...payload.returningPatient?.form,
+      },
+    },
+    uploads: {
+      ...initial.uploads,
+      ...payload.uploads,
+      insurance: payload.uploads?.insurance
+        ? { ...payload.uploads.insurance }
+        : null,
+      id: payload.uploads?.id ? { ...payload.uploads.id } : null,
+    },
+    voice: {
+      ...initial.voice,
+      ...payload.voice,
+      handoff: payload.voice?.handoff ? { ...payload.voice.handoff } : null,
+    },
+  };
+}
+
+function getPersistableState(state: DraftStoreState): PersistedDraftStoreState {
+  return {
+    activeFlowMode: state.activeFlowMode,
+    backend: {
+      ...state.backend,
+      connectivity: {
+        ...state.backend.connectivity,
+        ...getConnectivityDebugState(),
+        status:
+          state.backend.connectivity.status === 'checking'
+            ? 'idle'
+            : state.backend.connectivity.status,
+      },
+      draft: {
+        ...state.backend.draft,
+        status:
+          state.backend.draft.status === 'syncing'
+            ? 'local-only'
+            : state.backend.draft.status,
+      },
+      janet: {
+        ...state.backend.janet,
+        status:
+          state.backend.janet.status === 'sending'
+            ? 'idle'
+            : state.backend.janet.status,
+      },
+      lookup: {
+        ...state.backend.lookup,
+        status:
+          state.backend.lookup.status === 'loading'
+            ? 'idle'
+            : state.backend.lookup.status,
+      },
+      submit: {
+        ...state.backend.submit,
+        status:
+          state.backend.submit.status === 'submitting'
+            ? 'idle'
+            : state.backend.submit.status,
+      },
+      uploads: {
+        insurance: {
+          ...state.backend.uploads.insurance,
+          status:
+            state.backend.uploads.insurance.status === 'uploading'
+              ? 'idle'
+              : state.backend.uploads.insurance.status,
+        },
+        id: {
+          ...state.backend.uploads.id,
+          status:
+            state.backend.uploads.id.status === 'uploading'
+              ? 'idle'
+              : state.backend.uploads.id.status,
+        },
+      },
+    },
+    intake: state.intake,
+    returningPatient: state.returningPatient,
+    uploads: state.uploads,
+    voice: state.voice,
+  };
+}
+
+function applyRemoteDraftToState(
+  state: DraftStoreState,
+  draft: IntakeDraftRecord,
+): DraftStoreState {
+  const timestamp = draft.syncedAt || nowIso();
+  const uploadedInsurance = draft.uploadedDocumentTypes.includes('insurance');
+  const uploadedId = draft.uploadedDocumentTypes.includes('id');
+
+  return {
+    ...state,
+    activeFlowMode: 'intake',
+    backend: {
+      ...state.backend,
+      draft: {
+        ...state.backend.draft,
+        draftId: draft.id,
+        fieldErrors: null,
+        lastFetchedAt: timestamp,
+        lastSyncedAt: timestamp,
+        message: 'Remote draft loaded successfully.',
+        patientId: draft.patientId,
+        status: 'synced',
+        visitId: draft.visitId,
+      },
+      uploads: {
+        insurance: uploadedInsurance
+          ? {
+              ...state.backend.uploads.insurance,
+              lastUploadedAt:
+                state.backend.uploads.insurance.lastUploadedAt ?? timestamp,
+              message: 'Insurance document is synced to the backend.',
+              status: 'uploaded',
+            }
+          : state.backend.uploads.insurance,
+        id: uploadedId
+          ? {
+              ...state.backend.uploads.id,
+              lastUploadedAt: state.backend.uploads.id.lastUploadedAt ?? timestamp,
+              message: 'ID document is synced to the backend.',
+              status: 'uploaded',
+            }
+          : state.backend.uploads.id,
+      },
+    },
+    intake: {
+      ...state.intake,
+      currentStep: draft.currentStep,
+      form: {
+        ...state.intake.form,
+        ...draft.form,
+      },
+      lastUpdatedAt: timestamp,
+      source: state.intake.source,
+      voiceImportedAt:
+        draft.janetHandoff?.interpretedAt ?? state.intake.voiceImportedAt,
+    },
+    returningPatient: {
+      ...state.returningPatient,
+      form: {
+        ...state.returningPatient.form,
+        ...draft.returningPatient,
+      },
+      lastUpdatedAt: timestamp,
+    },
+    voice: {
+      ...state.voice,
+      handoff: draft.janetHandoff ?? state.voice.handoff,
+      transcriptDraft:
+        draft.janetHandoff?.transcript ?? state.voice.transcriptDraft,
+    },
+  };
+}
+
+function reducer(
+  state: DraftStoreState,
+  action: DraftStoreAction,
+): DraftStoreState {
+  switch (action.type) {
+    case 'hydrate':
+      return mergePersistedState(action.payload);
+    case 'start_new_intake': {
+      const timestamp = nowIso();
+      const nextForm = {
+        ...createInitialIntakeForm(),
+        ...action.payload?.prefill,
+      };
+
+      return {
+        ...state,
+        activeFlowMode: 'intake',
+        backend: {
+          ...state.backend,
+          lookup: {
+            ...createInitialBackendState().lookup,
+          },
+          submit: {
+            ...createInitialBackendState().submit,
+          },
+        },
+        intake: {
+          currentStep: action.payload?.step ?? 'patientType',
+          form: nextForm,
+          lastUpdatedAt: timestamp,
+          source: action.payload?.source ?? 'home',
+          voiceImportedAt: null,
+        },
+      };
+    }
+    case 'set_active_flow_mode':
+      return {
+        ...state,
+        activeFlowMode: action.payload,
+      };
+    case 'set_intake_step':
+      return {
+        ...state,
+        activeFlowMode: 'intake',
+        intake: {
+          ...state.intake,
+          currentStep: action.payload,
+          lastUpdatedAt: nowIso(),
+        },
+      };
+    case 'update_intake_form':
+      return {
+        ...state,
+        activeFlowMode: 'intake',
+        intake: {
+          ...state.intake,
+          form: {
+            ...state.intake.form,
+            ...action.payload,
+          },
+          lastUpdatedAt: nowIso(),
+        },
+      };
+    case 'open_returning_flow':
+      return {
+        ...state,
+        activeFlowMode: 'returning',
+        backend: {
+          ...state.backend,
+          lookup: action.payload?.reset
+            ? createInitialBackendState().lookup
+            : state.backend.lookup,
+        },
+        returningPatient: action.payload?.reset
+          ? {
+              form: createInitialReturningPatientForm(),
+              lastUpdatedAt: null,
+            }
+          : state.returningPatient,
+      };
+    case 'update_returning_patient':
+      return {
+        ...state,
+        activeFlowMode: 'returning',
+        returningPatient: {
+          form: {
+            ...state.returningPatient.form,
+            ...action.payload,
+          },
+          lastUpdatedAt: nowIso(),
+        },
+      };
+    case 'continue_returning_patient': {
+      const timestamp = nowIso();
+
+      return {
+        ...state,
+        activeFlowMode: 'intake',
+        intake: {
+          currentStep: 'symptoms',
+          form: {
+            ...state.intake.form,
+            patientType: 'Returning patient',
+            firstName: state.returningPatient.form.firstName,
+            lastName: state.returningPatient.form.lastName,
+            dateOfBirth: state.returningPatient.form.dateOfBirth,
+            phoneNumber: state.returningPatient.form.phoneNumber,
+          },
+          lastUpdatedAt: timestamp,
+          source: 'returning',
+          voiceImportedAt: state.intake.voiceImportedAt,
+        },
+        returningPatient: {
+          ...state.returningPatient,
+          lastUpdatedAt: timestamp,
+        },
+      };
+    }
+    case 'set_voice_listening':
+      return {
+        ...state,
+        voice: {
+          ...state.voice,
+          isListening: action.payload,
+          lastUpdatedAt: nowIso(),
+        },
+      };
+    case 'set_voice_spell_mode':
+      return {
+        ...state,
+        voice: {
+          ...state.voice,
+          spellModeEnabled: action.payload,
+          lastUpdatedAt: nowIso(),
+        },
+      };
+    case 'set_voice_transcript':
+      return {
+        ...state,
+        voice: {
+          ...state.voice,
+          transcriptDraft: action.payload,
+          lastUpdatedAt: nowIso(),
+        },
+      };
+    case 'set_voice_handoff':
+      return {
+        ...state,
+        voice: {
+          ...state.voice,
+          handoff: action.payload,
+          isEditing: false,
+          isListening: false,
+          lastUpdatedAt: nowIso(),
+          transcriptDraft:
+            action.payload?.transcript ?? state.voice.transcriptDraft,
+        },
+      };
+    case 'update_voice_handoff':
+      return {
+        ...state,
+        voice: {
+          ...state.voice,
+          handoff: {
+            ...(state.voice.handoff ?? createEmptyJanetHandoff()),
+            ...action.payload,
+          },
+          lastUpdatedAt: nowIso(),
+        },
+      };
+    case 'set_voice_editing':
+      return {
+        ...state,
+        voice: {
+          ...state.voice,
+          isEditing: action.payload,
+          lastUpdatedAt: nowIso(),
+        },
+      };
+    case 'apply_voice_to_intake': {
+      if (!state.voice.handoff) {
+        return state;
+      }
+
+      const timestamp = nowIso();
+
+      return {
+        ...state,
+        activeFlowMode: 'intake',
+        intake: {
+          currentStep: 'symptoms',
+          form: {
+            ...state.intake.form,
+            patientType: state.intake.form.patientType || 'New patient',
+            chiefConcern: state.voice.handoff.symptomSummary,
+            symptomDuration: state.voice.handoff.duration,
+            medications:
+              state.voice.handoff.medicationNotes || state.intake.form.medications,
+            allergyNotes:
+              state.voice.handoff.allergyNotes || state.intake.form.allergyNotes,
+            symptomNotes:
+              state.voice.handoff.transcript || state.intake.form.symptomNotes,
+          },
+          lastUpdatedAt: timestamp,
+          source: 'voice',
+          voiceImportedAt: timestamp,
+        },
+        voice: {
+          ...state.voice,
+          appliedToIntakeAt: timestamp,
+          lastUpdatedAt: timestamp,
+        },
+      };
+    }
+    case 'set_upload_asset':
+      return {
+        ...state,
+        uploads: {
+          ...state.uploads,
+          [action.payload.documentType]: action.payload.asset,
+          lastUpdatedAt: nowIso(),
+        },
+      };
+    case 'set_backend_connectivity':
+      return {
+        ...state,
+        backend: {
+          ...state.backend,
+          connectivity: {
+            ...state.backend.connectivity,
+            ...action.payload,
+            ...getConnectivityDebugState(),
+          },
+        },
+      };
+    case 'set_backend_draft':
+      return {
+        ...state,
+        backend: {
+          ...state.backend,
+          draft: {
+            ...state.backend.draft,
+            ...action.payload,
+          },
+        },
+      };
+    case 'set_backend_lookup':
+      return {
+        ...state,
+        backend: {
+          ...state.backend,
+          lookup: {
+            ...state.backend.lookup,
+            ...action.payload,
+          },
+        },
+      };
+    case 'set_backend_submit':
+      return {
+        ...state,
+        backend: {
+          ...state.backend,
+          submit: {
+            ...state.backend.submit,
+            ...action.payload,
+          },
+        },
+      };
+    case 'set_backend_janet':
+      return {
+        ...state,
+        backend: {
+          ...state.backend,
+          janet: {
+            ...state.backend.janet,
+            ...action.payload,
+          },
+        },
+      };
+    case 'set_backend_qa':
+      return {
+        ...state,
+        backend: {
+          ...state.backend,
+          qa: {
+            ...state.backend.qa,
+            ...action.payload,
+          },
+        },
+      };
+    case 'set_backend_upload':
+      return {
+        ...state,
+        backend: {
+          ...state.backend,
+          uploads: {
+            ...state.backend.uploads,
+            [action.payload.documentType]: {
+              ...state.backend.uploads[action.payload.documentType],
+              ...action.payload.value,
+            },
+          },
+        },
+      };
+    case 'apply_lookup_success': {
+      const timestamp = nowIso();
+      const lookupPrefill = buildLookupPrefill(
+        state.returningPatient.form,
+        action.payload,
+      );
+      const memoryPrefill = buildMemoryPrefill(action.payload.memoryContext);
+
+      return {
+        ...state,
+        activeFlowMode: 'intake',
+        backend: {
+          ...state.backend,
+          draft: {
+            ...state.backend.draft,
+            draftId: action.payload.draftId ?? state.backend.draft.draftId,
+            fieldErrors: null,
+            message: action.payload.message,
+            patientId: action.payload.patient?.id ?? state.backend.draft.patientId,
+            visitId: action.payload.visitId ?? state.backend.draft.visitId,
+          },
+          lookup: {
+            ...state.backend.lookup,
+            fieldErrors: null,
+            lastCheckedAt: timestamp,
+            memoryContext: action.payload.memoryContext,
+            message: action.payload.message,
+            patient: action.payload.patient,
+            resumeContext: action.payload.resumeContext,
+            status: 'matched',
+          },
+        },
+        intake: {
+          currentStep: 'symptoms',
+          form: {
+            ...state.intake.form,
+            ...memoryPrefill,
+            ...lookupPrefill,
+          },
+          lastUpdatedAt: timestamp,
+          source: 'returning',
+          voiceImportedAt: state.intake.voiceImportedAt,
+        },
+        returningPatient: {
+          ...state.returningPatient,
+          lastUpdatedAt: timestamp,
+        },
+      };
+    }
+    case 'apply_remote_draft':
+      return applyRemoteDraftToState(state, action.payload);
+    case 'clear_backend_debug_state':
+      return {
+        ...state,
+        backend: createClearedBackendDebugState(state.backend),
+      };
+    case 'clear_backend_stale_feedback':
+      return {
+        ...state,
+        backend: clearStaleBackendFeedbackState(
+          state.backend,
+          action.payload?.resetQa ?? false,
+        ),
+      };
+    case 'clear_draft': {
+      const initial = createInitialPersistedState();
+
+      switch (action.payload ?? 'all') {
+        case 'intake':
+          return {
+            ...state,
+            activeFlowMode: 'intake',
+            intake: initial.intake,
+            backend: {
+              ...state.backend,
+              draft: initial.backend.draft,
+              submit: initial.backend.submit,
+            },
+          };
+        case 'returning':
+          return {
+            ...state,
+            activeFlowMode: 'intake',
+            returningPatient: initial.returningPatient,
+            backend: {
+              ...state.backend,
+              lookup: initial.backend.lookup,
+            },
+          };
+        case 'voice':
+          return {
+            ...state,
+            voice: initial.voice,
+            backend: {
+              ...state.backend,
+              janet: initial.backend.janet,
+            },
+          };
+        case 'uploads':
+          return {
+            ...state,
+            uploads: initial.uploads,
+            backend: {
+              ...state.backend,
+              uploads: initial.backend.uploads,
+            },
+          };
+        case 'all':
+        default:
+          return {
+            ...initial,
+            hydrated: state.hydrated,
+          };
+      }
+    }
+    default:
+      return state;
+  }
+}
+
+async function readPersistedDraft(): Promise<PersistedDraftStoreState | null> {
+  try {
+    if (!draftFile.exists) {
+      return null;
+    }
+
+    const raw = await draftFile.text();
+
+    if (!raw) {
+      return null;
+    }
+
+    return JSON.parse(raw) as PersistedDraftStoreState;
+  } catch {
+    return null;
+  }
+}
+
+function writePersistedDraft(state: PersistedDraftStoreState) {
+  try {
+    if (!draftDirectory.exists) {
+      draftDirectory.create({
+        idempotent: true,
+        intermediates: true,
+      });
+    }
+
+    if (!draftFile.exists) {
+      draftFile.create({
+        intermediates: true,
+        overwrite: true,
+      });
+    }
+
+    draftFile.write(JSON.stringify(state));
+  } catch (error) {
+    console.warn('Unable to save NexGen Flo draft locally.', error);
+  }
+}
+
+function hasMinimumIdentityForSync(state: DraftStoreState) {
+  if (state.backend.draft.patientId || state.backend.draft.draftId) {
+    return true;
+  }
+
+  const intakeIdentity =
+    hasText(state.intake.form.firstName) &&
+    hasText(state.intake.form.lastName) &&
+    hasText(state.intake.form.dateOfBirth);
+
+  if (intakeIdentity) {
+    return true;
+  }
+
+  return (
+    hasText(state.returningPatient.form.firstName) &&
+    hasText(state.returningPatient.form.lastName) &&
+    hasText(state.returningPatient.form.dateOfBirth)
+  );
+}
+
+function buildRemoteDraftPayload(state: DraftStoreState) {
+  return {
+    currentStep: state.intake.currentStep,
+    draftId: state.backend.draft.draftId,
+    form: state.intake.form,
+    janetHandoff: state.voice.handoff,
+    patientId: state.backend.draft.patientId,
+    returningPatient: state.returningPatient.form,
+    source: state.intake.source,
+    uploads: {
+      insurance: state.uploads.insurance?.uri ?? null,
+      id: state.uploads.id?.uri ?? null,
+    },
+    visitId: state.backend.draft.visitId,
+  };
+}
+
+export function DraftStoreProvider({ children }: { children: ReactNode }) {
+  const [state, dispatch] = useReducer(reducer, undefined, createInitialDraftState);
+  const stateRef = useRef(state);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function hydrateDraft() {
+      const persistedDraft = await readPersistedDraft();
+
+      if (!isMounted) {
+        return;
+      }
+
+      startTransition(() => {
+        dispatch({
+          type: 'hydrate',
+          payload: persistedDraft,
+        });
+      });
+    }
+
+    void hydrateDraft();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!state.hydrated) {
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      writePersistedDraft(getPersistableState(state));
+    }, 150);
+
+    return () => clearTimeout(timeoutId);
+  }, [state]);
+
+  const clearStaleDraftReference = (message: string) => {
+    dispatch({
+      type: 'set_backend_draft',
+      payload: {
+        draftId: null,
+        fieldErrors: null,
+        message,
+        status: 'local-only',
+        visitId: null,
+      },
+    });
+  };
+
+  const recordQaEvent = (
+    action: DevQaAction,
+    outcome: 'error' | 'success',
+    message: string,
+    details?: Record<string, unknown>,
+  ) => {
+    dispatch({
+      type: 'set_backend_qa',
+      payload: {
+        lastAction: action,
+        lastError: outcome === 'error' ? message : null,
+        lastResult: outcome === 'success' ? message : null,
+        lastUpdatedAt: nowIso(),
+      },
+    });
+    logDevQaEvent(action, outcome, message, details);
+  };
+
+  const createFreshRemoteDraft = async (
+    currentState: DraftStoreState,
+    messageOverride?: string,
+  ) => {
+    const response = await saveIntakeDraft({
+      ...buildRemoteDraftPayload(currentState),
+      draftId: null,
+      visitId: null,
+    });
+    dispatch({
+      type: 'clear_backend_stale_feedback',
+    });
+
+    dispatch({
+      type: 'apply_remote_draft',
+      payload: response.draft,
+    });
+    dispatch({
+      type: 'set_backend_draft',
+      payload: {
+        fieldErrors: null,
+        message: messageOverride ?? response.message,
+      },
+    });
+    recordQaEvent(
+      'draft_save',
+      'success',
+      messageOverride ?? response.message,
+      {
+        draftId: response.draft.id,
+        patientId: response.draft.patientId,
+        visitId: response.draft.visitId,
+      },
+    );
+
+    return true;
+  };
+
+  const syncCurrentDraft = async () => {
+    const currentState = stateRef.current;
+
+    if (!hasMinimumIdentityForSync(currentState)) {
+      dispatch({
+        type: 'set_backend_draft',
+        payload: {
+          fieldErrors: null,
+          message:
+            'Saved locally. Add patient identity details before syncing to the backend.',
+          status: 'local-only',
+        },
+      });
+      return false;
+    }
+
+    dispatch({
+      type: 'set_backend_draft',
+      payload: {
+        fieldErrors: null,
+        message: null,
+        status: 'syncing',
+      },
+    });
+
+    try {
+      const payload = buildRemoteDraftPayload(currentState);
+      const response = currentState.backend.draft.draftId
+        ? await updateIntakeDraft(currentState.backend.draft.draftId, payload)
+        : await saveIntakeDraft(payload);
+      dispatch({
+        type: 'clear_backend_stale_feedback',
+      });
+
+      dispatch({
+        type: 'apply_remote_draft',
+        payload: response.draft,
+      });
+      dispatch({
+        type: 'set_backend_draft',
+        payload: {
+          message: response.message,
+        },
+      });
+      recordQaEvent('draft_save', 'success', response.message, {
+        draftId: response.draft.id,
+        patientId: response.draft.patientId,
+        visitId: response.draft.visitId,
+      });
+      return true;
+    } catch (error) {
+      if (isDraftMissingError(error) && currentState.backend.draft.draftId) {
+        clearStaleDraftReference(
+          'The previous backend draft expired. Creating a fresh backend draft from the local copy.',
+        );
+
+        try {
+          return await createFreshRemoteDraft(
+            currentState,
+            'Fresh backend draft created from the local copy.',
+          );
+        } catch (retryError) {
+          dispatch({
+            type: 'set_backend_draft',
+            payload: {
+              fieldErrors: getApiFieldErrors(retryError),
+              message: getErrorMessage(
+                retryError,
+                'The backend draft expired and could not be recreated. Your local draft is still safe on this device.',
+              ),
+              status: 'error',
+            },
+          });
+          recordQaEvent(
+            'draft_save',
+            'error',
+            getErrorMessage(
+              retryError,
+              'The backend draft expired and could not be recreated. Your local draft is still safe on this device.',
+            ),
+            {
+              draftId: currentState.backend.draft.draftId,
+              patientId: currentState.backend.draft.patientId,
+              visitId: currentState.backend.draft.visitId,
+            },
+          );
+          return false;
+        }
+      }
+
+      const message = getErrorMessage(
+        error,
+        'The draft could not be synced right now.',
+      );
+      dispatch({
+        type: 'set_backend_draft',
+        payload: {
+          fieldErrors: getApiFieldErrors(error),
+          message,
+          status: isDraftConflictError(error) ? 'local-only' : 'error',
+        },
+      });
+      recordQaEvent('draft_save', 'error', message, {
+        draftId: currentState.backend.draft.draftId,
+        patientId: currentState.backend.draft.patientId,
+        visitId: currentState.backend.draft.visitId,
+      });
+      return false;
+    }
+  };
+
+  const fetchRemoteDraftState = async (explicitDraftId?: string | null) => {
+    const draftId = explicitDraftId ?? stateRef.current.backend.draft.draftId;
+
+    if (!draftId) {
+      return false;
+    }
+
+    dispatch({
+      type: 'set_backend_draft',
+      payload: {
+        fieldErrors: null,
+        message: null,
+        status: 'syncing',
+      },
+    });
+
+    try {
+      const response = await fetchIntakeDraft(draftId);
+      dispatch({
+        type: 'clear_backend_stale_feedback',
+      });
+      dispatch({
+        type: 'apply_remote_draft',
+        payload: response.draft,
+      });
+      dispatch({
+        type: 'set_backend_draft',
+        payload: {
+          fieldErrors: null,
+          message: response.message,
+        },
+      });
+      recordQaEvent('draft_resume', 'success', response.message, {
+        draftId: response.draft.id,
+        patientId: response.draft.patientId,
+        visitId: response.draft.visitId,
+      });
+      return true;
+    } catch (error) {
+      if (isDraftMissingError(error)) {
+        clearStaleDraftReference(
+          'The backend draft is no longer available. The local draft is still available on this device.',
+        );
+        dispatch({
+          type: 'set_backend_draft',
+          payload: {
+            lastFetchedAt: nowIso(),
+          },
+        });
+        recordQaEvent(
+          'draft_resume',
+          'error',
+          'The backend draft is no longer available. The local draft is still available on this device.',
+          {
+            draftId,
+          },
+        );
+        return false;
+      }
+
+      const message = getErrorMessage(
+        error,
+        'The saved backend draft could not be loaded.',
+      );
+      dispatch({
+        type: 'set_backend_draft',
+        payload: {
+          fieldErrors: getApiFieldErrors(error),
+          message,
+          status: 'error',
+        },
+      });
+      recordQaEvent('draft_resume', 'error', message, {
+        draftId,
+      });
+      return false;
+    }
+  };
+
+  const checkBackendHealth = async () => {
+    const connectivityDebug = getConnectivityDebugState();
+
+    dispatch({
+      type: 'set_backend_connectivity',
+      payload: {
+        ...connectivityDebug,
+        errorMessage: null,
+        message: null,
+        rawStatus: null,
+        status: 'checking',
+      },
+    });
+
+    try {
+      const health = await checkApiHealth();
+      dispatch({
+        type: 'clear_backend_stale_feedback',
+        payload: {
+          resetQa: true,
+        },
+      });
+      dispatch({
+        type: 'set_backend_connectivity',
+        payload: {
+          ...connectivityDebug,
+          checkedAt: nowIso(),
+          errorMessage: null,
+          message: 'Connected to the NexGEN backend.',
+          rawStatus: health.status,
+          requestId: health.requestId,
+          serverVersion: health.version,
+          status: 'ready',
+        },
+      });
+      return true;
+    } catch (error) {
+      const rawErrorMessage = getErrorMessage(
+        error,
+        'The backend health check failed. Local draft mode is still available.',
+      );
+      dispatch({
+        type: 'set_backend_connectivity',
+        payload: {
+          ...connectivityDebug,
+          checkedAt: nowIso(),
+          errorMessage: rawErrorMessage,
+          message: rawErrorMessage,
+          rawStatus: error instanceof ApiError && error.isTimeout ? 'timeout' : null,
+          requestId: null,
+          status: 'error',
+        },
+      });
+      return false;
+    }
+  };
+
+  const lookupReturningPatientState = async () => {
+    const currentState = stateRef.current;
+    const form = currentState.returningPatient.form;
+
+    if (
+      !hasText(form.firstName) ||
+      !hasText(form.lastName) ||
+      !hasText(form.dateOfBirth)
+    ) {
+      dispatch({
+        type: 'set_backend_lookup',
+        payload: {
+          fieldErrors: null,
+          message:
+            'Add first name, last name, and date of birth before running lookup.',
+          status: 'error',
+        },
+      });
+      return false;
+    }
+
+    dispatch({
+      type: 'set_backend_lookup',
+      payload: {
+        fieldErrors: null,
+        message: null,
+        status: 'loading',
+      },
+    });
+
+    try {
+      const response = await lookupReturningPatient({
+        dateOfBirth: form.dateOfBirth,
+        firstName: form.firstName,
+        lastName: form.lastName,
+        phoneNumber: form.phoneNumber,
+      });
+      dispatch({
+        type: 'clear_backend_stale_feedback',
+      });
+
+      if (response.matchStatus === 'likely_match' && response.patient) {
+        dispatch({
+          type: 'apply_lookup_success',
+          payload: response,
+        });
+        recordQaEvent('returning_lookup', 'success', response.message, {
+          draftId: response.draftId,
+          matchStatus: response.matchStatus,
+          patientId: response.patient.id,
+          visitId: response.visitId,
+        });
+
+        if (response.draftId) {
+          await fetchRemoteDraftState(response.draftId);
+        }
+
+        return true;
+      }
+
+      dispatch({
+        type: 'set_backend_lookup',
+        payload: {
+          fieldErrors: null,
+          lastCheckedAt: nowIso(),
+          memoryContext: response.memoryContext,
+          message: response.message,
+          patient: response.patient,
+          resumeContext: response.resumeContext,
+          status:
+            response.matchStatus === 'ambiguous_match'
+              ? 'ambiguous'
+              : 'not_found',
+        },
+      });
+      recordQaEvent('returning_lookup', 'success', response.message, {
+        draftId: response.draftId,
+        matchStatus: response.matchStatus,
+        patientId: response.patient?.id,
+        visitId: response.visitId,
+      });
+      return false;
+    } catch (error) {
+      const message = getErrorMessage(
+        error,
+        'Returning patient lookup is unavailable right now.',
+      );
+      dispatch({
+        type: 'set_backend_lookup',
+        payload: {
+          fieldErrors: getApiFieldErrors(error),
+          lastCheckedAt: nowIso(),
+          message,
+          status: 'error',
+        },
+      });
+      recordQaEvent('returning_lookup', 'error', message, {
+        firstName: form.firstName,
+        lastName: form.lastName,
+      });
+      return false;
+    }
+  };
+
+  const syncVoiceHandoff = async () => {
+    const currentState = stateRef.current;
+
+    if (!currentState.voice.handoff) {
+      return false;
+    }
+
+    if (!currentState.backend.draft.draftId && hasMinimumIdentityForSync(currentState)) {
+      await syncCurrentDraft();
+    }
+
+    const nextState = stateRef.current;
+    if (!nextState.backend.draft.draftId && !nextState.backend.draft.patientId) {
+      dispatch({
+        type: 'set_backend_janet',
+        payload: {
+          message:
+            'Janet handoff is saved locally and will sync after the backend draft is created.',
+          status: 'idle',
+        },
+      });
+      return false;
+    }
+
+    dispatch({
+      type: 'set_backend_janet',
+      payload: {
+        message: null,
+        status: 'sending',
+      },
+    });
+
+    try {
+      const response = await submitJanetHandoff({
+        draftId: nextState.backend.draft.draftId,
+        handoff: nextState.voice.handoff!,
+        patientId: nextState.backend.draft.patientId,
+        visitId: nextState.backend.draft.visitId,
+      });
+      dispatch({
+        type: 'clear_backend_stale_feedback',
+      });
+
+      dispatch({
+        type: 'set_backend_janet',
+        payload: {
+          appliedFields: response.appliedFields,
+          lastSyncedAt: response.syncedAt,
+          message: response.message,
+          status: 'sent',
+        },
+      });
+      dispatch({
+        type: 'set_backend_draft',
+        payload: {
+          draftId: response.draftId ?? nextState.backend.draft.draftId,
+          visitId: response.visitId ?? nextState.backend.draft.visitId,
+        },
+      });
+      recordQaEvent('janet_handoff', 'success', response.message, {
+        appliedFields: response.appliedFields,
+        draftId: response.draftId,
+        visitId: response.visitId,
+      });
+      return true;
+    } catch (error) {
+      if (isDraftMissingError(error)) {
+        clearStaleDraftReference(
+          'The backend draft expired. Janet handoff is still saved locally and can be sent again.',
+        );
+      }
+
+      const message = getErrorMessage(
+        error,
+        'Janet handoff could not be synced right now.',
+      );
+      dispatch({
+        type: 'set_backend_janet',
+        payload: {
+          message,
+          status: 'error',
+        },
+      });
+      recordQaEvent('janet_handoff', 'error', message, {
+        draftId: nextState.backend.draft.draftId,
+        visitId: nextState.backend.draft.visitId,
+      });
+      return false;
+    }
+  };
+
+  const syncSelectedUpload = async (documentType: UploadDocumentType) => {
+    const currentState = stateRef.current;
+    const asset = currentState.uploads[documentType];
+
+    if (!asset) {
+      dispatch({
+        type: 'set_backend_upload',
+        payload: {
+          documentType,
+          value: {
+            message: 'Choose a document first before syncing to the backend.',
+            status: 'error',
+          },
+        },
+      });
+      return false;
+    }
+
+    if (!currentState.backend.draft.draftId && hasMinimumIdentityForSync(currentState)) {
+      await syncCurrentDraft();
+    }
+
+    const nextState = stateRef.current;
+    if (!nextState.backend.draft.draftId && !nextState.backend.draft.patientId) {
+      dispatch({
+        type: 'set_backend_upload',
+        payload: {
+          documentType,
+          value: {
+            message:
+              'Document saved locally. Sync a patient draft first to upload it remotely.',
+            status: 'idle',
+          },
+        },
+      });
+      return false;
+    }
+
+    dispatch({
+      type: 'set_backend_upload',
+      payload: {
+        documentType,
+        value: {
+          message: null,
+          status: 'uploading',
+        },
+      },
+    });
+
+    try {
+      const response = await uploadDocumentToApi(documentType, asset, {
+        draftId: nextState.backend.draft.draftId,
+        patientId: nextState.backend.draft.patientId,
+        visitId: nextState.backend.draft.visitId,
+      });
+      dispatch({
+        type: 'clear_backend_stale_feedback',
+      });
+
+      dispatch({
+        type: 'set_backend_upload',
+        payload: {
+          documentType,
+          value: {
+            lastUploadedAt: response.upload.uploadedAt,
+            message: response.message,
+            previewUrl: response.upload.previewUrl,
+            status: 'uploaded',
+            uploadId: response.upload.id,
+          },
+        },
+      });
+      recordQaEvent(
+        documentType === 'insurance' ? 'upload_insurance' : 'upload_id',
+        'success',
+        response.message,
+        {
+          draftId: nextState.backend.draft.draftId,
+          uploadId: response.upload.id,
+          visitId: nextState.backend.draft.visitId,
+        },
+      );
+      return true;
+    } catch (error) {
+      if (isDraftMissingError(error)) {
+        clearStaleDraftReference(
+          'The backend draft expired. The selected document is still saved locally and can be uploaded again.',
+        );
+      }
+
+      const message = getErrorMessage(
+        error,
+        'That document could not be uploaded right now.',
+      );
+      dispatch({
+        type: 'set_backend_upload',
+        payload: {
+          documentType,
+          value: {
+            message,
+            status: 'error',
+          },
+        },
+      });
+      recordQaEvent(
+        documentType === 'insurance' ? 'upload_insurance' : 'upload_id',
+        'error',
+        message,
+        {
+          draftId: nextState.backend.draft.draftId,
+          visitId: nextState.backend.draft.visitId,
+        },
+      );
+      return false;
+    }
+  };
+
+  const submitCurrentIntake = async () => {
+    const currentState = stateRef.current;
+
+    if (currentState.backend.submit.status === 'submitting') {
+      return false;
+    }
+
+    if (currentState.backend.submit.status === 'submitted') {
+      return true;
+    }
+
+    dispatch({
+      type: 'set_backend_submit',
+      payload: {
+        fieldErrors: null,
+        message: null,
+        status: 'submitting',
+      },
+    });
+
+    await syncCurrentDraft();
+
+    if (stateRef.current.voice.handoff) {
+      await syncVoiceHandoff();
+    }
+    if (stateRef.current.uploads.insurance) {
+      await syncSelectedUpload('insurance');
+    }
+    if (stateRef.current.uploads.id) {
+      await syncSelectedUpload('id');
+    }
+
+    try {
+      const latestState = stateRef.current;
+      const submitPayload = {
+        draftId: latestState.backend.draft.draftId,
+        form: latestState.intake.form,
+        janetHandoff: latestState.voice.handoff,
+        patientId: latestState.backend.draft.patientId,
+        returningPatient: latestState.returningPatient.form,
+        uploads: {
+          insurance: latestState.uploads.insurance?.uri ?? null,
+          id: latestState.uploads.id?.uri ?? null,
+        },
+        visitId: latestState.backend.draft.visitId,
+      };
+
+      let response;
+
+      try {
+        response = await submitIntake(submitPayload);
+      } catch (error) {
+        if (isDraftMissingError(error) && latestState.backend.draft.draftId) {
+          clearStaleDraftReference(
+            'The backend draft expired during submit. Retrying with a fresh backend draft.',
+          );
+          response = await submitIntake({
+            ...submitPayload,
+            draftId: null,
+            visitId: null,
+          });
+        } else {
+          throw error;
+        }
+      }
+
+      dispatch({
+        type: 'clear_backend_stale_feedback',
+      });
+      dispatch({
+        type: 'set_backend_submit',
+        payload: {
+          confirmationCode: response.confirmationCode,
+          fieldErrors: null,
+          message: response.message,
+          status: 'submitted',
+          submittedAt: response.submittedAt,
+        },
+      });
+      dispatch({
+        type: 'set_backend_draft',
+        payload: {
+          draftId: response.draftId ?? latestState.backend.draft.draftId,
+          fieldErrors: null,
+          lastSyncedAt: response.submittedAt,
+          message: response.message,
+          patientId: response.patientId ?? latestState.backend.draft.patientId,
+          status: 'synced',
+          visitId: response.visitId ?? latestState.backend.draft.visitId,
+        },
+      });
+      recordQaEvent('final_submit', 'success', response.message, {
+        confirmationCode: response.confirmationCode,
+        draftId: response.draftId ?? latestState.backend.draft.draftId,
+        patientId: response.patientId,
+        visitId: response.visitId,
+      });
+      return true;
+    } catch (error) {
+      const message = getErrorMessage(
+        error,
+        'The intake could not be submitted right now.',
+      );
+      dispatch({
+        type: 'set_backend_submit',
+        payload: {
+          fieldErrors: getApiFieldErrors(error),
+          message,
+          status: 'error',
+        },
+      });
+      recordQaEvent('final_submit', 'error', message, {
+        draftId: stateRef.current.backend.draft.draftId,
+        patientId: stateRef.current.backend.draft.patientId,
+        visitId: stateRef.current.backend.draft.visitId,
+      });
+      return false;
+    }
+  };
+
+  const value: DraftStoreContextValue = {
+    state,
+    applyVoiceToIntake: () => {
+      dispatch({
+        type: 'apply_voice_to_intake',
+      });
+    },
+    checkBackendHealth,
+    clearBackendDebugState: () => {
+      clearLastApiExchange();
+      dispatch({
+        type: 'clear_backend_debug_state',
+      });
+    },
+    clearDraft: (scope) => {
+      if ((scope ?? 'all') === 'all') {
+        clearLastApiExchange();
+      }
+      dispatch({
+        type: 'clear_draft',
+        payload: scope,
+      });
+    },
+    continueReturningPatient: () => {
+      dispatch({
+        type: 'continue_returning_patient',
+      });
+    },
+    fetchRemoteDraft: fetchRemoteDraftState,
+    lookupReturningPatient: lookupReturningPatientState,
+    openReturningFlow: (reset) => {
+      dispatch({
+        type: 'open_returning_flow',
+        payload: {
+          reset,
+        },
+      });
+    },
+    setIntakeStep: (step) => {
+      dispatch({
+        type: 'set_intake_step',
+        payload: step,
+      });
+    },
+    setUploadAsset: (documentType, asset) => {
+      dispatch({
+        type: 'set_upload_asset',
+        payload: {
+          asset,
+          documentType,
+        },
+      });
+    },
+    setVoiceEditing: (isEditing) => {
+      dispatch({
+        type: 'set_voice_editing',
+        payload: isEditing,
+      });
+    },
+    setVoiceHandoff: (handoff) => {
+      dispatch({
+        type: 'set_voice_handoff',
+        payload: handoff,
+      });
+    },
+    setVoiceListening: (isListening) => {
+      dispatch({
+        type: 'set_voice_listening',
+        payload: isListening,
+      });
+    },
+    setVoiceSpellMode: (spellModeEnabled) => {
+      dispatch({
+        type: 'set_voice_spell_mode',
+        payload: spellModeEnabled,
+      });
+    },
+    setVoiceTranscript: (transcript) => {
+      dispatch({
+        type: 'set_voice_transcript',
+        payload: transcript,
+      });
+    },
+    startNewIntake: (options) => {
+      dispatch({
+        type: 'start_new_intake',
+        payload: options,
+      });
+    },
+    submitCurrentIntake,
+    syncCurrentDraft,
+    syncSelectedUpload,
+    syncVoiceHandoff,
+    updateIntakeField: (field, value) => {
+      dispatch({
+        type: 'update_intake_form',
+        payload: {
+          [field]: value,
+        },
+      });
+    },
+    updateIntakeFields: (values) => {
+      dispatch({
+        type: 'update_intake_form',
+        payload: values,
+      });
+    },
+    updateReturningPatientField: (field, value) => {
+      dispatch({
+        type: 'update_returning_patient',
+        payload: {
+          [field]: value,
+        },
+      });
+    },
+    updateVoiceHandoff: (values) => {
+      dispatch({
+        type: 'update_voice_handoff',
+        payload: values,
+      });
+    },
+  };
+
+  return (
+    <DraftStoreContext.Provider value={value}>
+      {children}
+    </DraftStoreContext.Provider>
+  );
+}
+
+export function useDraftStore() {
+  const context = useContext(DraftStoreContext);
+
+  if (!context) {
+    throw new Error('useDraftStore must be used within a DraftStoreProvider.');
+  }
+
+  return context;
+}
+
+export function formatLastSaved(timestamp: string | null) {
+  if (!timestamp) {
+    return 'Draft not saved yet';
+  }
+
+  const diffMs = Date.now() - new Date(timestamp).getTime();
+
+  if (diffMs < 60_000) {
+    return 'Saved locally just now';
+  }
+
+  const diffMinutes = Math.round(diffMs / 60_000);
+
+  if (diffMinutes < 60) {
+    return `Saved locally ${diffMinutes}m ago`;
+  }
+
+  const diffHours = Math.round(diffMinutes / 60);
+
+  return `Saved locally ${diffHours}h ago`;
+}
+
+export function formatDraftSyncStatus(state: DraftStoreState) {
+  if (state.backend.submit.status === 'submitted') {
+    return `Submitted successfully${
+      state.backend.submit.submittedAt
+        ? ` ${formatLastSaved(state.backend.submit.submittedAt).replace('Saved locally ', '')}`
+        : ''
+    }`;
+  }
+
+  if (state.backend.draft.status === 'synced') {
+    return state.backend.draft.lastSyncedAt
+      ? `Backend synced. ${formatLastSaved(state.backend.draft.lastSyncedAt)}`
+      : 'Backend synced.';
+  }
+
+  if (state.backend.draft.status === 'syncing') {
+    return 'Syncing draft to backend...';
+  }
+
+  if (state.backend.draft.status === 'error') {
+    return state.backend.draft.message ?? 'Using local draft only.';
+  }
+
+  return state.backend.draft.message ?? 'Using local draft only.';
+}
+
+export function hasResumeableDraft(state: DraftStoreState) {
+  const intakeHasData = Object.values(state.intake.form).some((value) =>
+    hasText(value),
+  );
+  const returningHasData = Object.values(state.returningPatient.form).some(
+    (value) => hasText(value),
+  );
+
+  return (
+    intakeHasData ||
+    returningHasData ||
+    state.intake.currentStep !== 'patientType' ||
+    state.activeFlowMode === 'returning'
+  );
+}
+
+export function getResumeDraftDescription(state: DraftStoreState) {
+  if (
+    state.activeFlowMode === 'returning' &&
+    Object.values(state.returningPatient.form).some((value) => hasText(value))
+  ) {
+    return `Returning patient lookup in progress. ${formatLastSaved(
+      state.returningPatient.lastUpdatedAt,
+    )}`;
+  }
+
+  const currentStep = intakeFlowSteps.find(
+    (step) => step.key === state.intake.currentStep,
+  );
+
+  return `Continue at ${currentStep?.title ?? 'Patient Type'}. ${formatLastSaved(
+    state.intake.lastUpdatedAt,
+  )}`;
+}

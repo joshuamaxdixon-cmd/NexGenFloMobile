@@ -163,6 +163,10 @@ export function ReviewScreen({
     {
       title: 'Documents',
       items: [
+        ['Insurance provider', valueOrFallback(form.insuranceProvider)],
+        ['Member ID', valueOrFallback(form.memberId)],
+        ['Group number', valueOrFallback(form.groupNumber)],
+        ['Subscriber name', valueOrFallback(form.subscriberName)],
         ['Insurance Card', hasInsuranceUpload ? 'Added' : 'Not added'],
         ['Photo ID', hasGovernmentIdUpload ? 'Added' : 'Not added'],
       ],

@@ -254,14 +254,6 @@ export function DocumentsScreen({
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Insurance Card (Optional)</Text>
-        <UploadDocumentCard
-          asset={state.uploads.insurance}
-          busyAction={busyAction}
-          documentType="insurance"
-          errorMessage={state.backend.uploads.insurance.message}
-          onPick={handlePickDocument}
-          remoteStatus={state.backend.uploads.insurance.status}
-        />
         <View style={styles.fieldsGroup}>
           <InputField
             errorText={fieldErrors?.insuranceProvider}
@@ -294,6 +286,14 @@ export function DocumentsScreen({
             value={form.subscriberName}
           />
         </View>
+        <UploadDocumentCard
+          asset={state.uploads.insurance}
+          busyAction={busyAction}
+          documentType="insurance"
+          errorMessage={state.backend.uploads.insurance.message}
+          onPick={handlePickDocument}
+          remoteStatus={state.backend.uploads.insurance.status}
+        />
       </View>
     </InfoCard>
   );

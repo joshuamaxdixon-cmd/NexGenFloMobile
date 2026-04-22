@@ -33,18 +33,18 @@ export function InfoCard({
 const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.surface,
-    borderRadius: 24,
+    borderRadius: 28,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.divider,
     padding: spacing.xl,
     shadowColor: colors.shadow,
     shadowOffset: {
       width: 0,
-      height: 12,
+      height: 10,
     },
-    shadowOpacity: 0.07,
-    shadowRadius: 22,
-    elevation: 5,
+    shadowOpacity: 0.06,
+    shadowRadius: 24,
+    elevation: 4,
   },
   header: {
     marginBottom: spacing.md,

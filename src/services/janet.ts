@@ -1,6 +1,13 @@
 import * as Speech from 'expo-speech';
+import { Audio } from 'expo-av';
+import { Directory, File, Paths } from 'expo-file-system';
 
-import { api } from './api';
+import { ApiError, api, fetchApiResponse, getApiBaseUrl } from './api';
+import type {
+  IntakeFormData,
+  IntakeStepKey,
+  ReturningPatientFormData,
+} from './intake';
 
 export type JanetHandoff = {
   allergyNotes: string;
@@ -21,6 +28,92 @@ export type JanetVoiceDraft = {
   transcriptDraft: string;
 };
 
+export type JanetConversationStep = 'basicInfo' | 'documents' | 'review' | 'symptoms';
+
+export type JanetInteractionMode =
+  | 'correction'
+  | 'manual_fallback'
+  | 'normal'
+  | 'repeat'
+  | 'spell';
+
+export type JanetConfirmationState = {
+  choices: string[];
+  field: string | null;
+  prompt: string | null;
+  required: boolean;
+};
+
+export type JanetSessionState = {
+  confirmation: JanetConfirmationState;
+  currentField: string | null;
+  currentStep: JanetConversationStep;
+  draftId: string | null;
+  draftPatch: Partial<IntakeFormData>;
+  firstPrompt: string;
+  janetMode: string;
+  language: string;
+  missingFields: string[];
+  patientId: number | null;
+  sessionId: string;
+  visitId: number | null;
+};
+
+export type JanetSessionRequest = {
+  currentStep?: JanetConversationStep | IntakeStepKey | null;
+  draftId?: string | null;
+  form: IntakeFormData;
+  language?: string;
+  launchMode?: 'voice';
+  patientId?: number | null;
+  returningPatient?: ReturningPatientFormData;
+  visitId?: number | null;
+};
+
+export type JanetTranscriptionResult = {
+  confidence: number | null;
+  durationMs: number | null;
+  needsConfirmation: boolean;
+  text: string;
+  warnings: string[];
+};
+
+export type JanetRespondRequest = {
+  currentStep: JanetConversationStep;
+  form: IntakeFormData;
+  interaction?: {
+    mode?: JanetInteractionMode;
+    targetField?: string | null;
+  };
+  returningPatient?: ReturningPatientFormData;
+  sessionId: string;
+  transcript: string;
+  transcriptConfidence?: number | null;
+};
+
+export type JanetRespondResult = {
+  confirmation: JanetConfirmationState;
+  extraction: {
+    completion: {
+      intakeComplete: boolean;
+      stepComplete: boolean;
+    };
+    currentField: string | null;
+    draftPatch: Partial<IntakeFormData>;
+    extractedFields: Partial<IntakeFormData>;
+    missingFields: string[];
+    nextStep: JanetConversationStep;
+    updatedStep: JanetConversationStep;
+  };
+  janet: {
+    shouldSpeak: boolean;
+    speakText: string;
+    text: string;
+  };
+  lowConfidence: boolean;
+  warnings: string[];
+};
+
 export type JanetHandoffSubmitPayload = {
   draftId?: string | null;
   handoff: JanetHandoff;
@@ -39,53 +132,181 @@ export type JanetHandoffSubmitResponse = {
 
 export type JanetSpeechPlaybackState =
   | 'paused'
+  | 'processing'
   | 'ready'
   | 'replay'
   | 'speaking';
 
-export type JanetSpeechProviderMode = 'device_tts' | 'premium_voice';
-
-export type JanetSpeechRequest = {
-  onComplete?: () => void;
-  onError?: (message: string) => void;
-  onPause?: () => void;
-  onStart?: () => void;
-  text: string;
-};
-
-export type JanetSpeechProvider = {
-  id: string;
-  isAvailable: () => Promise<boolean>;
-  label: string;
-  mode: JanetSpeechProviderMode;
-  speak: (request: JanetSpeechRequest) => Promise<void>;
-  stop: () => Promise<void>;
-};
-
 export const janetAssistant = {
-  name: 'Janet',
-  role: 'Voice Intake Concierge',
   description:
-    'Voice intake assistant for symptoms, patient context, and conversational onboarding.',
+    'Guided voice intake for patient identity, symptoms, medications, allergies, and check-in support.',
   greetingText:
-    "Hi, I'm Janet. Tell me what brings you in today, and I will guide the intake for your care team.",
-  transcriptPreview:
-    'Patient reports chest pain that started two days ago and feels worse when climbing stairs.',
-  confirmationText: 'chest pain for 2 days',
-  simulatedInterpretation: {
-    symptomSummary: 'Chest pain',
-    duration: '2 days',
-    medicationNotes: 'Uses albuterol as needed and took ibuprofen this morning.',
-    allergyNotes: 'No known drug allergies reported during voice intake.',
-  },
+    "Hi, I'm Janet. I'll help you check in one step at a time and keep everything organized for your care team.",
+  name: 'Janet',
   prompts: [
-    'I am a returning patient',
-    'I need help with my insurance card',
-    'I want to start a new intake',
+    'You can say your first name when you are ready.',
+    'You can ask Janet to repeat the question.',
+    'You can switch to typing at any time.',
   ],
+  role: 'Guided Voice Check-In',
 } as const;
 
-let activeJanetSpeechProvider: JanetSpeechProvider;
+const janetAudioDirectory = new Directory(Paths.cache, 'janet-audio');
+
+function readRecord(value: unknown) {
+  return value && typeof value === 'object'
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function readString(value: unknown) {
+  return typeof value === 'string' ? value : null;
+}
+
+function readNumber(value: unknown) {
+  return typeof value === 'number' ? value : null;
+}
+
+function readBoolean(value: unknown, fallback = false) {
+  return typeof value === 'boolean' ? value : fallback;
+}
+
+function normalizeConversationStep(value: unknown): JanetConversationStep {
+  const normalized = readString(value)?.trim();
+
+  if (normalized === 'documents' || normalized === 'review' || normalized === 'symptoms') {
+    return normalized;
+  }
+
+  return 'basicInfo';
+}
+
+function normalizeDraftPatch(value: unknown): Partial<IntakeFormData> {
+  const record = readRecord(value) ?? {};
+  const patch: Partial<IntakeFormData> = {};
+
+  const allowedKeys = [
+    'patientType',
+    'firstName',
+    'lastName',
+    'dateOfBirth',
+    'gender',
+    'emergencyContactName',
+    'emergencyContactPhone',
+    'heightFt',
+    'heightIn',
+    'weightLb',
+    'phoneNumber',
+    'email',
+    'chiefConcern',
+    'symptomDuration',
+    'painLevel',
+    'symptomNotes',
+    'medications',
+    'pharmacy',
+    'lastDose',
+    'medicalConditions',
+    'allergies',
+    'allergyReaction',
+    'allergyNotes',
+    'insuranceProvider',
+    'memberId',
+    'groupNumber',
+    'subscriberName',
+  ] as const satisfies readonly (keyof IntakeFormData)[];
+
+  for (const key of allowedKeys) {
+    const rawValue = record[key];
+    if (typeof rawValue === 'string') {
+      patch[key] = rawValue;
+    }
+  }
+
+  return patch;
+}
+
+function normalizeConfirmation(value: unknown): JanetConfirmationState {
+  const record = readRecord(value) ?? {};
+  const choicesValue = Array.isArray(record.choices) ? record.choices : [];
+
+  return {
+    choices: choicesValue.filter(
+      (entry): entry is string =>
+        typeof entry === 'string' && entry.trim().length > 0,
+    ),
+    field: readString(record.field),
+    prompt: readString(record.prompt),
+    required: readBoolean(record.required, false),
+  };
+}
+
+function buildSpeechErrorMessage(error: unknown) {
+  if (error instanceof ApiError && error.message.trim().length > 0) {
+    return error.message;
+  }
+
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+
+  return 'Janet voice playback is unavailable right now.';
+}
+
+function buildFileName(prefix: string, extension: string) {
+  return `${prefix}-${new Date().toISOString().replace(/[:.]/g, '-')}.${extension}`;
+}
+
+function inferAudioMimeType(uri: string, mimeType?: string | null) {
+  if (mimeType?.trim()) {
+    return mimeType;
+  }
+
+  const normalizedUri = uri.toLowerCase();
+  if (normalizedUri.endsWith('.m4a') || normalizedUri.endsWith('.mp4')) {
+    return 'audio/mp4';
+  }
+  if (normalizedUri.endsWith('.caf')) {
+    return 'audio/x-caf';
+  }
+  if (normalizedUri.endsWith('.wav')) {
+    return 'audio/wav';
+  }
+  if (normalizedUri.endsWith('.ogg')) {
+    return 'audio/ogg';
+  }
+
+  return 'audio/webm';
+}
+
+function inferAudioFileName(uri: string, mimeType?: string | null) {
+  const baseName = uri.split('/').pop()?.trim();
+  if (baseName) {
+    return baseName;
+  }
+
+  const normalizedType = inferAudioMimeType(uri, mimeType);
+  if (normalizedType === 'audio/mp4') {
+    return buildFileName('janet-capture', 'm4a');
+  }
+  if (normalizedType === 'audio/wav') {
+    return buildFileName('janet-capture', 'wav');
+  }
+  if (normalizedType === 'audio/ogg') {
+    return buildFileName('janet-capture', 'ogg');
+  }
+
+  return buildFileName('janet-capture', 'webm');
+}
+
+export function inferJanetConversationStep(
+  step?: IntakeStepKey | JanetConversationStep | null,
+): JanetConversationStep {
+  if (step === 'documents' || step === 'review' || step === 'symptoms') {
+    return step;
+  }
+
+  return 'basicInfo';
+}
 
 export function createEmptyJanetHandoff(): JanetHandoff {
   return {
@@ -110,19 +331,6 @@ export function createInitialJanetVoiceDraft(): JanetVoiceDraft {
   };
 }
 
-export function buildSimulatedJanetHandoff(spellModeEnabled: boolean) {
-  return {
-    allergyNotes: janetAssistant.simulatedInterpretation.allergyNotes,
-    duration: janetAssistant.simulatedInterpretation.duration,
-    interpretedAt: new Date().toISOString(),
-    medicationNotes: janetAssistant.simulatedInterpretation.medicationNotes,
-    symptomSummary: janetAssistant.simulatedInterpretation.symptomSummary,
-    transcript: spellModeEnabled
-      ? 'C-H-E-S-T pain for two days. Uses albuterol as needed. No known drug allergies.'
-      : janetAssistant.transcriptPreview,
-  } satisfies JanetHandoff;
-}
-
 export function formatJanetConfirmation(handoff: JanetHandoff | null) {
   if (!handoff?.symptomSummary || !handoff.duration) {
     return 'Awaiting confirmed summary';
@@ -131,132 +339,391 @@ export function formatJanetConfirmation(handoff: JanetHandoff | null) {
   return `${handoff.symptomSummary.toLowerCase()} for ${handoff.duration}`;
 }
 
-function buildSpeechErrorMessage(error: unknown) {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message;
-  }
-
-  return 'Janet voice playback is unavailable on this device right now.';
-}
-
-const deviceJanetSpeechProvider: JanetSpeechProvider = {
-  id: 'janet-device-tts',
-  isAvailable: async () => true,
-  label: 'Device TTS',
-  mode: 'device_tts',
-  speak: async ({
-    onComplete,
-    onError,
-    onPause,
-    onStart,
-    text,
-  }: JanetSpeechRequest) =>
-    new Promise<void>((resolve, reject) => {
-      let settled = false;
-
-      const finish = (callback?: () => void) => {
-        if (settled) {
-          return;
-        }
-
-        settled = true;
-        callback?.();
-        resolve();
-      };
-
-      const fail = (message: string) => {
-        if (settled) {
-          return;
-        }
-
-        settled = true;
-        onError?.(message);
-        reject(new Error(message));
-      };
-
-      void Speech.stop();
-      Speech.speak(text, {
-        language: 'en-US',
-        pitch: 1.02,
-        rate: 0.92,
-        onDone: () => finish(onComplete),
-        onError: (error) => fail(buildSpeechErrorMessage(error)),
-        onStart: () => {
-          onStart?.();
-        },
-        onStopped: () => finish(onPause),
-      });
-    }),
-  stop: async () => {
-    await Speech.stop();
-  },
-};
-
-activeJanetSpeechProvider = deviceJanetSpeechProvider;
-
-export function getJanetSpeechProvider() {
-  return activeJanetSpeechProvider;
-}
-
-// Future premium Janet voices can swap in here without changing the Voice screen.
-export function setJanetSpeechProvider(provider: JanetSpeechProvider) {
-  activeJanetSpeechProvider = provider;
-}
-
 export function buildJanetSpeechText(options: {
+  confirmation: JanetConfirmationState;
   handoff: JanetHandoff | null;
+  replyText: string;
   spellModeEnabled: boolean;
 }) {
-  const { handoff, spellModeEnabled } = options;
+  const { confirmation, handoff, replyText, spellModeEnabled } = options;
+
+  if (confirmation.required && confirmation.prompt) {
+    return confirmation.prompt;
+  }
+
+  if (replyText.trim().length > 0) {
+    return replyText;
+  }
 
   if (handoff?.symptomSummary) {
     return `I heard ${formatJanetConfirmation(
       handoff,
-    )}. When you are ready, I can send this into intake, or you can edit the details first.`;
+    )}. You can keep speaking, or switch to typing if you prefer.`;
   }
 
   if (spellModeEnabled) {
-    return 'Spell mode is on. Speak slowly, and I will capture one detail at a time for the intake record.';
+    return 'Spell mode is on. Speak slowly and Janet will capture one detail at a time.';
   }
 
   return janetAssistant.greetingText;
 }
 
-export async function speakWithJanet(
-  request: JanetSpeechRequest,
-  provider = getJanetSpeechProvider(),
-) {
-  const isAvailable = await provider.isAvailable();
+export function buildJanetHandoffFromDraft(options: {
+  existing?: JanetHandoff | null;
+  form: Partial<IntakeFormData>;
+  interpretedAt?: string;
+  transcript: string;
+}) {
+  const { existing, form, interpretedAt, transcript } = options;
 
-  if (!isAvailable) {
-    throw new Error('Janet voice playback is not available on this device.');
+  return {
+    ...(existing ?? createEmptyJanetHandoff()),
+    allergyNotes:
+      form.allergyNotes ??
+      form.allergyReaction ??
+      existing?.allergyNotes ??
+      '',
+    duration: form.symptomDuration ?? existing?.duration ?? '',
+    interpretedAt: interpretedAt ?? new Date().toISOString(),
+    medicationNotes:
+      form.medications ??
+      existing?.medicationNotes ??
+      '',
+    symptomSummary:
+      form.chiefConcern ??
+      existing?.symptomSummary ??
+      '',
+    transcript: transcript.trim() || existing?.transcript || '',
+  } satisfies JanetHandoff;
+}
+
+export async function configureJanetAudioMode() {
+  await Audio.setAudioModeAsync({
+    allowsRecordingIOS: true,
+    playsInSilentModeIOS: true,
+    shouldDuckAndroid: true,
+    staysActiveInBackground: false,
+  });
+}
+
+export async function bootstrapJanetSession(
+  payload: JanetSessionRequest,
+): Promise<JanetSessionState> {
+  const response = await api.post<unknown>('/janet/intake-session', {
+    current_step: inferJanetConversationStep(payload.currentStep),
+    draft_id: payload.draftId ?? null,
+    form: payload.form,
+    language: payload.language ?? 'en',
+    launch_mode: payload.launchMode ?? 'voice',
+    patient_id: payload.patientId ?? null,
+    returning_patient: payload.returningPatient ?? null,
+    visit_id: payload.visitId ?? null,
+  });
+  const record = readRecord(response) ?? {};
+  const sessionRecord = readRecord(record.session) ?? {};
+
+  return {
+    confirmation: normalizeConfirmation(sessionRecord.confirmation),
+    currentField: readString(sessionRecord.current_field ?? sessionRecord.currentField),
+    currentStep: normalizeConversationStep(
+      sessionRecord.current_step ?? sessionRecord.currentStep,
+    ),
+    draftId: readString(sessionRecord.draft_id ?? sessionRecord.draftId),
+    draftPatch: normalizeDraftPatch(
+      sessionRecord.draft_patch ?? sessionRecord.draftPatch,
+    ),
+    firstPrompt:
+      readString(sessionRecord.first_prompt ?? sessionRecord.firstPrompt) ??
+      janetAssistant.greetingText,
+    janetMode:
+      readString(sessionRecord.janet_mode ?? sessionRecord.janetMode) ??
+      'guided_intake',
+    language: readString(sessionRecord.language) ?? 'en',
+    missingFields: Array.isArray(sessionRecord.missing_fields)
+      ? sessionRecord.missing_fields.filter(
+          (entry): entry is string =>
+            typeof entry === 'string' && entry.trim().length > 0,
+        )
+      : [],
+    patientId: readNumber(sessionRecord.patient_id ?? sessionRecord.patientId),
+    sessionId:
+      readString(sessionRecord.session_id ?? sessionRecord.sessionId) ?? '',
+    visitId: readNumber(sessionRecord.visit_id ?? sessionRecord.visitId),
+  } satisfies JanetSessionState;
+}
+
+export async function transcribeJanetAudio(options: {
+  currentStep: JanetConversationStep;
+  fileName?: string | null;
+  language?: string;
+  mimeType?: string | null;
+  sessionId: string;
+  uri: string;
+}) {
+  const formData = new FormData();
+  const mimeType = inferAudioMimeType(options.uri, options.mimeType);
+  const fileName = options.fileName?.trim()
+    ? options.fileName.trim()
+    : inferAudioFileName(options.uri, mimeType);
+
+  formData.append('session_id', options.sessionId);
+  formData.append('current_step', options.currentStep);
+  formData.append('language', options.language ?? 'en');
+  formData.append(
+    'audio',
+    {
+      name: fileName,
+      type: mimeType,
+      uri: options.uri,
+    } as never,
+  );
+
+  const response = await api.post<unknown>('/janet/transcribe', formData, {
+    timeoutMs: 45000,
+  });
+  const record = readRecord(response) ?? {};
+  const transcriptRecord = readRecord(record.transcript) ?? {};
+  const warningsValue = Array.isArray(transcriptRecord.warnings)
+    ? transcriptRecord.warnings
+    : [];
+
+  return {
+    confidence:
+      readNumber(transcriptRecord.confidence) ??
+      readNumber(record.confidence) ??
+      null,
+    durationMs:
+      readNumber(transcriptRecord.duration_ms ?? transcriptRecord.durationMs) ??
+      null,
+    needsConfirmation: readBoolean(
+      transcriptRecord.needs_confirmation ?? transcriptRecord.needsConfirmation,
+      false,
+    ),
+    text:
+      readString(transcriptRecord.text) ?? readString(record.text) ?? '',
+    warnings: warningsValue.filter(
+      (entry): entry is string =>
+        typeof entry === 'string' && entry.trim().length > 0,
+    ),
+  } satisfies JanetTranscriptionResult;
+}
+
+export async function requestJanetResponse(
+  payload: JanetRespondRequest,
+): Promise<JanetRespondResult> {
+  const response = await api.post<unknown>('/janet/respond', {
+    current_step: payload.currentStep,
+    form: payload.form,
+    interaction: {
+      mode: payload.interaction?.mode ?? 'normal',
+      target_field: payload.interaction?.targetField ?? null,
+    },
+    returning_patient: payload.returningPatient ?? null,
+    session_id: payload.sessionId,
+    transcript: payload.transcript,
+    transcript_confidence: payload.transcriptConfidence ?? null,
+  });
+  const record = readRecord(response) ?? {};
+  const janetRecord = readRecord(record.janet) ?? {};
+  const extractionRecord = readRecord(record.extraction) ?? {};
+  const completionRecord = readRecord(extractionRecord.completion) ?? {};
+  const warningsValue = Array.isArray(record.warnings) ? record.warnings : [];
+
+  return {
+    confirmation: normalizeConfirmation(record.confirmation),
+    extraction: {
+      completion: {
+        intakeComplete: readBoolean(
+          completionRecord.intake_complete ?? completionRecord.intakeComplete,
+          false,
+        ),
+        stepComplete: readBoolean(
+          completionRecord.step_complete ?? completionRecord.stepComplete,
+          false,
+        ),
+      },
+      currentField: readString(
+        extractionRecord.current_field ?? extractionRecord.currentField,
+      ),
+      draftPatch: normalizeDraftPatch(
+        extractionRecord.draft_patch ?? extractionRecord.draftPatch,
+      ),
+      extractedFields: normalizeDraftPatch(
+        extractionRecord.extracted_fields ?? extractionRecord.extractedFields,
+      ),
+      missingFields: Array.isArray(extractionRecord.missing_fields)
+        ? extractionRecord.missing_fields.filter(
+            (entry): entry is string =>
+              typeof entry === 'string' && entry.trim().length > 0,
+          )
+        : [],
+      nextStep: normalizeConversationStep(
+        extractionRecord.next_step ?? extractionRecord.nextStep,
+      ),
+      updatedStep: normalizeConversationStep(
+        extractionRecord.updated_step ?? extractionRecord.updatedStep,
+      ),
+    },
+    janet: {
+      shouldSpeak: readBoolean(
+        janetRecord.should_speak ?? janetRecord.shouldSpeak,
+        true,
+      ),
+      speakText:
+        readString(janetRecord.speak_text ?? janetRecord.speakText) ??
+        readString(janetRecord.text) ??
+        janetAssistant.greetingText,
+      text:
+        readString(janetRecord.text) ?? janetAssistant.greetingText,
+    },
+    lowConfidence: readBoolean(
+      record.low_confidence ?? record.lowConfidence,
+      false,
+    ),
+    warnings: warningsValue.filter(
+      (entry): entry is string =>
+        typeof entry === 'string' && entry.trim().length > 0,
+    ),
+  } satisfies JanetRespondResult;
+}
+
+async function fetchJanetSpeechAudioFile(options: {
+  cacheSafe?: boolean;
+  language?: string;
+  sessionId?: string | null;
+  text: string;
+}) {
+  if (!janetAudioDirectory.exists) {
+    janetAudioDirectory.create({ idempotent: true, intermediates: true });
   }
 
-  return provider.speak(request);
+  const requestUrl = `${getApiBaseUrl()}/janet/speak`;
+  const { response } = await fetchApiResponse(requestUrl, {
+    body: JSON.stringify({
+      cache_safe: Boolean(options.cacheSafe),
+      language: options.language ?? 'en',
+      session_id: options.sessionId ?? null,
+      text: options.text,
+    }),
+    headers: {
+      Accept: 'audio/mpeg',
+      'Content-Type': 'application/json',
+    },
+    method: 'POST',
+  });
+
+  if (!response.ok) {
+    let errorMessage = 'Janet voice playback is unavailable right now.';
+
+    try {
+      const payload = (await response.json()) as {
+        fallback?: string;
+        message?: string;
+      };
+      if (typeof payload.message === 'string' && payload.message.trim()) {
+        errorMessage = payload.message;
+      }
+    } catch {
+      // Keep the fallback error message if the response is not JSON.
+    }
+
+    throw new Error(errorMessage);
+  }
+
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  const audioFile = new File(janetAudioDirectory, buildFileName('janet-reply', 'mp3'));
+  if (!audioFile.exists) {
+    audioFile.create({ intermediates: true, overwrite: true });
+  }
+  audioFile.write(bytes);
+  return audioFile.uri;
 }
 
-export async function stopJanetSpeech(provider = getJanetSpeechProvider()) {
-  await provider.stop();
+export async function playJanetReplyAudio(options: {
+  cacheSafe?: boolean;
+  fallbackToDeviceSpeech?: boolean;
+  language?: string;
+  onComplete?: () => void;
+  onStart?: () => void;
+  sessionId?: string | null;
+  text: string;
+}) {
+  try {
+    await configureJanetAudioMode();
+    const audioUri = await fetchJanetSpeechAudioFile(options);
+    const sound = new Audio.Sound();
+    await sound.loadAsync({ uri: audioUri }, { shouldPlay: true });
+
+    options.onStart?.();
+
+    sound.setOnPlaybackStatusUpdate((status) => {
+      if (!status.isLoaded) {
+        return;
+      }
+
+      if (status.didJustFinish) {
+        options.onComplete?.();
+      }
+    });
+
+    return sound;
+  } catch (error) {
+    if (!options.fallbackToDeviceSpeech) {
+      throw error;
+    }
+
+    const message = buildSpeechErrorMessage(error);
+
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+
+      Speech.stop();
+      Speech.speak(options.text, {
+        language: 'en-US',
+        pitch: 1.02,
+        rate: 0.92,
+        onDone: () => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          options.onComplete?.();
+          resolve();
+        },
+        onError: () => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          reject(new Error(message));
+        },
+        onStart: () => {
+          options.onStart?.();
+        },
+      });
+    });
+
+    return null;
+  }
 }
 
-function readRecord(value: unknown) {
-  return value && typeof value === 'object'
-    ? (value as Record<string, unknown>)
-    : null;
-}
+export async function stopJanetReplyAudio(sound: Audio.Sound | null) {
+  if (!sound) {
+    await Speech.stop();
+    return;
+  }
 
-function readString(value: unknown) {
-  return typeof value === 'string' ? value : null;
-}
-
-function readNumber(value: unknown) {
-  return typeof value === 'number' ? value : null;
+  try {
+    await sound.stopAsync();
+  } finally {
+    await sound.unloadAsync();
+  }
 }
 
 export async function submitJanetHandoff(
   payload: JanetHandoffSubmitPayload,
 ) {
-  const response = await api.post<unknown>('/api/janet/handoff', {
+  const response = await api.post<unknown>('/janet/handoff', {
     draft_id: payload.draftId ?? null,
     handoff: payload.handoff,
     patient_id: payload.patientId ?? null,

@@ -13,11 +13,23 @@ export type ReturningPatientFieldErrors = Partial<
 export type ReviewReadiness = {
   blockers: string[];
   isReady: boolean;
-  recommendations: string[];
+  recommendations: {
+    action: 'basicInfo' | 'documents' | 'symptoms';
+    message: string;
+  }[];
 };
 
 function hasText(value: string) {
   return value.trim().length > 0;
+}
+
+function hasCompletePatientType(value: string) {
+  return [
+    'New patient',
+    'Returning patient',
+    'Dependent / family member',
+    'Self pay',
+  ].includes(value.trim());
 }
 
 function looksLikeDate(value: string) {
@@ -101,8 +113,11 @@ export function validateIntakeStep(
 ): IntakeFieldErrors {
   const errors: IntakeFieldErrors = {};
 
-  if (step === 'patientType' && !hasText(form.patientType)) {
-    errors.patientType = 'Choose the patient profile for this visit.';
+  if (
+    (step === 'patientType' || step === 'basicInfo' || step === 'review') &&
+    !hasCompletePatientType(form.patientType)
+  ) {
+    errors.patientType = 'Choose who this visit is for and how they are checking in.';
   }
 
   if (step === 'basicInfo' || step === 'review') {
@@ -154,15 +169,6 @@ export function validateIntakeStep(
     }
   }
 
-  if (step === 'insurance' || step === 'review') {
-    if (!hasText(form.insuranceProvider)) {
-      errors.insuranceProvider = 'Insurance provider is required.';
-    }
-    if (!hasText(form.memberId)) {
-      errors.memberId = 'Member ID is required.';
-    }
-  }
-
   return errors;
 }
 
@@ -198,6 +204,7 @@ export function mapApiFieldErrorsToIntakeFields(
       'date_of_birth',
       'dateOfBirth',
     ),
+    gender: firstFieldError(fieldErrors, 'gender', 'sex'),
     emergencyContactName: firstFieldError(
       fieldErrors,
       'emergency_contact_name',
@@ -264,49 +271,96 @@ export function getReviewReadiness(options: {
   const blockers = Object.values(fieldErrors).filter(
     (value): value is string => typeof value === 'string' && value.length > 0,
   );
-  const recommendations: string[] = [];
+  const recommendations: ReviewReadiness['recommendations'] = [];
+  const pushRecommendation = (
+    action: 'basicInfo' | 'documents' | 'symptoms',
+    message: string,
+  ) => {
+    if (recommendations.some((item) => item.message === message)) {
+      return;
+    }
+    recommendations.push({ action, message });
+  };
 
   if (!options.hasInsuranceUpload) {
-    recommendations.push(
-      'Insurance card image is still missing from the document workflow.',
+    pushRecommendation(
+      'documents',
+      'Insurance card can be added on the next optional documents step.',
     );
   }
   if (!options.hasGovernmentIdUpload) {
-    recommendations.push(
-      'Government ID image is not attached yet for identity review.',
-    );
-  }
-  if (options.backendDraftStatus === 'local-only') {
-    recommendations.push(
-      'Draft is stored locally only. Submitting will try to create or refresh the backend draft first.',
-    );
-  }
-  if (options.backendDraftStatus === 'error') {
-    recommendations.push(
-      'Backend draft sync needs attention. Review the sync message before submitting again.',
+    pushRecommendation(
+      'documents',
+      'Government ID can be added on the next optional documents step.',
     );
   }
   if (
     !hasText(options.form.emergencyContactName) ||
     !hasText(options.form.emergencyContactPhone)
   ) {
-    recommendations.push(
+    pushRecommendation(
+      'basicInfo',
       'Emergency contact is still missing. Adding it now reduces provider completion delays later.',
     );
   }
+  if (!hasText(options.form.heightFt) && !hasText(options.form.heightIn)) {
+    pushRecommendation(
+      'symptoms',
+      'Height is still blank. Add it now if staff will need vitals from intake.',
+    );
+  }
+  if (!hasText(options.form.weightLb)) {
+    pushRecommendation(
+      'symptoms',
+      'Weight is still blank. Add it now if staff will need vitals from intake.',
+    );
+  }
   if (!hasText(options.form.medications)) {
-    recommendations.push(
+    pushRecommendation(
+      'symptoms',
       'No medications have been entered yet. Add them now if the patient knows what they take.',
     );
   }
+  if (hasText(options.form.medications) && !hasText(options.form.pharmacy)) {
+    pushRecommendation(
+      'symptoms',
+      'Preferred pharmacy is still missing.',
+    );
+  }
+  if (hasText(options.form.medications) && !hasText(options.form.lastDose)) {
+    pushRecommendation(
+      'symptoms',
+      'Last dose is still missing.',
+    );
+  }
   if (!hasText(options.form.allergies)) {
-    recommendations.push(
+    pushRecommendation(
+      'symptoms',
       'No allergies are listed yet. If there are none, staff can confirm that during review.',
     );
   }
+  if (hasText(options.form.allergies) && !hasText(options.form.allergyReaction)) {
+    pushRecommendation(
+      'symptoms',
+      'Reaction details are still missing for the listed allergies.',
+    );
+  }
+  if (hasText(options.form.allergies) && !hasText(options.form.allergyNotes)) {
+    pushRecommendation(
+      'symptoms',
+      'Safety notes are still missing for the listed allergies.',
+    );
+  }
   if (!hasText(options.form.medicalConditions)) {
-    recommendations.push(
+    pushRecommendation(
+      'symptoms',
       'Medical history or conditions are still blank. A short summary here can prevent provider follow-up questions.',
+    );
+  }
+  if (!hasText(options.form.painLevel)) {
+    pushRecommendation(
+      'symptoms',
+      'Severity is still blank.',
     );
   }
 

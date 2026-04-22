@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { DraftBanner } from '../components/DraftBanner';
 import { EmptyStateCard } from '../components/EmptyStateCard';
@@ -9,7 +9,6 @@ import { ScreenContainer } from '../components/ScreenContainer';
 import { SecondaryButton } from '../components/SecondaryButton';
 import { SectionHeader } from '../components/SectionHeader';
 import {
-  formatDraftSyncStatus,
   formatLastSaved,
   intakeFlowSteps,
   mapApiFieldErrorsToIntakeFields,
@@ -21,14 +20,12 @@ import {
   validateReturningPatientForm,
 } from '../services';
 import { ReturningPatientScreen } from './ReturningPatientScreen';
-import { AllergiesScreen } from './intake/AllergiesScreen';
 import { BasicInfoScreen } from './intake/BasicInfoScreen';
-import { InsuranceScreen } from './intake/InsuranceScreen';
-import { MedicationsScreen } from './intake/MedicationsScreen';
-import { PatientTypeScreen } from './intake/PatientTypeScreen';
+import { DocumentsScreen } from './intake/DocumentsScreen';
 import { ReviewScreen } from './intake/ReviewScreen';
 import { SymptomsScreen } from './intake/SymptomsScreen';
-import { spacing } from '../theme';
+import { useUnifiedJanetFieldVoice } from './intake/useUnifiedJanetFieldVoice';
+import { colors, spacing, typography } from '../theme';
 
 function hasFieldErrors(fieldErrors: IntakeFieldErrors) {
   return Object.values(fieldErrors).some(
@@ -41,16 +38,21 @@ export function IntakeScreen() {
     clearDraft,
     fetchRemoteDraft,
     lookupReturningPatient,
+    setUploadAsset,
     setIntakeStep,
+    setVoiceListening,
+    setVoiceTranscript,
     state,
     submitCurrentIntake,
     syncCurrentDraft,
     updateIntakeField,
+    updateIntakeFields,
     updateReturningPatientField,
   } = useDraftStore();
   const fetchRemoteDraftRef = useRef(fetchRemoteDraft);
   const [showStepValidation, setShowStepValidation] = useState(false);
   const [showReturningValidation, setShowReturningValidation] = useState(false);
+  const [reviewConfirmed, setReviewConfirmed] = useState(false);
 
   useEffect(() => {
     fetchRemoteDraftRef.current = fetchRemoteDraft;
@@ -82,6 +84,33 @@ export function IntakeScreen() {
     }
   }, [state.activeFlowMode]);
 
+  useEffect(() => {
+    if (state.intake.currentStep !== 'review' && reviewConfirmed) {
+      setReviewConfirmed(false);
+    }
+  }, [reviewConfirmed, state.intake.currentStep]);
+
+  const currentStepIndex = Math.max(
+    0,
+    intakeFlowSteps.findIndex((step) => step.key === state.intake.currentStep),
+  );
+  const currentConfig = intakeFlowSteps[currentStepIndex];
+  const isDocumentsStep = currentConfig.key === 'documents';
+  const inlineVoice = useUnifiedJanetFieldVoice({
+    currentStep: currentConfig.key,
+    draftId: state.backend.draft.draftId,
+    form: state.intake.form,
+    patientId: state.backend.draft.patientId,
+    returningPatient: state.returningPatient.form,
+    setVoiceListening,
+    setVoiceTranscript,
+    syncCurrentDraft: async () => {
+      await syncCurrentDraft();
+    },
+    updateIntakeFields,
+    visitId: state.backend.draft.visitId,
+  });
+
   if (!state.hydrated) {
     return (
       <ScreenContainer>
@@ -99,11 +128,6 @@ export function IntakeScreen() {
     );
   }
 
-  const currentStepIndex = Math.max(
-    0,
-    intakeFlowSteps.findIndex((step) => step.key === state.intake.currentStep),
-  );
-  const currentConfig = intakeFlowSteps[currentStepIndex];
   const isLastStep = currentStepIndex === intakeFlowSteps.length - 1;
   const localStepErrors = validateIntakeStep(currentConfig.key, state.intake.form);
   const backendStepErrors = mapApiFieldErrorsToIntakeFields(
@@ -137,11 +161,35 @@ export function IntakeScreen() {
   const handleNext = async () => {
     setShowStepValidation(true);
 
-    if (isLastStep && !reviewReadiness.isReady) {
+    if (currentConfig.key === 'review' && !reviewReadiness.isReady) {
+      if (hasFieldErrors(localStepErrors)) {
+        if (
+          localStepErrors.patientType ||
+          localStepErrors.firstName ||
+          localStepErrors.lastName ||
+          localStepErrors.dateOfBirth ||
+          localStepErrors.phoneNumber ||
+          localStepErrors.email ||
+          localStepErrors.emergencyContactName ||
+          localStepErrors.emergencyContactPhone
+        ) {
+          setIntakeStep('basicInfo');
+          return;
+        }
+
+        if (localStepErrors.chiefConcern || localStepErrors.symptomDuration) {
+          setIntakeStep('symptoms');
+          return;
+        }
+      }
       return;
     }
 
-    if (!isLastStep && hasFieldErrors(localStepErrors)) {
+    if (currentConfig.key === 'review' && !reviewConfirmed) {
+      return;
+    }
+
+    if (currentConfig.key !== 'documents' && hasFieldErrors(localStepErrors)) {
       return;
     }
 
@@ -150,19 +198,15 @@ export function IntakeScreen() {
 
       if (didSubmit) {
         Alert.alert(
-          'Intake submitted successfully',
-          'The patient intake is now in NexGEN and ready for staff review.',
+          'Check-in complete',
+          'Your visit is now in NexGEN and ready for staff review.',
         );
       }
       return;
     }
 
     setShowStepValidation(false);
-
-    if (currentConfig.key !== 'patientType') {
-      await syncCurrentDraft();
-    }
-
+    await syncCurrentDraft();
     setIntakeStep(intakeFlowSteps[currentStepIndex + 1].key);
   };
 
@@ -174,22 +218,30 @@ export function IntakeScreen() {
     setIntakeStep(intakeFlowSteps[currentStepIndex - 1].key);
   };
 
+  const handleSkipDocumentsForNow = async () => {
+    if (!isDocumentsStep) {
+      return;
+    }
+
+    if (state.backend.uploads.insurance.status !== 'uploaded') {
+      setUploadAsset('insurance', null);
+    }
+    if (state.backend.uploads.id.status !== 'uploaded') {
+      setUploadAsset('id', null);
+    }
+
+    await handleNext();
+  };
+
   const renderCurrentStep = () => {
     switch (currentConfig.key) {
-      case 'patientType':
-        return (
-          <PatientTypeScreen
-            fieldErrors={visibleStepErrors}
-            form={state.intake.form}
-            onChange={updateIntakeField}
-          />
-        );
       case 'basicInfo':
         return (
           <BasicInfoScreen
             fieldErrors={visibleStepErrors}
             form={state.intake.form}
             onChange={updateIntakeField}
+            voice={inlineVoice ?? undefined}
           />
         );
       case 'symptoms':
@@ -198,35 +250,12 @@ export function IntakeScreen() {
             fieldErrors={visibleStepErrors}
             form={state.intake.form}
             onChange={updateIntakeField}
-          />
-        );
-      case 'medications':
-        return (
-          <MedicationsScreen
-            form={state.intake.form}
-            onChange={updateIntakeField}
-          />
-        );
-      case 'allergies':
-        return (
-          <AllergiesScreen
-            form={state.intake.form}
-            onChange={updateIntakeField}
-          />
-        );
-      case 'insurance':
-        return (
-          <InsuranceScreen
-            fieldErrors={visibleStepErrors}
-            form={state.intake.form}
-            onChange={updateIntakeField}
+            voice={inlineVoice ?? undefined}
           />
         );
       case 'review':
         return (
           <ReviewScreen
-            confirmationCode={state.backend.submit.confirmationCode}
-            draftState={state}
             form={state.intake.form}
             hasGovernmentIdUpload={
               Boolean(state.uploads.id) ||
@@ -236,9 +265,19 @@ export function IntakeScreen() {
               Boolean(state.uploads.insurance) ||
               state.backend.uploads.insurance.status === 'uploaded'
             }
-            submitMessage={state.backend.submit.message}
-            submitStatus={state.backend.submit.status}
-            voiceImportedAt={state.intake.voiceImportedAt}
+            onEditStep={setIntakeStep}
+            onToggleReviewConfirmed={() =>
+              setReviewConfirmed((current) => !current)
+            }
+            reviewConfirmed={reviewConfirmed}
+          />
+        );
+      case 'documents':
+        return (
+          <DocumentsScreen
+            fieldErrors={visibleStepErrors}
+            form={state.intake.form}
+            onChange={updateIntakeField}
           />
         );
       default:
@@ -264,6 +303,15 @@ export function IntakeScreen() {
   const isSaving = state.backend.draft.status === 'syncing';
   const isSubmitting = state.backend.submit.status === 'submitting';
   const isSubmitted = state.backend.submit.status === 'submitted';
+  const stepActionTitles: Record<
+    (typeof intakeFlowSteps)[number]['key'],
+    string
+  > = {
+    basicInfo: 'Continue',
+    symptoms: 'Continue to Review',
+    review: 'Continue to Uploads',
+    documents: 'Finish Check-In',
+  };
   const nextButtonTitle = isLastStep
     ? isSubmitting
       ? 'Submitting...'
@@ -271,27 +319,19 @@ export function IntakeScreen() {
         ? 'Submitted'
         : state.backend.submit.status === 'error'
           ? 'Retry Submit'
-          : !reviewReadiness.isReady
-            ? 'Complete Required Fields'
-            : 'Submit Intake'
+          : stepActionTitles[currentConfig.key]
       : isSaving
         ? 'Saving...'
-        : state.backend.draft.status === 'error'
-          ? 'Retry Save'
-          : 'Next';
+        : stepActionTitles[currentConfig.key];
   const canAdvance =
     !isSubmitted &&
     !isSubmitting &&
     !isSaving &&
-    (isLastStep ? reviewReadiness.isReady : !hasFieldErrors(localStepErrors));
-  const draftBannerTone =
-    state.backend.submit.status === 'submitted' ||
-    state.intake.voiceImportedAt ||
-    state.backend.draft.status === 'synced'
-      ? 'success'
-      : state.backend.draft.status === 'error'
-        ? 'warning'
-        : 'info';
+    (isLastStep
+      ? true
+      : currentConfig.key === 'review'
+        ? reviewReadiness.isReady && reviewConfirmed
+        : !hasFieldErrors(localStepErrors));
   const lookupStatusTone =
     state.backend.lookup.status === 'matched'
       ? 'success'
@@ -342,63 +382,60 @@ export function IntakeScreen() {
         <>
           <ProgressBar
             currentStep={currentStepIndex + 1}
-            title={currentConfig.title}
             totalSteps={intakeFlowSteps.length}
           />
-          <DraftBanner
-            badgeLabel={
-              state.backend.submit.status === 'submitted'
-                ? 'Submitted'
-                : state.backend.draft.status === 'error'
-                  ? 'Needs Retry'
-                : state.intake.voiceImportedAt
-                  ? 'Voice Imported'
-                  : state.backend.draft.status === 'synced'
-                    ? 'Synced'
-                    : 'Local'
-            }
-            message={formatDraftSyncStatus(state)}
-            style={styles.banner}
-            title={
-              state.backend.submit.status === 'submitted'
-                ? 'Backend submission complete'
-                : state.intake.voiceImportedAt
-                ? 'Voice data applied to intake'
-                : 'Draft intake in progress'
-            }
-            tone={
-              draftBannerTone
-            }
-          />
           <SectionHeader
-            eyebrow="Patient Intake"
             subtitle={currentConfig.subtitle}
             title={currentConfig.title}
           />
-
           {renderCurrentStep()}
 
-          <View style={styles.navRow}>
+          <View
+            style={[
+              styles.navRow,
+              currentConfig.key === 'basicInfo' ? styles.navColumn : null,
+            ]}
+          >
             <SecondaryButton
               disabled={currentStepIndex === 0 || isSubmitting || isSaving}
               onPress={handleBack}
-              style={[styles.navButton, styles.navButtonLeft]}
+              style={[
+                styles.navButton,
+                currentConfig.key === 'basicInfo'
+                  ? styles.navButtonStacked
+                  : styles.navButtonLeft,
+              ]}
               title="Back"
             />
             <PrimaryButton
               disabled={!canAdvance}
               loading={isSubmitting || (!isLastStep && isSaving)}
               onPress={handleNext}
-              style={[styles.navButton, styles.navButtonRight]}
+              style={[
+                styles.navButton,
+                currentConfig.key === 'basicInfo'
+                  ? styles.navButtonStacked
+                  : styles.navButtonRight,
+              ]}
               title={nextButtonTitle}
             />
           </View>
-          <SecondaryButton
-            disabled={isSubmitting || isSaving}
-            onPress={() => clearDraft('all')}
-            style={styles.resetButton}
-            title="Reset Draft"
-          />
+          {isDocumentsStep ? (
+            <Pressable
+              accessibilityRole="button"
+              disabled={isSubmitting || isSaving}
+              onPress={() => void handleSkipDocumentsForNow()}
+              style={({ pressed }) => [
+                styles.skipForNowButton,
+                (isSubmitting || isSaving) && styles.skipForNowButtonDisabled,
+                pressed && !isSubmitting && !isSaving
+                  ? styles.skipForNowButtonPressed
+                  : null,
+              ]}
+            >
+              <Text style={styles.skipForNowLabel}>Skip for now</Text>
+            </Pressable>
+          ) : null}
         </>
       )}
     </ScreenContainer>
@@ -414,8 +451,15 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: spacing.xl,
   },
+  navColumn: {
+    gap: spacing.sm,
+    flexDirection: 'column',
+  },
   navButton: {
     flex: 1,
+  },
+  navButtonStacked: {
+    width: '100%',
   },
   navButtonLeft: {
     marginRight: spacing.xs,
@@ -425,5 +469,22 @@ const styles = StyleSheet.create({
   },
   resetButton: {
     marginTop: spacing.md,
+  },
+  skipForNowButton: {
+    alignSelf: 'center',
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  skipForNowButtonPressed: {
+    opacity: 0.7,
+  },
+  skipForNowButtonDisabled: {
+    opacity: 0.4,
+  },
+  skipForNowLabel: {
+    ...typography.body,
+    color: colors.primaryDeep,
+    fontWeight: '600',
   },
 });

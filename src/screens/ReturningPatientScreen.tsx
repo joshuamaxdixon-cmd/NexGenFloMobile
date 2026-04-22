@@ -90,7 +90,7 @@ export function ReturningPatientScreen({
           label="Phone number"
           onChangeText={(value) => onChange('phoneNumber', value)}
           optional
-          placeholder="(555) 555-5555"
+          placeholder="555-555-5555"
           value={data.phoneNumber}
         />
       </InfoCard>

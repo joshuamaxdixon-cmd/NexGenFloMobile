@@ -42,17 +42,17 @@ const styles = StyleSheet.create({
   },
   title: {
     ...typography.caption,
-    color: colors.primaryText,
+    color: colors.textSecondary,
   },
   track: {
     height: 10,
     borderRadius: 999,
-    backgroundColor: colors.backgroundAlt,
+    backgroundColor: colors.surfaceMuted,
     overflow: 'hidden',
   },
   fill: {
     height: '100%',
     borderRadius: 999,
-    backgroundColor: colors.primary,
+    backgroundColor: colors.primaryDeep,
   },
 });

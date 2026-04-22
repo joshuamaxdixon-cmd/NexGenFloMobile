@@ -11,6 +11,7 @@ export type IntakeStepKey =
   | 'medications'
   | 'allergies'
   | 'insurance'
+  | 'documents'
   | 'review';
 
 export type IntakeFormData = {
@@ -18,6 +19,7 @@ export type IntakeFormData = {
   firstName: string;
   lastName: string;
   dateOfBirth: string;
+  gender: string;
   emergencyContactName: string;
   emergencyContactPhone: string;
   heightFt: string;
@@ -51,39 +53,24 @@ export type ReturningPatientFormData = {
 
 export const intakeFlowSteps = [
   {
-    key: 'patientType',
-    title: 'Patient Type',
-    subtitle: 'Choose the onboarding profile that matches this visit.',
-  },
-  {
     key: 'basicInfo',
     title: 'Patient Info',
-    subtitle: 'Capture identity, contact, and emergency contact details.',
+    subtitle: 'Enter the patient details to begin check-in.',
   },
   {
     key: 'symptoms',
-    title: 'Visit Details',
-    subtitle: 'Document why the patient is here today and any known measurements.',
-  },
-  {
-    key: 'medications',
     title: 'Medical Info',
-    subtitle: 'Review medications and relevant medical history before staff handoff.',
-  },
-  {
-    key: 'allergies',
-    title: 'Allergies & Safety',
-    subtitle: 'Flag sensitivities, reactions, and any safety context the team should see first.',
-  },
-  {
-    key: 'insurance',
-    title: 'Insurance',
-    subtitle: 'Capture the essential coverage details for verification.',
+    subtitle: 'Add the health details that matter for today.',
   },
   {
     key: 'review',
-    title: 'Review',
-    subtitle: 'Confirm the intake summary before the staff handoff.',
+    title: 'Review & Confirm',
+    subtitle: 'Confirm the information before optional uploads.',
+  },
+  {
+    key: 'documents',
+    title: 'Add Documents (Optional)',
+    subtitle: 'Add documents now, or skip and finish your check-in.',
   },
 ] as const satisfies readonly {
   key: IntakeStepKey;
@@ -93,29 +80,51 @@ export const intakeFlowSteps = [
 
 export const patientTypeOptions = [
   {
-    value: 'New patient',
-    label: 'New Patient',
-    description: 'Best for first-time visits, new registration, and full onboarding.',
+    value: 'myself',
+    label: 'Myself',
+    description: 'I am checking in for my own visit today.',
   },
   {
-    value: 'Returning patient',
-    label: 'Returning Patient',
-    description: 'Fast-track a known patient into symptom capture and review.',
+    value: 'someone_else',
+    label: 'Someone else',
+    description: 'I am helping a child or family member with their visit.',
+  },
+] as const;
+
+export const patientHistoryOptions = [
+  {
+    value: 'new',
+    label: 'This is my first visit',
+    description: 'Use the full guided intake for a new patient visit.',
   },
   {
-    value: 'Dependent / family member',
-    label: 'Dependent / Family',
-    description: 'Collect intake on behalf of a child or supported family member.',
+    value: 'returning',
+    label: 'I have been here before',
+    description: 'Mark this as a returning patient visit.',
   },
   {
-    value: 'Self pay',
-    label: 'Self Pay',
-    description: 'Keep the workflow ready for non-insurance or direct-pay visits.',
+    value: 'self_pay',
+    label: 'I am paying without insurance',
+    description: 'Keep the visit moving even if this will be self-pay.',
   },
 ] as const;
 
 function normalizeDigitsOnly(value: string, maxLength: number) {
   return value.replace(/\D/g, '').slice(0, maxLength);
+}
+
+function formatPhoneNumber(value: string) {
+  const digits = normalizeDigitsOnly(value, 10);
+
+  if (digits.length <= 3) {
+    return digits;
+  }
+
+  if (digits.length <= 6) {
+    return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  }
+
+  return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
 }
 
 function normalizeWeightInput(value: string) {
@@ -174,6 +183,21 @@ export function normalizeIntakeFormFields(
   if (typeof nextValues.dateOfBirth === 'string') {
     nextValues.dateOfBirth = normalizeDateDisplay(nextValues.dateOfBirth);
   }
+  if (typeof nextValues.phoneNumber === 'string') {
+    nextValues.phoneNumber = formatPhoneNumber(nextValues.phoneNumber);
+  }
+  if (typeof nextValues.emergencyContactPhone === 'string') {
+    nextValues.emergencyContactPhone = formatPhoneNumber(
+      nextValues.emergencyContactPhone,
+    );
+  }
+  if (typeof nextValues.gender === 'string') {
+    const normalizedGender = nextValues.gender.trim().toLowerCase();
+    nextValues.gender =
+      normalizedGender === 'male' || normalizedGender === 'female'
+        ? normalizedGender
+        : '';
+  }
   if (typeof nextValues.heightFt === 'string') {
     nextValues.heightFt = normalizeDigitsOnly(nextValues.heightFt, 2);
   }
@@ -195,6 +219,9 @@ export function normalizeReturningPatientFields(
   if (typeof nextValues.dateOfBirth === 'string') {
     nextValues.dateOfBirth = normalizeDateDisplay(nextValues.dateOfBirth);
   }
+  if (typeof nextValues.phoneNumber === 'string') {
+    nextValues.phoneNumber = formatPhoneNumber(nextValues.phoneNumber);
+  }
 
   return nextValues;
 }
@@ -205,6 +232,7 @@ export function createInitialIntakeForm(): IntakeFormData {
     firstName: '',
     lastName: '',
     dateOfBirth: '',
+    gender: '',
     emergencyContactName: '',
     emergencyContactPhone: '',
     heightFt: '',
@@ -328,7 +356,17 @@ function readNumber(value: unknown) {
 
 function readStep(value: unknown): IntakeStepKey {
   const normalized = readString(value);
-  const fallback: IntakeStepKey = 'patientType';
+  const fallback: IntakeStepKey = 'basicInfo';
+  if (normalized === 'patientType') {
+    return 'basicInfo';
+  }
+  if (
+    normalized === 'medications' ||
+    normalized === 'allergies' ||
+    normalized === 'insurance'
+  ) {
+    return 'symptoms';
+  }
   return intakeFlowSteps.some((step) => step.key === normalized)
     ? (normalized as IntakeStepKey)
     : fallback;

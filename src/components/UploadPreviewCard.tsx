@@ -11,6 +11,7 @@ type IconName = ComponentProps<typeof Ionicons>['name'];
 
 type UploadPreviewCardProps = {
   asset: UploadDocumentAsset | null;
+  fullWidth?: boolean;
   icon: IconName;
   onPress?: () => void;
   selected?: boolean;
@@ -20,6 +21,7 @@ type UploadPreviewCardProps = {
 
 export function UploadPreviewCard({
   asset,
+  fullWidth = false,
   icon,
   onPress,
   selected = false,
@@ -27,7 +29,7 @@ export function UploadPreviewCard({
   title,
 }: UploadPreviewCardProps) {
   return (
-    <Pressable onPress={onPress} style={styles.pressable}>
+    <Pressable onPress={onPress} style={[styles.pressable, fullWidth && styles.fullWidth]}>
       <InfoCard
         style={[styles.card, selected && styles.selectedCard]}
         subtitle={subtitle}
@@ -64,6 +66,9 @@ export function UploadPreviewCard({
 const styles = StyleSheet.create({
   pressable: {
     width: '48%',
+  },
+  fullWidth: {
+    width: '100%',
   },
   card: {
     minHeight: 250,

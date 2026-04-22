@@ -8,6 +8,8 @@ const DEFAULT_API_ORIGIN =
     ios: 'http://127.0.0.1:5000',
     web: 'http://127.0.0.1:5000',
   }) ?? 'http://127.0.0.1:5000';
+const TEMPORARY_PUBLIC_API_HOSTNAME = 'api.nexgenhealthapp.com';
+const TEMPORARY_PUBLIC_API_FALLBACK_ORIGIN = 'http://3.143.207.219';
 
 const ENV_NEXGEN_API_BASE_URL = normalizeConfiguredBaseUrl(
   process.env.EXPO_PUBLIC_NEXGEN_API_BASE_URL,
@@ -74,6 +76,12 @@ type ApiRequestOptions = {
   headers?: HeadersInit;
   method?: 'DELETE' | 'GET' | 'POST' | 'PUT';
   timeoutMs?: number;
+};
+
+type ApiFetchAttempt = {
+  response: Response;
+  usedFallback: boolean;
+  url: string;
 };
 
 export class ApiError extends Error {
@@ -257,6 +265,81 @@ function getNormalizedPath(path: string) {
   }
 
   return `/api/${trimmedPath}`;
+}
+
+function getRequestHostname(requestUrl: string) {
+  try {
+    return new URL(requestUrl).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function buildTemporaryFallbackRequestUrl(requestUrl: string) {
+  try {
+    const parsedUrl = new URL(requestUrl);
+
+    if (parsedUrl.hostname.toLowerCase() !== TEMPORARY_PUBLIC_API_HOSTNAME) {
+      return null;
+    }
+
+    const fallbackOrigin = new URL(TEMPORARY_PUBLIC_API_FALLBACK_ORIGIN);
+    parsedUrl.protocol = fallbackOrigin.protocol;
+    parsedUrl.host = fallbackOrigin.host;
+    return parsedUrl.toString();
+  } catch {
+    return null;
+  }
+}
+
+function shouldRetryWithTemporaryFallback(requestUrl: string, error: unknown) {
+  if (getRequestHostname(requestUrl) !== TEMPORARY_PUBLIC_API_HOSTNAME) {
+    return false;
+  }
+
+  if (error instanceof Error && error.name === 'AbortError') {
+    return false;
+  }
+
+  return true;
+}
+
+async function fetchWithTemporaryFallback(
+  requestUrl: string,
+  init: RequestInit,
+): Promise<ApiFetchAttempt> {
+  try {
+    const response = await fetch(requestUrl, init);
+    return {
+      response,
+      usedFallback: false,
+      url: requestUrl,
+    };
+  } catch (error) {
+    if (!shouldRetryWithTemporaryFallback(requestUrl, error)) {
+      throw error;
+    }
+
+    const fallbackRequestUrl = buildTemporaryFallbackRequestUrl(requestUrl);
+
+    if (!fallbackRequestUrl || fallbackRequestUrl === requestUrl) {
+      throw error;
+    }
+
+    if (__DEV__) {
+      console.warn('[NexGen Flo API] Retrying via EC2 fallback', {
+        fallbackRequestUrl,
+        requestUrl,
+      });
+    }
+
+    const response = await fetch(fallbackRequestUrl, init);
+    return {
+      response,
+      usedFallback: true,
+      url: fallbackRequestUrl,
+    };
+  }
 }
 
 function readRecord(value: unknown) {
@@ -566,6 +649,17 @@ export function buildApiUrl(path: string, baseUrl = getApiBaseUrl()) {
   return joinUrl(resolvedConfig.resolvedApiBaseUrl, normalizedPath);
 }
 
+export async function fetchApiResponse(
+  input: string,
+  init: RequestInit = {},
+) {
+  const requestUrl = isAbsoluteUrl(input)
+    ? input
+    : buildApiUrl(input, runtimeApiConfig.resolvedBaseUrl);
+
+  return fetchWithTemporaryFallback(requestUrl, init);
+}
+
 export async function apiRequest<T>(
   path: string,
   {
@@ -628,7 +722,7 @@ export async function apiRequest<T>(
   logApiDebug('request', exchangeBase);
 
   try {
-    const response = await fetch(requestUrl, {
+    const fetchAttempt = await fetchWithTemporaryFallback(requestUrl, {
       body:
         method === 'GET' || method === 'DELETE'
           ? undefined
@@ -637,6 +731,7 @@ export async function apiRequest<T>(
       method,
       signal: controller.signal,
     });
+    const response = fetchAttempt.response;
     const responseText = await response.text();
     const responseHeaders = responseHeadersToRecord(response.headers);
     const parsedResponseBody = parseResponseBody(
@@ -649,6 +744,7 @@ export async function apiRequest<T>(
       responseBody: responseText || null,
       responseHeaders,
       responseStatus: response.status,
+      url: fetchAttempt.url,
     };
 
     setLastApiExchange(completedExchange);
@@ -666,7 +762,7 @@ export async function apiRequest<T>(
         requestBody: requestBodyForDebug,
         requestHeaders,
         requestMethod: method,
-        requestUrl,
+        requestUrl: fetchAttempt.url,
         responseBody: parsedResponseBody,
         responseHeaders,
         responseText,

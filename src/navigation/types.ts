@@ -2,7 +2,6 @@ import type { DraftSource, IntakeLaunchMode, IntakeStepKey } from '../services';
 
 export type RootTabParamList = {
   Home: undefined;
-  Voice: undefined;
   Intake:
     | {
         mode?: IntakeLaunchMode;
@@ -12,5 +11,4 @@ export type RootTabParamList = {
         launchSource?: DraftSource;
       }
     | undefined;
-  Upload: undefined;
 };

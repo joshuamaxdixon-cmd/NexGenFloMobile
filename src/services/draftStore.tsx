@@ -462,7 +462,7 @@ function createInitialPersistedState(): PersistedDraftStoreState {
     activeFlowMode: 'intake',
     backend: createInitialBackendState(),
     intake: {
-      currentStep: 'patientType',
+      currentStep: 'basicInfo',
       form: createInitialIntakeForm(),
       lastUpdatedAt: null,
       source: 'home',
@@ -631,6 +631,21 @@ function mergePersistedState(
     };
   }
 
+  const normalizedPersistedStep = (() => {
+    const currentStep = payload.intake?.currentStep;
+
+    switch (currentStep) {
+      case 'patientType':
+        return 'basicInfo';
+      case 'medications':
+      case 'allergies':
+      case 'insurance':
+        return 'symptoms';
+      default:
+        return currentStep;
+    }
+  })();
+
   return {
     activeFlowMode:
       payload.activeFlowMode === 'returning' ? 'returning' : 'intake',
@@ -687,6 +702,7 @@ function mergePersistedState(
     intake: {
       ...initial.intake,
       ...payload.intake,
+      currentStep: normalizedPersistedStep ?? initial.intake.currentStep,
       form: normalizeIntakeFormFields({
         ...initial.intake.form,
         ...payload.intake?.form,
@@ -881,7 +897,7 @@ function reducer(
           },
         },
         intake: {
-          currentStep: action.payload?.step ?? 'patientType',
+          currentStep: action.payload?.step ?? 'basicInfo',
           form: nextForm,
           lastUpdatedAt: timestamp,
           source: action.payload?.source ?? 'home',
@@ -2054,11 +2070,51 @@ export function DraftStoreProvider({ children }: { children: ReactNode }) {
     if (stateRef.current.voice.handoff) {
       await syncVoiceHandoff();
     }
-    if (stateRef.current.uploads.insurance) {
-      await syncSelectedUpload('insurance');
+
+    const selectedUploads = {
+      insurance: Boolean(stateRef.current.uploads.insurance),
+      id: Boolean(stateRef.current.uploads.id),
+    };
+
+    let insuranceUploadReady =
+      !selectedUploads.insurance ||
+      stateRef.current.backend.uploads.insurance.status === 'uploaded';
+    let idUploadReady =
+      !selectedUploads.id || stateRef.current.backend.uploads.id.status === 'uploaded';
+
+    if (selectedUploads.insurance && !insuranceUploadReady) {
+      insuranceUploadReady = await syncSelectedUpload('insurance');
     }
-    if (stateRef.current.uploads.id) {
-      await syncSelectedUpload('id');
+    if (selectedUploads.id && !idUploadReady) {
+      idUploadReady = await syncSelectedUpload('id');
+    }
+
+    const missingUploadedDocuments: string[] = [];
+    if (selectedUploads.insurance && !insuranceUploadReady) {
+      missingUploadedDocuments.push('insurance card');
+    }
+    if (selectedUploads.id && !idUploadReady) {
+      missingUploadedDocuments.push('photo ID');
+    }
+
+    if (missingUploadedDocuments.length > 0) {
+      const message = `We couldn't finish sending your ${missingUploadedDocuments.join(
+        ' and ',
+      )}. Retry the upload or remove the document before finishing check-in.`;
+      dispatch({
+        type: 'set_backend_submit',
+        payload: {
+          fieldErrors: null,
+          message,
+          status: 'error',
+        },
+      });
+      recordQaEvent('final_submit', 'error', message, {
+        draftId: stateRef.current.backend.draft.draftId,
+        patientId: stateRef.current.backend.draft.patientId,
+        visitId: stateRef.current.backend.draft.visitId,
+      });
+      return false;
     }
 
     try {
@@ -2320,6 +2376,10 @@ export function formatDraftSyncStatus(state: DraftStoreState) {
     }`;
   }
 
+  if (state.backend.submit.status === 'error') {
+    return state.backend.submit.message ?? 'Submission needs attention.';
+  }
+
   if (state.backend.draft.status === 'synced') {
     return state.backend.draft.lastSyncedAt
       ? `Backend synced. ${formatLastSaved(state.backend.draft.lastSyncedAt)}`
@@ -2348,7 +2408,8 @@ export function hasResumeableDraft(state: DraftStoreState) {
   return (
     intakeHasData ||
     returningHasData ||
-    state.intake.currentStep !== 'patientType' ||
+    (state.intake.currentStep !== 'basicInfo' &&
+      state.intake.currentStep !== 'patientType') ||
     state.activeFlowMode === 'returning'
   );
 }
@@ -2367,7 +2428,7 @@ export function getResumeDraftDescription(state: DraftStoreState) {
     (step) => step.key === state.intake.currentStep,
   );
 
-  return `Continue at ${currentStep?.title ?? 'Patient Type'}. ${formatLastSaved(
+  return `Continue at ${currentStep?.title ?? 'Patient Info'}. ${formatLastSaved(
     state.intake.lastUpdatedAt,
   )}`;
 }

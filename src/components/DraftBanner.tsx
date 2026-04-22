@@ -54,17 +54,17 @@ export function DraftBanner({
 
 const styles = StyleSheet.create({
   banner: {
-    borderRadius: 18,
+    borderRadius: 22,
     borderWidth: 1,
     padding: spacing.md,
   },
   infoBanner: {
     backgroundColor: colors.surfaceMuted,
-    borderColor: colors.primarySoft,
+    borderColor: colors.divider,
   },
   successBanner: {
     backgroundColor: colors.accentMint,
-    borderColor: colors.success,
+    borderColor: colors.divider,
   },
   warningBanner: {
     backgroundColor: colors.accentGold,
@@ -90,7 +90,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xxs,
   },
   infoBadge: {
-    backgroundColor: colors.primarySoft,
+    backgroundColor: colors.surface,
   },
   successBadge: {
     backgroundColor: colors.surface,

@@ -55,20 +55,20 @@ export function PrimaryButton({
 
 const styles = StyleSheet.create({
   button: {
-    minHeight: 56,
-    borderRadius: 18,
+    minHeight: 58,
+    borderRadius: 22,
     backgroundColor: colors.primaryDeep,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.xl,
     shadowColor: colors.shadow,
     shadowOffset: {
       width: 0,
-      height: 10,
+      height: 8,
     },
-    shadowOpacity: 0.12,
-    shadowRadius: 20,
+    shadowOpacity: 0.1,
+    shadowRadius: 18,
     elevation: 4,
   },
   pressed: {
@@ -80,6 +80,7 @@ const styles = StyleSheet.create({
   label: {
     ...typography.button,
     color: colors.surface,
+    letterSpacing: 0.1,
   },
   labelWithAdornment: {
     marginLeft: spacing.xs,

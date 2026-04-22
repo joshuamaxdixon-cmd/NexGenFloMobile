@@ -165,11 +165,20 @@ type UploadDraftSlice = {
   lastUpdatedAt: string | null;
 };
 
+export type JanetModeState = {
+  active: boolean;
+  currentStep: IntakeStepKey;
+  language: 'en' | 'es';
+  noisyRoomEnabled: boolean;
+  returnStep: IntakeStepKey | null;
+};
+
 export type DraftStoreState = {
   activeFlowMode: 'intake' | 'returning';
   backend: BackendState;
   hydrated: boolean;
   intake: IntakeDraftSlice;
+  janetMode: JanetModeState;
   returningPatient: ReturningPatientDraftSlice;
   uploads: UploadDraftSlice;
   voice: JanetVoiceDraft;
@@ -255,6 +264,27 @@ type DraftStoreAction =
       payload: IntakeStepKey;
     }
   | {
+      type: 'open_janet_mode';
+      payload?: {
+        step?: IntakeStepKey;
+      };
+    }
+  | {
+      type: 'close_janet_mode';
+    }
+  | {
+      type: 'set_janet_mode_step';
+      payload: IntakeStepKey;
+    }
+  | {
+      type: 'set_janet_language';
+      payload: 'en' | 'es';
+    }
+  | {
+      type: 'set_janet_noisy_room';
+      payload: boolean;
+    }
+  | {
       type: 'set_upload_asset';
       payload: {
         asset: UploadDocumentAsset | null;
@@ -308,9 +338,14 @@ type DraftStoreContextValue = {
   clearBackendDebugState: () => void;
   clearDraft: (scope?: DraftScope) => void;
   continueReturningPatient: () => void;
+  closeJanetMode: () => void;
   fetchRemoteDraft: (draftId?: string | null) => Promise<boolean>;
   lookupReturningPatient: () => Promise<boolean>;
+  openJanetMode: (options?: { step?: IntakeStepKey }) => void;
   openReturningFlow: (reset?: boolean) => void;
+  setJanetLanguage: (language: 'en' | 'es') => void;
+  setJanetModeStep: (step: IntakeStepKey) => void;
+  setJanetNoisyRoom: (enabled: boolean) => void;
   setIntakeStep: (step: IntakeStepKey) => void;
   setUploadAsset: (
     documentType: UploadDocumentType,
@@ -488,6 +523,13 @@ function createInitialPersistedState(): PersistedDraftStoreState {
     returningPatient: {
       form: createInitialReturningPatientForm(),
       lastUpdatedAt: null,
+    },
+    janetMode: {
+      active: false,
+      currentStep: 'basicInfo',
+      language: 'en',
+      noisyRoomEnabled: false,
+      returnStep: null,
     },
     uploads: {
       id: null,
@@ -789,6 +831,12 @@ function mergePersistedState(
         ...payload.returningPatient?.form,
       }) as ReturningPatientFormData,
     },
+    janetMode: {
+      ...initial.janetMode,
+      ...payload.janetMode,
+      currentStep: normalizedPersistedStep ?? payload.janetMode?.currentStep ?? initial.janetMode.currentStep,
+      returnStep: payload.janetMode?.returnStep ?? null,
+    },
     uploads: {
       ...initial.uploads,
       ...payload.uploads,
@@ -864,6 +912,7 @@ function getPersistableState(state: DraftStoreState): PersistedDraftStoreState {
       },
     },
     intake: state.intake,
+    janetMode: state.janetMode,
     returningPatient: state.returningPatient,
     uploads: state.uploads,
     voice: state.voice,
@@ -991,6 +1040,11 @@ function reducer(
           source: action.payload?.source ?? 'home',
           voiceImportedAt: null,
         },
+        janetMode: {
+          ...initial.janetMode,
+          active: false,
+          currentStep: action.payload?.step ?? 'basicInfo',
+        },
         returningPatient: initial.returningPatient,
         uploads: initial.uploads,
         voice: initial.voice,
@@ -1005,9 +1059,68 @@ function reducer(
       return {
         ...state,
         activeFlowMode: 'intake',
+        janetMode: {
+          ...state.janetMode,
+          currentStep: state.janetMode.active
+            ? state.janetMode.currentStep
+            : action.payload,
+        },
         intake: {
           ...state.intake,
           currentStep: action.payload,
+          lastUpdatedAt: nowIso(),
+        },
+      };
+    case 'open_janet_mode': {
+      const targetStep = action.payload?.step ?? state.intake.currentStep;
+
+      return {
+        ...state,
+        activeFlowMode: 'intake',
+        janetMode: {
+          ...state.janetMode,
+          active: true,
+          currentStep: targetStep,
+          returnStep: state.intake.currentStep,
+        },
+      };
+    }
+    case 'close_janet_mode':
+      return {
+        ...state,
+        janetMode: {
+          ...state.janetMode,
+          active: false,
+          currentStep: state.janetMode.returnStep ?? state.intake.currentStep,
+          returnStep: null,
+        },
+      };
+    case 'set_janet_mode_step':
+      return {
+        ...state,
+        janetMode: {
+          ...state.janetMode,
+          currentStep: action.payload,
+        },
+      };
+    case 'set_janet_language':
+      return {
+        ...state,
+        janetMode: {
+          ...state.janetMode,
+          language: action.payload,
+        },
+      };
+    case 'set_janet_noisy_room':
+      return {
+        ...state,
+        janetMode: {
+          ...state.janetMode,
+          noisyRoomEnabled: action.payload,
+        },
+        voice: {
+          ...state.voice,
+          spellModeEnabled: action.payload,
           lastUpdatedAt: nowIso(),
         },
       };
@@ -1365,6 +1478,7 @@ function reducer(
         case 'voice':
           return {
             ...state,
+            janetMode: initial.janetMode,
             voice: initial.voice,
             backend: {
               ...state.backend,
@@ -2332,14 +2446,43 @@ export function DraftStoreProvider({ children }: { children: ReactNode }) {
         type: 'continue_returning_patient',
       });
     },
+    closeJanetMode: () => {
+      dispatch({
+        type: 'close_janet_mode',
+      });
+    },
     fetchRemoteDraft: fetchRemoteDraftState,
     lookupReturningPatient: lookupReturningPatientState,
+    openJanetMode: (options) => {
+      dispatch({
+        type: 'open_janet_mode',
+        payload: options,
+      });
+    },
     openReturningFlow: (reset) => {
       dispatch({
         type: 'open_returning_flow',
         payload: {
           reset,
         },
+      });
+    },
+    setJanetLanguage: (language) => {
+      dispatch({
+        type: 'set_janet_language',
+        payload: language,
+      });
+    },
+    setJanetModeStep: (step) => {
+      dispatch({
+        type: 'set_janet_mode_step',
+        payload: step,
+      });
+    },
+    setJanetNoisyRoom: (enabled) => {
+      dispatch({
+        type: 'set_janet_noisy_room',
+        payload: enabled,
       });
     },
     setIntakeStep: (step) => {

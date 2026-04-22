@@ -4,6 +4,7 @@ import { Alert, StyleSheet } from 'react-native';
 import { DraftBanner } from '../components/DraftBanner';
 import { EmptyStateCard } from '../components/EmptyStateCard';
 import { IntakeActionBar } from '../components/IntakeActionBar';
+import { JanetAssistantEntry } from '../components/JanetAssistantEntry';
 import { ProgressBar } from '../components/ProgressBar';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { SecondaryButton } from '../components/SecondaryButton';
@@ -31,7 +32,7 @@ import { DocumentsScreen } from './intake/DocumentsScreen';
 import { PastMedicalHistoryScreen } from './intake/PastMedicalHistoryScreen';
 import { ReviewScreen } from './intake/ReviewScreen';
 import { SymptomsScreen } from './intake/SymptomsScreen';
-import { useUnifiedJanetFieldVoice } from './intake/useUnifiedJanetFieldVoice';
+import { VoiceExperience } from './VoiceScreen';
 import { spacing } from '../theme';
 
 function hasFieldErrors(fieldErrors: IntakeFieldErrors) {
@@ -43,17 +44,16 @@ function hasFieldErrors(fieldErrors: IntakeFieldErrors) {
 export function IntakeScreen() {
   const {
     clearDraft,
+    closeJanetMode,
     fetchRemoteDraft,
     lookupReturningPatient,
+    openJanetMode,
     setUploadAsset,
     setIntakeStep,
-    setVoiceListening,
-    setVoiceTranscript,
     state,
     submitCurrentIntake,
     syncCurrentDraft,
     updateIntakeField,
-    updateIntakeFields,
     updateReturningPatientField,
   } = useDraftStore();
   const patientPortal = usePatientPortal();
@@ -115,20 +115,6 @@ export function IntakeScreen() {
   const isDocumentsStep = currentConfig.key === 'documents';
   const isEditingFromReview =
     returnToReviewStep !== null && state.intake.currentStep !== 'review';
-  const inlineVoice = useUnifiedJanetFieldVoice({
-    currentStep: currentConfig.key,
-    draftId: state.backend.draft.draftId,
-    form: state.intake.form,
-    patientId: state.backend.draft.patientId,
-    returningPatient: state.returningPatient.form,
-    setVoiceListening,
-    setVoiceTranscript,
-    syncCurrentDraft: async () => {
-      await syncCurrentDraft();
-    },
-    updateIntakeFields,
-    visitId: state.backend.draft.visitId,
-  });
 
   if (!state.hydrated) {
     return (
@@ -281,7 +267,6 @@ export function IntakeScreen() {
             fieldErrors={visibleStepErrors}
             form={state.intake.form}
             onChange={updateIntakeField}
-            voice={inlineVoice ?? undefined}
           />
         );
       case 'symptoms':
@@ -290,7 +275,6 @@ export function IntakeScreen() {
             fieldErrors={visibleStepErrors}
             form={state.intake.form}
             onChange={updateIntakeField}
-            voice={inlineVoice ?? undefined}
           />
         );
       case 'review':
@@ -393,6 +377,19 @@ export function IntakeScreen() {
   const isPortalActive = patientPortal.state.active;
   const portalBusy = patientPortal.state.busyAction;
   const portalSummary = patientPortal.state.portal;
+  const shouldShowJanetVoiceMode =
+    !isPortalActive &&
+    state.activeFlowMode === 'intake' &&
+    state.janetMode.active;
+
+  if (shouldShowJanetVoiceMode) {
+    return (
+      <VoiceExperience
+        onClose={closeJanetMode}
+        onSwitchToTyping={closeJanetMode}
+      />
+    );
+  }
 
   return (
     <ScreenContainer>
@@ -542,6 +539,13 @@ export function IntakeScreen() {
           <SectionHeader
             subtitle={currentConfig.subtitle}
             title={currentConfig.title}
+          />
+          <JanetAssistantEntry
+            onPress={() => {
+              openJanetMode({
+                step: state.intake.currentStep,
+              });
+            }}
           />
           {renderCurrentStep()}
           <IntakeActionBar

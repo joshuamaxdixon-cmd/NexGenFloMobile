@@ -1,23 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { InfoCard } from '../../components/InfoCard';
 import { InputField } from '../../components/InputField';
-import { SecondaryButton } from '../../components/SecondaryButton';
 import { formatDateInput } from '../../services/intake';
 import { colors, spacing, typography } from '../../theme';
 import type { IntakeStepComponentProps } from './types';
-
-const REQUIRED_VOICE_FIELDS: (keyof IntakeStepComponentProps['form'])[] = [
-  'firstName',
-  'lastName',
-  'dateOfBirth',
-  'gender',
-  'phoneNumber',
-  'heightFt',
-  'weightLb',
-];
 
 const sexOptions = [
   { label: 'Male', value: 'male' },
@@ -60,16 +49,8 @@ export function BasicInfoScreen({
   fieldErrors,
   form,
   onChange,
-  voice,
 }: IntakeStepComponentProps) {
   const [emergencyExpanded, setEmergencyExpanded] = useState(false);
-  const firstNameVoice = voice?.bindField('firstName');
-  const lastNameVoice = voice?.bindField('lastName');
-  const dateOfBirthVoice = voice?.bindField('dateOfBirth');
-  const genderVoice = voice?.bindField('gender');
-  const phoneVoice = voice?.bindField('phoneNumber');
-  const heightVoice = voice?.bindField('heightFt');
-  const weightVoice = voice?.bindField('weightLb');
 
   useEffect(() => {
     if (!form.patientType.trim()) {
@@ -77,47 +58,9 @@ export function BasicInfoScreen({
     }
   }, [form.patientType, onChange]);
 
-  const preferredVoiceField = useMemo(
-    () =>
-      REQUIRED_VOICE_FIELDS.find((field) => {
-        const value = form[field];
-        return typeof value === 'string' && value.trim().length === 0;
-      }) ?? 'firstName',
-    [form],
-  );
-
-  const preferredVoiceBinding =
-    preferredVoiceField === 'firstName'
-      ? firstNameVoice
-      : preferredVoiceField === 'lastName'
-        ? lastNameVoice
-        : preferredVoiceField === 'dateOfBirth'
-          ? dateOfBirthVoice
-          : preferredVoiceField === 'gender'
-            ? genderVoice
-            : preferredVoiceField === 'phoneNumber'
-              ? phoneVoice
-              : preferredVoiceField === 'heightFt'
-                ? heightVoice
-                : weightVoice;
-
   return (
     <View>
       <InfoCard>
-        <View style={styles.voiceAssistRow}>
-          <Text style={styles.voiceAssistText}>
-            Need help? Use Janet to fill this faster
-          </Text>
-          <SecondaryButton
-            onPress={preferredVoiceBinding?.onVoicePress ?? (() => undefined)}
-            style={styles.voiceAssistButton}
-            title="Use voice instead"
-          />
-        </View>
-        {preferredVoiceBinding?.footer ? (
-          <View style={styles.voiceAssistFooter}>{preferredVoiceBinding.footer}</View>
-        ) : null}
-
         <View style={styles.formStack}>
           <InputField
             autoCapitalize="words"
@@ -262,24 +205,6 @@ export function BasicInfoScreen({
 }
 
 const styles = StyleSheet.create({
-  voiceAssistRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: spacing.md,
-    justifyContent: 'space-between',
-    marginBottom: spacing.lg,
-  },
-  voiceAssistText: {
-    ...typography.body,
-    color: colors.textPrimary,
-    flex: 1,
-  },
-  voiceAssistButton: {
-    minWidth: 160,
-  },
-  voiceAssistFooter: {
-    marginBottom: spacing.md,
-  },
   formStack: {
     gap: spacing.sm,
   },

@@ -16,10 +16,12 @@ import {
   addJanetLiveSpeechListener,
   abortJanetLiveSpeech,
   bootstrapJanetSession,
+  buildPastMedicalHistoryEntries,
   buildJanetHandoffFromDraft,
   buildJanetSpeechText,
   configureJanetPlaybackAudioMode,
   configureJanetRecordingAudioMode,
+  hydratePastMedicalHistoryFromLegacy,
   normalizeIntakeFormFields,
   formatJanetConfirmation,
   getJanetLiveSpeechAvailability,
@@ -38,6 +40,7 @@ import {
   useDraftStore,
   type DocumentScanResult,
   type IntakeFormData,
+  type IntakeStepKey,
   type JanetConfirmationState,
   type JanetConversationStep,
   type JanetSessionState,
@@ -47,6 +50,7 @@ import { colors, spacing, typography } from '../theme';
 
 type VoiceExperienceProps = {
   embedded?: boolean;
+  onClose?: () => void;
   onSwitchToTyping?: () => void;
 };
 
@@ -59,6 +63,52 @@ type JanetRecordingStatus = {
 type PendingScanResult = DocumentScanResult & {
   promptText: string;
 };
+
+type PastMedicalHistoryVoiceField =
+  | 'pastMedicalHistoryChronicConditions'
+  | 'pastMedicalHistoryOtherRelevantHistory'
+  | 'pastMedicalHistorySurgicalHistory';
+
+const JANET_UI_COPY = {
+  en: {
+    close: 'Close Janet',
+    currentQuestion: 'CURRENT QUESTION',
+    editManually: 'Edit manually',
+    greetingTitle: 'Janet Guided Check-In',
+    greetingSubtitle:
+      'Janet asks one question at a time and writes answers back into this same check-in.',
+    janetVoiceMode: 'JANET\nVOICE MODE',
+    language: 'English',
+    listening: 'Listening…',
+    noisyRoom: 'Noisy Room',
+    playPrompt: 'Play prompt',
+    processing: 'Processing your answer…',
+    repeat: 'Repeat',
+    spanish: 'Español',
+    stopAudio: 'Stop audio',
+    switchToTyping: 'Edit manually',
+    tapOrSpeak: 'Tap or speak when ready.',
+  },
+  es: {
+    close: 'Cerrar Janet',
+    currentQuestion: 'PREGUNTA ACTUAL',
+    editManually: 'Editar manualmente',
+    greetingTitle: 'Registro guiado con Janet',
+    greetingSubtitle:
+      'Janet hace una pregunta a la vez y guarda las respuestas en este mismo check-in.',
+    janetVoiceMode: 'JANET\nMODO VOZ',
+    language: 'Español',
+    listening: 'Escuchando…',
+    noisyRoom: 'Lugar ruidoso',
+    playPrompt: 'Repetir pregunta',
+    processing: 'Procesando tu respuesta…',
+    repeat: 'Repetir',
+    spanish: 'Español',
+    stopAudio: 'Detener audio',
+    switchToTyping: 'Editar manualmente',
+    tapOrSpeak: 'Toca o habla cuando estés listo.',
+  },
+} as const;
 
 const SCAN_LOW_CONFIDENCE_THRESHOLD = 0.8;
 const JANET_TIMING = {
@@ -133,6 +183,9 @@ const FIELD_LABELS: Record<string, string> = {
   medications: 'medications',
   memberId: 'insurance member ID',
   painLevel: 'pain level',
+  pastMedicalHistoryChronicConditions: 'chronic conditions',
+  pastMedicalHistoryOtherRelevantHistory: 'other relevant history',
+  pastMedicalHistorySurgicalHistory: 'surgical history',
   patientType: 'visit type',
   phoneNumber: 'phone number',
   subscriberName: 'insurance subscriber',
@@ -301,7 +354,7 @@ function getLivePillLabel(args: {
 }
 
 function buildPreviewRows(
-  step: JanetConversationStep,
+  step: IntakeStepKey,
   form: ReturnType<typeof useDraftStore>['state']['intake']['form'],
 ) {
   if (step === 'basicInfo') {
@@ -344,11 +397,114 @@ function buildPreviewRows(
     ] as const;
   }
 
+  if (step === 'pastMedicalHistory') {
+    const entries = buildPastMedicalHistoryEntries(form);
+
+    return [
+      ['Chronic conditions', entries.chronic.join(', ')],
+      ['Surgical history', entries.surgical.join(', ')],
+      ['Other relevant history', entries.otherRelevant.join(', ')],
+    ] as const;
+  }
+
   return [
     ['Name', [form.firstName, form.lastName].filter(Boolean).join(' ').trim()],
     ['Chief concern', form.chiefConcern],
     ['Medications', form.medications],
   ] as const;
+}
+
+function isBackendManagedJanetStep(step: IntakeStepKey) {
+  return (
+    step === 'basicInfo' ||
+    step === 'symptoms' ||
+    step === 'documents' ||
+    step === 'review'
+  );
+}
+
+function getNextPastMedicalHistoryField(
+  form: IntakeFormData,
+): PastMedicalHistoryVoiceField | null {
+  if (
+    form.pastMedicalHistoryChronicConditions.length === 0 &&
+    form.pastMedicalHistoryOtherMentalHealthCondition.trim().length === 0
+  ) {
+    return 'pastMedicalHistoryChronicConditions';
+  }
+
+  if (
+    form.pastMedicalHistorySurgicalHistory.length === 0 &&
+    form.pastMedicalHistoryOtherSurgery.trim().length === 0
+  ) {
+    return 'pastMedicalHistorySurgicalHistory';
+  }
+
+  if (form.pastMedicalHistoryOtherRelevantHistory.length === 0) {
+    return 'pastMedicalHistoryOtherRelevantHistory';
+  }
+
+  return null;
+}
+
+function getPastMedicalHistoryFieldAfter(
+  field: PastMedicalHistoryVoiceField,
+): PastMedicalHistoryVoiceField | null {
+  const fieldOrder: PastMedicalHistoryVoiceField[] = [
+    'pastMedicalHistoryChronicConditions',
+    'pastMedicalHistorySurgicalHistory',
+    'pastMedicalHistoryOtherRelevantHistory',
+  ];
+  const currentIndex = fieldOrder.indexOf(field);
+  return currentIndex >= 0 ? fieldOrder[currentIndex + 1] ?? null : null;
+}
+
+function buildPastMedicalHistoryPrompt(
+  field: PastMedicalHistoryVoiceField | null,
+  language: 'en' | 'es',
+) {
+  if (language === 'es') {
+    switch (field) {
+      case 'pastMedicalHistoryChronicConditions':
+        return 'Dime cualquier condición crónica o antecedente de salud mental que aplique. También puedes decir ninguna.';
+      case 'pastMedicalHistorySurgicalHistory':
+        return 'Dime cualquier cirugía previa que aplique. También puedes decir ninguna.';
+      case 'pastMedicalHistoryOtherRelevantHistory':
+        return 'Dime cualquier otro antecedente relevante, como fumar o embarazo. También puedes decir ninguna.';
+      default:
+        return 'Vamos a revisar los antecedentes médicos pasados.';
+    }
+  }
+
+  switch (field) {
+    case 'pastMedicalHistoryChronicConditions':
+      return 'Tell me any chronic conditions or mental health history that apply. You can also say none.';
+    case 'pastMedicalHistorySurgicalHistory':
+      return 'Tell me any surgical history that applies. You can also say none.';
+    case 'pastMedicalHistoryOtherRelevantHistory':
+      return 'Tell me any other relevant history, like smoking or pregnancy. You can also say none.';
+    default:
+      return 'Let’s review past medical history.';
+  }
+}
+
+function transcriptMeansNone(value: string) {
+  const normalized = value.toLowerCase();
+  return (
+    normalized === 'none' ||
+    normalized === 'no' ||
+    normalized.includes('none of the above') ||
+    normalized.includes('ninguna') ||
+    normalized.includes('ninguno')
+  );
+}
+
+function getJanetStepTitle(step: IntakeStepKey, field: string | null) {
+  if (step === 'pastMedicalHistory') {
+    return 'Past Medical History';
+  }
+
+  return getStepTitle(field);
 }
 
 function buildRecognitionContext(
@@ -394,11 +550,15 @@ function buildRecognitionContext(
 
 export function VoiceExperience({
   embedded = false,
+  onClose,
   onSwitchToTyping,
 }: VoiceExperienceProps) {
   const navigation = useNavigation<BottomTabNavigationProp<RootTabParamList>>();
   const {
-    setIntakeStep,
+    closeJanetMode,
+    setJanetLanguage,
+    setJanetModeStep,
+    setJanetNoisyRoom,
     setVoiceEditing,
     setVoiceHandoff,
     setVoiceListening,
@@ -446,7 +606,7 @@ export function VoiceExperience({
   const [micError, setMicError] = useState<string | null>(null);
   const [speechState, setSpeechState] =
     useState<JanetSpeechPlaybackState>('ready');
-  const [autoListenEnabled, setAutoListenEnabled] = useState(true);
+  const [autoListenEnabled] = useState(true);
   const [voiceOutputEnabled, setVoiceOutputEnabled] = useState(true);
   const [liveMeterLevel, setLiveMeterLevel] = useState(0);
   const [pendingAutoListenToken, setPendingAutoListenToken] = useState<string | null>(
@@ -459,6 +619,8 @@ export function VoiceExperience({
   const [scanningDocumentType, setScanningDocumentType] = useState<
     DocumentScanResult['documentType'] | null
   >(null);
+  const [pastMedicalHistoryField, setPastMedicalHistoryField] =
+    useState<PastMedicalHistoryVoiceField | null>(null);
   const hasDraftProgress = useMemo(
     () => Object.values(state.intake.form).some((value) => hasIntakeProgressValue(value)),
     [state.intake.form],
@@ -468,10 +630,20 @@ export function VoiceExperience({
     [],
   );
 
-  const janetStep =
-    session?.currentStep ?? inferJanetConversationStep(state.intake.currentStep);
-  const currentFieldLabel = getCurrentFieldLabel(session?.currentField ?? null);
-  const currentStepTitle = getStepTitle(session?.currentField ?? null);
+  const janetStep = state.janetMode.active
+    ? state.janetMode.currentStep
+    : state.intake.currentStep;
+  const janetCopy = JANET_UI_COPY[state.janetMode.language];
+  const backendJanetStep = isBackendManagedJanetStep(janetStep)
+    ? inferJanetConversationStep(janetStep)
+    : 'symptoms';
+  const currentFieldLabel = janetStep === 'pastMedicalHistory'
+    ? getCurrentFieldLabel(pastMedicalHistoryField)
+    : getCurrentFieldLabel(session?.currentField ?? null);
+  const currentStepTitle = getJanetStepTitle(
+    janetStep,
+    janetStep === 'pastMedicalHistory' ? pastMedicalHistoryField : session?.currentField ?? null,
+  );
   const currentSpeechText = buildJanetSpeechText({
     confirmation,
     handoff: state.voice.handoff,
@@ -499,13 +671,21 @@ export function VoiceExperience({
       return finalTranscript;
     }
     if (isRecording) {
-      return 'Listening…';
+      return janetCopy.listening;
     }
     if (isProcessing) {
-      return 'Processing your answer…';
+      return janetCopy.processing;
     }
-    return 'Tap or speak when ready.';
-  }, [finalTranscript, isProcessing, isRecording, partialTranscript]);
+    return janetCopy.tapOrSpeak;
+  }, [
+    finalTranscript,
+    isProcessing,
+    isRecording,
+    janetCopy.listening,
+    janetCopy.processing,
+    janetCopy.tapOrSpeak,
+    partialTranscript,
+  ]);
 
   const stopPlayback = useCallback(async () => {
     await stopJanetReplyAudio(soundRef.current);
@@ -526,14 +706,33 @@ export function VoiceExperience({
       force?: boolean;
       formOverride?: IntakeFormData;
     }) => {
+      if (!isBackendManagedJanetStep(janetStep)) {
+        const nextPastMedicalHistoryField = getNextPastMedicalHistoryField(
+          options?.formOverride ?? state.intake.form,
+        );
+        setPastMedicalHistoryField(nextPastMedicalHistoryField);
+        setReplyText(
+          buildPastMedicalHistoryPrompt(
+            nextPastMedicalHistoryField,
+            state.janetMode.language,
+          ),
+        );
+        setSession(null);
+        setConfirmation(EMPTY_CONFIRMATION);
+        setPartialTranscript('');
+        setFinalTranscript('');
+        return null;
+      }
+
       const nextBootstrapKey = [
         state.backend.draft.draftId ?? '',
         state.backend.draft.patientId ?? '',
         state.backend.draft.visitId ?? '',
-        options?.currentStepOverride ?? state.intake.currentStep,
+        options?.currentStepOverride ?? janetStep,
         options?.formOverride?.firstName ?? state.intake.form.firstName,
         options?.formOverride?.lastName ?? state.intake.form.lastName,
         options?.formOverride?.dateOfBirth ?? state.intake.form.dateOfBirth,
+        state.janetMode.language,
       ].join(':');
 
       if (!options?.force && bootstrapKeyRef.current === nextBootstrapKey) {
@@ -550,10 +749,10 @@ export function VoiceExperience({
 
       try {
         const nextSession = await bootstrapJanetSession({
-          currentStep: options?.currentStepOverride ?? state.intake.currentStep,
+          currentStep: options?.currentStepOverride ?? backendJanetStep,
           draftId: state.backend.draft.draftId,
           form: options?.formOverride ?? state.intake.form,
-          language: 'en',
+          language: state.janetMode.language,
           patientId: state.backend.draft.patientId,
           returningPatient: state.returningPatient.form,
           visitId: state.backend.draft.visitId,
@@ -588,10 +787,12 @@ export function VoiceExperience({
       state.backend.draft.draftId,
       state.backend.draft.patientId,
       state.backend.draft.visitId,
-      state.intake.currentStep,
+      janetStep,
       state.intake.form,
+      state.janetMode.language,
       state.returningPatient.form,
       updateIntakeFields,
+      backendJanetStep,
     ],
   );
 
@@ -670,8 +871,8 @@ export function VoiceExperience({
       if (audioUri) {
         try {
           const transcription = await transcribeJanetAudio({
-            currentStep: janetStep,
-            language: session?.language ?? 'en',
+            currentStep: backendJanetStep,
+            language: state.janetMode.language,
             sessionId: session?.sessionId ?? '',
             uri: audioUri,
           });
@@ -717,12 +918,12 @@ export function VoiceExperience({
       resetLiveSpeechCapture();
     }
   }, [
-    janetStep,
+    backendJanetStep,
     resetLiveSpeechCapture,
-    session?.language,
     session?.sessionId,
     setVoiceListening,
     setVoiceTranscript,
+    state.janetMode.language,
     state.voice.spellModeEnabled,
   ]);
 
@@ -732,9 +933,22 @@ export function VoiceExperience({
 
     try {
       if (!session?.sessionId) {
-        const nextSession = await bootstrapSession({ force: true });
-        if (!nextSession?.sessionId) {
-          throw new Error('Janet is still getting ready. Please try again.');
+        if (isBackendManagedJanetStep(janetStep)) {
+          const nextSession = await bootstrapSession({ force: true });
+          if (!nextSession?.sessionId) {
+            throw new Error('Janet is still getting ready. Please try again.');
+          }
+        } else {
+          const transcriptionSession = await bootstrapJanetSession({
+            currentStep: 'symptoms',
+            draftId: state.backend.draft.draftId,
+            form: state.intake.form,
+            language: state.janetMode.language,
+            patientId: state.backend.draft.patientId,
+            returningPatient: state.returningPatient.form,
+            visitId: state.backend.draft.visitId,
+          });
+          setSession(transcriptionSession);
         }
       }
 
@@ -769,7 +983,7 @@ export function VoiceExperience({
             session?.currentField ?? null,
             state.intake.form,
           ),
-          language: 'en-US',
+          language: state.janetMode.language === 'es' ? 'es-US' : 'en-US',
         });
         return;
       }
@@ -815,6 +1029,7 @@ export function VoiceExperience({
     bootstrapSession,
     clearSilenceTimeout,
     handleRecordingStatusUpdate,
+    janetStep,
     liveSpeechAvailability.moduleAvailable,
     liveSpeechAvailability.recognitionAvailable,
     session?.sessionId,
@@ -822,8 +1037,13 @@ export function VoiceExperience({
     setVoiceEditing,
     setVoiceListening,
     setVoiceTranscript,
+    state.backend.draft.draftId,
+    state.backend.draft.patientId,
+    state.backend.draft.visitId,
     state.voice.spellModeEnabled,
     state.intake.form,
+    state.janetMode.language,
+    state.returningPatient.form,
     stopPlayback,
   ]);
 
@@ -856,7 +1076,7 @@ export function VoiceExperience({
         soundRef.current = await playJanetReplyAudio({
           cacheSafe: false,
           fallbackToDeviceSpeech: true,
-          language: session?.language ?? 'en',
+          language: state.janetMode.language,
           onComplete: () => {
             setSpeechState('replay');
             if (shouldAutoListenAfter) {
@@ -880,7 +1100,7 @@ export function VoiceExperience({
         setSpeechState(lastSpokenTextRef.current.trim() ? 'replay' : 'ready');
       }
     },
-    [autoListenEnabled, session?.language, session?.sessionId, voiceOutputEnabled],
+    [autoListenEnabled, session?.sessionId, state.janetMode.language, voiceOutputEnabled],
   );
 
   const handleJanetTurn = useCallback(
@@ -889,6 +1109,116 @@ export function VoiceExperience({
       confidence: number | null,
       interactionMode: 'correction' | 'normal' | 'spell' = 'normal',
     ) => {
+      if (janetStep === 'pastMedicalHistory') {
+        setIsProcessing(true);
+        setMicError(null);
+
+        try {
+          const targetField =
+            pastMedicalHistoryField ??
+            getNextPastMedicalHistoryField(state.intake.form);
+
+          if (!targetField) {
+            setJanetModeStep('documents');
+            setReplyText(
+              state.janetMode.language === 'es'
+                ? 'Los antecedentes médicos están completos. Ahora pasemos a los documentos.'
+                : 'Past medical history is complete. Next, let’s look at documents.',
+            );
+            return;
+          }
+
+          const normalizedTranscript = normalizeTranscriptText(transcript);
+          const hydrated = hydratePastMedicalHistoryFromLegacy(normalizedTranscript);
+          const explicitNone = transcriptMeansNone(normalizedTranscript);
+          const nextUpdates: Partial<IntakeFormData> = {
+            pastMedicalHistoryHydrated: true,
+          };
+
+          if (targetField === 'pastMedicalHistoryChronicConditions') {
+            nextUpdates.pastMedicalHistoryChronicConditions = explicitNone
+              ? []
+              : hydrated.pastMedicalHistoryChronicConditions ?? [];
+            nextUpdates.pastMedicalHistoryOtherMentalHealthCondition =
+              hydrated.pastMedicalHistoryOtherMentalHealthCondition ?? '';
+          }
+
+          if (targetField === 'pastMedicalHistorySurgicalHistory') {
+            nextUpdates.pastMedicalHistorySurgicalHistory = explicitNone
+              ? []
+              : hydrated.pastMedicalHistorySurgicalHistory ?? [];
+            nextUpdates.pastMedicalHistoryOtherSurgery =
+              hydrated.pastMedicalHistoryOtherSurgery ?? '';
+          }
+
+          if (targetField === 'pastMedicalHistoryOtherRelevantHistory') {
+            nextUpdates.pastMedicalHistoryOtherRelevantHistory = explicitNone
+              ? []
+              : hydrated.pastMedicalHistoryOtherRelevantHistory ?? [];
+          }
+
+          const hasStructuredValue = Object.values(nextUpdates).some((value) =>
+            Array.isArray(value) ? value.length > 0 : typeof value === 'string' ? value.trim().length > 0 : value === true,
+          );
+
+          if (!hasStructuredValue && !explicitNone) {
+            setMicError(
+              state.janetMode.language === 'es'
+                ? 'Janet no pudo encontrar un antecedente claro. Inténtalo otra vez o edítalo manualmente.'
+                : 'Janet could not find a clear history item. Try again or edit it manually.',
+            );
+            return;
+          }
+
+          updateIntakeFields(nextUpdates);
+          setFinalTranscript(normalizedTranscript);
+          setVoiceTranscript(normalizedTranscript);
+          setWarnings([]);
+          setLowConfidence(false);
+
+          const mergedForm = {
+            ...state.intake.form,
+            ...nextUpdates,
+          };
+          const nextField = explicitNone
+            ? getPastMedicalHistoryFieldAfter(targetField)
+            : getNextPastMedicalHistoryField(mergedForm);
+          setPastMedicalHistoryField(nextField);
+
+          if (nextField) {
+            setReplyText(
+              buildPastMedicalHistoryPrompt(
+                nextField,
+                state.janetMode.language,
+              ),
+            );
+            await playPrompt(
+              buildPastMedicalHistoryPrompt(
+                nextField,
+                state.janetMode.language,
+              ),
+            );
+          } else {
+            setJanetModeStep('documents');
+            const nextPrompt =
+              state.janetMode.language === 'es'
+                ? 'Los antecedentes médicos ya están guardados. Ahora pasemos a los documentos.'
+                : 'Past medical history is saved. Next, let’s move to documents.';
+            setReplyText(nextPrompt);
+            await playPrompt(nextPrompt);
+          }
+        } catch (error) {
+          setMicError(
+            error instanceof Error && error.message
+              ? error.message
+              : 'Janet could not process that history answer.',
+          );
+        } finally {
+          setIsProcessing(false);
+        }
+        return;
+      }
+
       if (!session?.sessionId) {
         return;
       }
@@ -898,7 +1228,7 @@ export function VoiceExperience({
 
       try {
         const result = await requestJanetResponse({
-          currentStep: janetStep,
+          currentStep: backendJanetStep,
           form: state.intake.form,
           interaction: {
             mode:
@@ -949,7 +1279,7 @@ export function VoiceExperience({
         setReplyText(result.janet.text);
         setWarnings(result.warnings);
         setLowConfidence(result.lowConfidence);
-        setIntakeStep(result.extraction.updatedStep);
+        setJanetModeStep(result.extraction.updatedStep);
 
         setTimeout(() => {
           void syncCurrentDraft();
@@ -971,13 +1301,16 @@ export function VoiceExperience({
       }
     },
     [
+      backendJanetStep,
       janetStep,
+      pastMedicalHistoryField,
       playPrompt,
       session,
-      setIntakeStep,
+      setJanetModeStep,
       setVoiceHandoff,
       setVoiceTranscript,
       state.intake.form,
+      state.janetMode.language,
       state.returningPatient.form,
       state.voice.handoff,
       state.voice.spellModeEnabled,
@@ -1009,8 +1342,8 @@ export function VoiceExperience({
       }
 
       const transcription = await transcribeJanetAudio({
-        currentStep: janetStep,
-        language: session?.language ?? 'en',
+        currentStep: backendJanetStep,
+        language: state.janetMode.language,
         sessionId: session?.sessionId ?? '',
         uri,
       });
@@ -1047,12 +1380,12 @@ export function VoiceExperience({
     }
   }, [
     handleJanetTurn,
-    janetStep,
-    session?.language,
+    backendJanetStep,
     session?.sessionId,
     clearSilenceTimeout,
     setVoiceListening,
     setVoiceTranscript,
+    state.janetMode.language,
     state.voice.spellModeEnabled,
   ]);
 
@@ -1154,13 +1487,13 @@ export function VoiceExperience({
     }, 0);
 
     await bootstrapSession({
-      currentStepOverride: janetStep,
+      currentStepOverride: backendJanetStep,
       force: true,
       formOverride: mergedForm,
     });
   }, [
+    backendJanetStep,
     bootstrapSession,
-    janetStep,
     pendingScanResult,
     setVoiceTranscript,
     state.intake.form,
@@ -1201,11 +1534,10 @@ export function VoiceExperience({
       startNewIntake({
         prefill: EMPTY_MEDICAL_AND_PMH_PREFILL,
         source: 'voice',
-        step: janetStep,
+        step: state.janetMode.returnStep ?? janetStep,
       });
     }
 
-    setIntakeStep(janetStep);
     if (onSwitchToTyping) {
       onSwitchToTyping();
       return;
@@ -1213,7 +1545,7 @@ export function VoiceExperience({
 
     navigation.navigate('Intake', {
       mode: 'intake',
-      startStep: janetStep,
+      startStep: state.janetMode.returnStep ?? janetStep,
       launchSource: 'voice',
       resetKey: `voice-inline-${janetStep}-${Date.now()}`,
     });
@@ -1221,10 +1553,10 @@ export function VoiceExperience({
     janetStep,
     navigation,
     onSwitchToTyping,
-    setIntakeStep,
     startNewIntake,
     state.intake.form.chiefConcern,
     state.intake.form.firstName,
+    state.janetMode.returnStep,
   ]);
 
   useEffect(() => {
@@ -1376,14 +1708,42 @@ export function VoiceExperience({
   ]);
 
   useEffect(() => {
+    if (
+      janetStep !== 'pastMedicalHistory' ||
+      !replyText.trim() ||
+      isBootstrapping ||
+      isProcessing ||
+      isRecording
+    ) {
+      return;
+    }
+
+    const autoPlayKey = `pmh:${replyText}`;
+    if (autoPlayedSessionRef.current === autoPlayKey) {
+      return;
+    }
+
+    autoPlayedSessionRef.current = autoPlayKey;
+    void playPrompt(replyText, { autoListenAfter: false });
+  }, [
+    isBootstrapping,
+    isProcessing,
+    isRecording,
+    janetStep,
+    playPrompt,
+    replyText,
+  ]);
+
+  useEffect(() => {
     const nextBootstrapKey = [
       state.backend.draft.draftId ?? '',
       state.backend.draft.patientId ?? '',
       state.backend.draft.visitId ?? '',
-      state.intake.currentStep,
+      janetStep,
       state.intake.form.firstName,
       state.intake.form.lastName,
       state.intake.form.dateOfBirth,
+      state.janetMode.language,
     ].join(':');
 
     if (bootstrapKeyRef.current === nextBootstrapKey || isBootstrapping) {
@@ -1397,9 +1757,9 @@ export function VoiceExperience({
     state.backend.draft.draftId,
     state.backend.draft.patientId,
     state.backend.draft.visitId,
-    state.intake.currentStep,
     state.intake.form,
-    state.returningPatient.form,
+    state.janetMode.language,
+    janetStep,
   ]);
 
   useEffect(() => {
@@ -1470,6 +1830,12 @@ export function VoiceExperience({
   });
   const currentQuestionText = shouldShowScanConfirmation
     ? pendingScanResult?.promptText ?? 'Please confirm these scanned details before saving them.'
+    : janetStep === 'pastMedicalHistory'
+      ? replyText.trim() ||
+        buildPastMedicalHistoryPrompt(
+          pastMedicalHistoryField,
+          state.janetMode.language,
+        )
     : isScanning
       ? `Janet is reading your ${getDocumentTypeLabel(scanningDocumentType ?? 'id')}.`
     : currentSpeechText.trim()
@@ -1525,6 +1891,7 @@ export function VoiceExperience({
     setVoiceHandoff(null);
     setVoiceListening(false);
     setVoiceSpellMode(false);
+    setJanetModeStep('basicInfo');
     startNewIntake({
       prefill: EMPTY_MEDICAL_AND_PMH_PREFILL,
       source: 'voice',
@@ -1532,6 +1899,7 @@ export function VoiceExperience({
     });
   }, [
     clearSilenceTimeout,
+    setJanetModeStep,
     setVoiceHandoff,
     setVoiceListening,
     setVoiceSpellMode,
@@ -1545,18 +1913,34 @@ export function VoiceExperience({
       {!embedded ? (
         <>
           <View style={styles.topbar}>
-            <Text style={styles.topbarLabel}>JANET{'\n'}VOICE MODE</Text>
+            <Text style={styles.topbarLabel}>{janetCopy.janetVoiceMode}</Text>
             <View style={styles.topbarActions}>
               <Pressable
                 accessibilityRole="button"
                 onPress={() => {
                   void Haptics.selectionAsync();
-                  setAutoListenEnabled((current) => !current);
+                  setJanetLanguage(
+                    state.janetMode.language === 'en' ? 'es' : 'en',
+                  );
                 }}
                 style={styles.topbarButton}
               >
                 <Text style={styles.topbarButtonText}>
-                  Hands-Free: {autoListenEnabled ? 'On' : 'Off'}
+                  {state.janetMode.language === 'en'
+                    ? janetCopy.spanish
+                    : JANET_UI_COPY.en.language}
+                </Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  void Haptics.selectionAsync();
+                  setJanetNoisyRoom(!state.janetMode.noisyRoomEnabled);
+                }}
+                style={styles.topbarButton}
+              >
+                <Text style={styles.topbarButtonText}>
+                  {janetCopy.noisyRoom}: {state.janetMode.noisyRoomEnabled ? 'On' : 'Off'}
                 </Text>
               </Pressable>
               <Pressable
@@ -1571,6 +1955,22 @@ export function VoiceExperience({
                   {voiceOutputEnabled ? 'Mute Janet Voice' : 'Turn Janet Voice On'}
                 </Text>
               </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  void Haptics.selectionAsync();
+                  if (onClose) {
+                    onClose();
+                    return;
+                  }
+                  closeJanetMode();
+                }}
+                style={styles.topbarButton}
+              >
+                <Text style={styles.topbarButtonText}>
+                  {janetCopy.close}
+                </Text>
+              </Pressable>
             </View>
           </View>
 
@@ -1579,9 +1979,9 @@ export function VoiceExperience({
               <Ionicons color={colors.primaryDeep} name="mic" size={26} />
             </View>
             <View style={styles.heroCopy}>
-              <Text style={styles.heroTitle}>Janet Guided Check-In</Text>
+              <Text style={styles.heroTitle}>{janetCopy.greetingTitle}</Text>
               <Text style={styles.heroSubtitle}>
-                Janet asks one question at a time and fills the form after you confirm it.
+                {janetCopy.greetingSubtitle}
               </Text>
             </View>
           </View>
@@ -1657,8 +2057,8 @@ export function VoiceExperience({
         </View>
       )}
 
-      <View style={styles.questionCard}>
-        <Text style={styles.questionKicker}>CURRENT QUESTION</Text>
+        <View style={styles.questionCard}>
+        <Text style={styles.questionKicker}>{janetCopy.currentQuestion}</Text>
         <Text style={styles.questionText}>{currentQuestionText}</Text>
       </View>
 
@@ -1669,7 +2069,7 @@ export function VoiceExperience({
             void playPrompt(currentSpeechText);
           }}
           style={styles.primaryActionButton}
-          title={speechState === 'speaking' ? 'Janet Speaking…' : 'Play prompt'}
+          title={speechState === 'speaking' ? 'Janet Speaking…' : janetCopy.playPrompt}
         />
       ) : null}
 
@@ -1973,31 +2373,31 @@ export function VoiceExperience({
 
       {shouldShowScanConfirmation ? (
         <View style={styles.utilityRow}>
-          <SecondaryButton
-            disabled={isProcessing || isScanning}
-            icon="create-outline"
-            onPress={continueInTypedIntake}
-            style={styles.skipButton}
-            title={embedded ? 'Type it myself' : 'Edit manually'}
-          />
+            <SecondaryButton
+              disabled={isProcessing || isScanning}
+              icon="create-outline"
+              onPress={continueInTypedIntake}
+              style={styles.skipButton}
+              title={embedded ? 'Type it myself' : janetCopy.editManually}
+            />
         </View>
       ) : shouldShowConfirmationActions ? (
         <View style={styles.utilityRow}>
-          <SecondaryButton
-            disabled={!canReplay || isBootstrapping || isProcessing}
-            onPress={() => {
-              void playPrompt(currentSpeechText);
-            }}
-            style={[styles.utilityButton, styles.inlineButtonLeft]}
-            title="Repeat"
-          />
-          <SecondaryButton
-            disabled={isProcessing || isBootstrapping}
-            icon="create-outline"
-            onPress={continueInTypedIntake}
-            style={[styles.utilityButton, styles.inlineButtonRight]}
-            title={embedded ? 'Switch to typing' : 'Edit manually'}
-          />
+            <SecondaryButton
+              disabled={!canReplay || isBootstrapping || isProcessing}
+              onPress={() => {
+                void playPrompt(currentSpeechText);
+              }}
+              style={[styles.utilityButton, styles.inlineButtonLeft]}
+              title={janetCopy.repeat}
+            />
+            <SecondaryButton
+              disabled={isProcessing || isBootstrapping}
+              icon="create-outline"
+              onPress={continueInTypedIntake}
+              style={[styles.utilityButton, styles.inlineButtonRight]}
+              title={embedded ? 'Switch to typing' : janetCopy.switchToTyping}
+            />
         </View>
       ) : (
         <>
@@ -2008,14 +2408,14 @@ export function VoiceExperience({
                 void playPrompt(currentSpeechText);
               }}
               style={[styles.utilityButton, styles.inlineButtonLeft]}
-              title="Repeat"
+              title={janetCopy.repeat}
             />
             <SecondaryButton
               disabled={isProcessing || isBootstrapping || isScanning}
               icon="create-outline"
               onPress={continueInTypedIntake}
               style={[styles.utilityButton, styles.inlineButtonRight]}
-              title={embedded ? 'Switch to typing' : 'Edit manually'}
+              title={embedded ? 'Switch to typing' : janetCopy.switchToTyping}
             />
           </View>
 
@@ -2048,7 +2448,7 @@ export function VoiceExperience({
                 void stopPlayback();
               }}
               style={styles.skipButton}
-              title="Stop audio"
+              title={janetCopy.stopAudio}
             />
           </View>
           ) : null}

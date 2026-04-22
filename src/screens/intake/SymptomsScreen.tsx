@@ -24,7 +24,7 @@ import {
   type IntakeFormData,
 } from '../../services';
 import { colors, spacing, typography } from '../../theme';
-import type { IntakeStepComponentProps, IntakeVoiceFieldBinding } from './types';
+import type { IntakeStepComponentProps } from './types';
 
 type CheckboxEditorKey =
   | 'allergyEnvironmentalSelections'
@@ -152,7 +152,6 @@ export function SymptomsScreen({
   fieldErrors,
   form,
   onChange,
-  voice,
 }: IntakeStepComponentProps) {
   const [activeEditor, setActiveEditor] = useState<MedicalInfoEditorKey | null>(
     null,
@@ -168,16 +167,6 @@ export function SymptomsScreen({
     immunizationRoutineSelections: '',
     immunizationTravelSelections: '',
   });
-
-  const medicationsVoice = voice?.bindField('medications');
-  const pharmacyVoice = voice?.bindField('pharmacy');
-  const lastDoseVoice = voice?.bindField('lastDose');
-  const allergyReactionVoice = voice?.bindField('allergyReaction');
-  const allergyNotesVoice = voice?.bindField('allergyNotes');
-  const chiefConcernVoice = voice?.bindField('chiefConcern');
-  const symptomDurationVoice = voice?.bindField('symptomDuration');
-  const painLevelVoice = voice?.bindField('painLevel');
-  const symptomNotesVoice = voice?.bindField('symptomNotes');
 
   const selectedAllergies = useMemo(
     () => buildMedicalInfoAllergyEntries(form),
@@ -316,12 +305,10 @@ export function SymptomsScreen({
       onChangeText?: (value: string) => void;
       optional?: boolean;
       placeholder: string;
-      voiceBinding?: IntakeVoiceFieldBinding;
     },
   ) =>
     options ? (
     <InputField
-      footer={options?.voiceBinding?.footer}
       keyboardType={options?.keyboardType}
       label={editorTitles[field]}
       multiline={options?.multiline}
@@ -332,11 +319,9 @@ export function SymptomsScreen({
         }
         onChange(field, value as IntakeFormData[typeof field]);
       }}
-      onVoicePress={options?.voiceBinding?.onVoicePress}
       optional={options?.optional}
       placeholder={options.placeholder}
       value={form[field]}
-      voiceState={options?.voiceBinding?.state}
     />
     ) : null;
 
@@ -377,13 +362,11 @@ export function SymptomsScreen({
               {renderTextEditor('allergyReaction', {
                 optional: true,
                 placeholder: 'Rash, swelling, shortness of breath',
-                voiceBinding: allergyReactionVoice,
               })}
               {renderTextEditor('allergyNotes', {
                 multiline: true,
                 optional: true,
                 placeholder: 'Carries EpiPen, prior severe reaction',
-                voiceBinding: allergyNotesVoice,
               })}
             </View>
           ) : null}
@@ -404,7 +387,6 @@ export function SymptomsScreen({
               multiline: true,
               optional: true,
               placeholder: 'Enter current medications',
-              voiceBinding: medicationsVoice,
             })}
           </EditorSheet>
         );
@@ -419,7 +401,6 @@ export function SymptomsScreen({
             {renderTextEditor('pharmacy', {
               optional: true,
               placeholder: 'Enter preferred pharmacy',
-              voiceBinding: pharmacyVoice,
             })}
           </EditorSheet>
         );
@@ -434,7 +415,6 @@ export function SymptomsScreen({
             {renderTextEditor('lastDose', {
               optional: true,
               placeholder: 'Enter last dose',
-              voiceBinding: lastDoseVoice,
             })}
           </EditorSheet>
         );
@@ -449,7 +429,6 @@ export function SymptomsScreen({
             {renderTextEditor('chiefConcern', {
               multiline: true,
               placeholder: 'Enter reason for visit',
-              voiceBinding: chiefConcernVoice,
             })}
           </EditorSheet>
         );
@@ -463,7 +442,6 @@ export function SymptomsScreen({
           >
             {renderTextEditor('symptomDuration', {
               placeholder: 'Enter duration',
-              voiceBinding: symptomDurationVoice,
             })}
           </EditorSheet>
         );
@@ -478,7 +456,6 @@ export function SymptomsScreen({
             {renderTextEditor('painLevel', {
               optional: true,
               placeholder: 'Enter severity',
-              voiceBinding: painLevelVoice,
             })}
           </EditorSheet>
         );
@@ -494,7 +471,6 @@ export function SymptomsScreen({
               multiline: true,
               optional: true,
               placeholder: 'Add symptom notes',
-              voiceBinding: symptomNotesVoice,
             })}
           </EditorSheet>
         );

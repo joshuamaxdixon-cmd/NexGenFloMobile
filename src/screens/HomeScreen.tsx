@@ -101,6 +101,7 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
     checkBackendHealth,
     clearBackendDebugState,
     clearDraft,
+    openJanetMode,
     openReturningFlow,
     startNewIntake,
     state,
@@ -139,6 +140,9 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
     startNewIntake({
       prefill: createFreshIntakePrefill(),
       source: 'voice',
+      step: 'basicInfo',
+    });
+    openJanetMode({
       step: 'basicInfo',
     });
     navigation.navigate('Intake', {

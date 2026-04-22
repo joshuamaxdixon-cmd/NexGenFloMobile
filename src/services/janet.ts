@@ -397,9 +397,20 @@ export function buildJanetHandoffFromDraft(options: {
   } satisfies JanetHandoff;
 }
 
-export async function configureJanetAudioMode() {
+export async function configureJanetRecordingAudioMode() {
   await Audio.setAudioModeAsync({
     allowsRecordingIOS: true,
+    playThroughEarpieceAndroid: false,
+    playsInSilentModeIOS: true,
+    shouldDuckAndroid: true,
+    staysActiveInBackground: false,
+  });
+}
+
+export async function configureJanetPlaybackAudioMode() {
+  await Audio.setAudioModeAsync({
+    allowsRecordingIOS: false,
+    playThroughEarpieceAndroid: false,
     playsInSilentModeIOS: true,
     shouldDuckAndroid: true,
     staysActiveInBackground: false,
@@ -649,7 +660,7 @@ export async function playJanetReplyAudio(options: {
   text: string;
 }) {
   try {
-    await configureJanetAudioMode();
+    await configureJanetPlaybackAudioMode();
     const audioUri = await fetchJanetSpeechAudioFile(options);
     const sound = new Audio.Sound();
     await sound.loadAsync({ uri: audioUri }, { shouldPlay: true });

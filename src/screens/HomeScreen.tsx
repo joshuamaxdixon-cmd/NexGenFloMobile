@@ -7,12 +7,14 @@ import {
   View,
 } from 'react-native';
 
+import { DevPreviewPanel } from '../components/DevPreviewPanel';
 import { DevQaPanel } from '../components/DevQaPanel';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { SecondaryButton } from '../components/SecondaryButton';
 import type { RootTabParamList } from '../navigation/types';
 import {
+  type IntakeFormData,
   hasResumeableDraft,
   useDraftStore,
 } from '../services';
@@ -20,13 +22,49 @@ import { colors, spacing, typography } from '../theme';
 
 type HomeScreenProps = BottomTabScreenProps<RootTabParamList, 'Home'>;
 
+const DEV_PREVIEW_BASIC_PREFILL: Partial<IntakeFormData> = {
+  patientType: 'New patient',
+};
+
+const DEV_PREVIEW_FULL_PREFILL: Partial<IntakeFormData> = {
+  allergies: 'Penicillin',
+  allergyNotes: 'Avoid penicillin products',
+  allergyReaction: 'Rash',
+  chiefConcern: 'Persistent cough',
+  dateOfBirth: '02/14/1989',
+  email: 'jordan.miles@example.com',
+  emergencyContactName: 'Taylor Miles',
+  emergencyContactPhone: '5552221212',
+  firstName: 'Jordan',
+  gender: 'female',
+  groupNumber: 'ABC-1234',
+  heightFt: '5',
+  heightIn: '6',
+  insuranceProvider: 'Aetna',
+  lastDose: 'Today at 8:00 AM',
+  lastName: 'Miles',
+  medicalConditions: 'Asthma',
+  medications: 'Albuterol inhaler',
+  memberId: 'XZY998822',
+  painLevel: '4',
+  patientType: 'New patient',
+  pharmacy: 'CVS Main Street',
+  phoneNumber: '5558675309',
+  subscriberName: 'Jordan Miles',
+  symptomDuration: '3 days',
+  symptomNotes: 'Worse at night',
+  weightLb: '142',
+};
+
 export function HomeScreen({ navigation }: HomeScreenProps) {
   const {
     checkBackendHealth,
     clearBackendDebugState,
     clearDraft,
+    openReturningFlow,
     startNewIntake,
     state,
+    updateReturningPatientField,
   } = useDraftStore();
   const checkBackendHealthRef = useRef(checkBackendHealth);
   const canResume = state.hydrated && hasResumeableDraft(state);
@@ -65,6 +103,38 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
   const startFreshVisit = () => {
     clearDraft('all');
     openCheckIn();
+  };
+
+  const openIntakePreview = (
+    step: 'basicInfo' | 'documents' | 'review' | 'symptoms',
+  ) => {
+    clearDraft('all');
+    startNewIntake({
+      prefill:
+        step === 'basicInfo' ? DEV_PREVIEW_BASIC_PREFILL : DEV_PREVIEW_FULL_PREFILL,
+      source: 'manual',
+      step,
+    });
+    navigation.navigate('Intake', {
+      launchSource: 'manual',
+      mode: 'intake',
+      resetKey: `dev-${step}-${Date.now()}`,
+      startStep: step,
+    });
+  };
+
+  const openReturningPreview = () => {
+    clearDraft('all');
+    openReturningFlow(true);
+    updateReturningPatientField('firstName', 'Jordan');
+    updateReturningPatientField('lastName', 'Miles');
+    updateReturningPatientField('dateOfBirth', '02/14/1989');
+    updateReturningPatientField('phoneNumber', '5558675309');
+    navigation.navigate('Intake', {
+      launchSource: 'manual',
+      mode: 'returning',
+      resetKey: `dev-returning-${Date.now()}`,
+    });
   };
 
   return (
@@ -131,6 +201,14 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
             Hidden from the normal patient experience. Long-press the welcome
             card to show or hide this section.
           </Text>
+          <DevPreviewPanel
+            onOpenBasicInfo={() => openIntakePreview('basicInfo')}
+            onOpenDocuments={() => openIntakePreview('documents')}
+            onOpenMedicalInfo={() => openIntakePreview('symptoms')}
+            onOpenReset={() => clearDraft('all')}
+            onOpenReturningPatient={openReturningPreview}
+            onOpenReview={() => openIntakePreview('review')}
+          />
           <View style={styles.devActions}>
             <SecondaryButton
               loading={state.backend.connectivity.status === 'checking'}

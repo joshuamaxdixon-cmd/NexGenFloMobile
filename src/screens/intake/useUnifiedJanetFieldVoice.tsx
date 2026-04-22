@@ -7,7 +7,8 @@ import {
   addJanetLiveSpeechListener,
   abortJanetLiveSpeech,
   bootstrapJanetSession,
-  configureJanetAudioMode,
+  configureJanetPlaybackAudioMode,
+  configureJanetRecordingAudioMode,
   getJanetLiveSpeechAvailability,
   normalizeIntakeFormFields,
   playJanetReplyAudio,
@@ -512,7 +513,7 @@ export function useUnifiedJanetFieldVoice({
         throw new Error('Microphone permission is required.');
       }
 
-      await configureJanetAudioMode();
+      await configureJanetRecordingAudioMode();
       const recording = new Audio.Recording();
       detectedSpeechRef.current = false;
       clearSilenceTimeout();
@@ -549,6 +550,7 @@ export function useUnifiedJanetFieldVoice({
     }
 
     await stopPlayback();
+    await configureJanetPlaybackAudioMode();
     soundRef.current = await playJanetReplyAudio({
       fallbackToDeviceSpeech: true,
       language: 'en',

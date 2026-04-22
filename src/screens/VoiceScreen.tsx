@@ -18,7 +18,8 @@ import {
   bootstrapJanetSession,
   buildJanetHandoffFromDraft,
   buildJanetSpeechText,
-  configureJanetAudioMode,
+  configureJanetPlaybackAudioMode,
+  configureJanetRecordingAudioMode,
   normalizeIntakeFormFields,
   formatJanetConfirmation,
   getJanetLiveSpeechAvailability,
@@ -734,7 +735,7 @@ export function VoiceExperience({
       }
 
       await stopPlayback();
-      await configureJanetAudioMode();
+      await configureJanetRecordingAudioMode();
 
       const recording = new Audio.Recording();
       detectedSpeechRef.current = false;
@@ -805,6 +806,7 @@ export function VoiceExperience({
         }
 
         await stopJanetReplyAudio(soundRef.current);
+        await configureJanetPlaybackAudioMode();
         await wait(JANET_TIMING.preSpeakDelayMs);
         soundRef.current = await playJanetReplyAudio({
           cacheSafe: false,

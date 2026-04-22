@@ -498,6 +498,60 @@ function createInitialPersistedState(): PersistedDraftStoreState {
   };
 }
 
+function createFreshPatientIntakeForm(
+  prefill?: Partial<IntakeFormData>,
+): IntakeFormData {
+  const initial = createInitialIntakeForm();
+
+  return {
+    ...initial,
+    ...prefill,
+    allergies: prefill?.allergies ?? initial.allergies,
+    allergyEnvironmentalSelections:
+      prefill?.allergyEnvironmentalSelections ?? initial.allergyEnvironmentalSelections,
+    allergyFoodSelections:
+      prefill?.allergyFoodSelections ?? initial.allergyFoodSelections,
+    allergyMaterialSelections:
+      prefill?.allergyMaterialSelections ?? initial.allergyMaterialSelections,
+    allergyMedicationSelections:
+      prefill?.allergyMedicationSelections ?? initial.allergyMedicationSelections,
+    allergyNotes: prefill?.allergyNotes ?? initial.allergyNotes,
+    allergyReaction: prefill?.allergyReaction ?? initial.allergyReaction,
+    chiefConcern: prefill?.chiefConcern ?? initial.chiefConcern,
+    immunizations: prefill?.immunizations ?? initial.immunizations,
+    immunizationCoreSelections:
+      prefill?.immunizationCoreSelections ?? initial.immunizationCoreSelections,
+    immunizationRoutineSelections:
+      prefill?.immunizationRoutineSelections ?? initial.immunizationRoutineSelections,
+    immunizationTravelSelections:
+      prefill?.immunizationTravelSelections ?? initial.immunizationTravelSelections,
+    immunizationUnknownSelections:
+      prefill?.immunizationUnknownSelections ?? initial.immunizationUnknownSelections,
+    lastDose: prefill?.lastDose ?? initial.lastDose,
+    medicalConditions: prefill?.medicalConditions ?? initial.medicalConditions,
+    medicalInfoHydrated: prefill?.medicalInfoHydrated ?? initial.medicalInfoHydrated,
+    medications: prefill?.medications ?? initial.medications,
+    painLevel: prefill?.painLevel ?? initial.painLevel,
+    pastMedicalHistoryChronicConditions:
+      prefill?.pastMedicalHistoryChronicConditions ?? initial.pastMedicalHistoryChronicConditions,
+    pastMedicalHistoryHydrated:
+      prefill?.pastMedicalHistoryHydrated ?? initial.pastMedicalHistoryHydrated,
+    pastMedicalHistoryOtherMentalHealthCondition:
+      prefill?.pastMedicalHistoryOtherMentalHealthCondition ??
+      initial.pastMedicalHistoryOtherMentalHealthCondition,
+    pastMedicalHistoryOtherRelevantHistory:
+      prefill?.pastMedicalHistoryOtherRelevantHistory ??
+      initial.pastMedicalHistoryOtherRelevantHistory,
+    pastMedicalHistoryOtherSurgery:
+      prefill?.pastMedicalHistoryOtherSurgery ?? initial.pastMedicalHistoryOtherSurgery,
+    pastMedicalHistorySurgicalHistory:
+      prefill?.pastMedicalHistorySurgicalHistory ?? initial.pastMedicalHistorySurgicalHistory,
+    pharmacy: prefill?.pharmacy ?? initial.pharmacy,
+    symptomDuration: prefill?.symptomDuration ?? initial.symptomDuration,
+    symptomNotes: prefill?.symptomNotes ?? initial.symptomNotes,
+  };
+}
+
 function createClearedBackendDebugState(currentState: BackendState): BackendState {
   const initialBackend = createInitialBackendState();
 
@@ -901,10 +955,16 @@ function reducer(
     case 'start_new_intake': {
       const timestamp = nowIso();
       const initial = createInitialPersistedState();
+      const nextInitialForm =
+        action.payload?.source === 'preview'
+          ? {
+              ...createInitialIntakeForm(),
+              ...action.payload?.prefill,
+            }
+          : createFreshPatientIntakeForm(action.payload?.prefill);
       const nextForm = reconcileStructuredIntakeForm(
         normalizeIntakeFormFields({
-          ...createInitialIntakeForm(),
-          ...action.payload?.prefill,
+          ...nextInitialForm,
         }) as IntakeFormData,
       );
 

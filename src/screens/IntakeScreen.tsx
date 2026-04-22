@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, StyleSheet } from 'react-native';
 
 import { DraftBanner } from '../components/DraftBanner';
 import { EmptyStateCard } from '../components/EmptyStateCard';
-import { PrimaryButton } from '../components/PrimaryButton';
+import { IntakeActionBar } from '../components/IntakeActionBar';
 import { ProgressBar } from '../components/ProgressBar';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { SecondaryButton } from '../components/SecondaryButton';
@@ -22,10 +22,11 @@ import {
 import { ReturningPatientScreen } from './ReturningPatientScreen';
 import { BasicInfoScreen } from './intake/BasicInfoScreen';
 import { DocumentsScreen } from './intake/DocumentsScreen';
+import { PastMedicalHistoryScreen } from './intake/PastMedicalHistoryScreen';
 import { ReviewScreen } from './intake/ReviewScreen';
 import { SymptomsScreen } from './intake/SymptomsScreen';
 import { useUnifiedJanetFieldVoice } from './intake/useUnifiedJanetFieldVoice';
-import { colors, spacing, typography } from '../theme';
+import { spacing } from '../theme';
 
 function hasFieldErrors(fieldErrors: IntakeFieldErrors) {
   return Object.values(fieldErrors).some(
@@ -53,6 +54,9 @@ export function IntakeScreen() {
   const [showStepValidation, setShowStepValidation] = useState(false);
   const [showReturningValidation, setShowReturningValidation] = useState(false);
   const [reviewConfirmed, setReviewConfirmed] = useState(false);
+  const [returnToReviewStep, setReturnToReviewStep] = useState<
+    (typeof intakeFlowSteps)[number]['key'] | null
+  >(null);
 
   useEffect(() => {
     fetchRemoteDraftRef.current = fetchRemoteDraft;
@@ -90,12 +94,20 @@ export function IntakeScreen() {
     }
   }, [reviewConfirmed, state.intake.currentStep]);
 
+  useEffect(() => {
+    if (state.intake.currentStep === 'review' && returnToReviewStep) {
+      setReturnToReviewStep(null);
+    }
+  }, [returnToReviewStep, state.intake.currentStep]);
+
   const currentStepIndex = Math.max(
     0,
     intakeFlowSteps.findIndex((step) => step.key === state.intake.currentStep),
   );
   const currentConfig = intakeFlowSteps[currentStepIndex];
   const isDocumentsStep = currentConfig.key === 'documents';
+  const isEditingFromReview =
+    returnToReviewStep !== null && state.intake.currentStep !== 'review';
   const inlineVoice = useUnifiedJanetFieldVoice({
     currentStep: currentConfig.key,
     draftId: state.backend.draft.draftId,
@@ -207,10 +219,23 @@ export function IntakeScreen() {
 
     setShowStepValidation(false);
     await syncCurrentDraft();
+
+    if (returnToReviewStep) {
+      setIntakeStep('review');
+      setReturnToReviewStep(null);
+      return;
+    }
+
     setIntakeStep(intakeFlowSteps[currentStepIndex + 1].key);
   };
 
   const handleBack = () => {
+    if (isEditingFromReview) {
+      setIntakeStep('review');
+      setReturnToReviewStep(null);
+      return;
+    }
+
     if (currentStepIndex === 0) {
       return;
     }
@@ -231,6 +256,14 @@ export function IntakeScreen() {
     }
 
     await handleNext();
+  };
+
+  const handleEditFromReview = (
+    step: 'basicInfo' | 'documents' | 'pastMedicalHistory' | 'symptoms',
+  ) => {
+    setReturnToReviewStep(step);
+    setShowStepValidation(false);
+    setIntakeStep(step);
   };
 
   const renderCurrentStep = () => {
@@ -265,11 +298,19 @@ export function IntakeScreen() {
               Boolean(state.uploads.insurance) ||
               state.backend.uploads.insurance.status === 'uploaded'
             }
-            onEditStep={setIntakeStep}
+            onEditStep={handleEditFromReview}
             onToggleReviewConfirmed={() =>
               setReviewConfirmed((current) => !current)
             }
             reviewConfirmed={reviewConfirmed}
+          />
+        );
+      case 'pastMedicalHistory':
+        return (
+          <PastMedicalHistoryScreen
+            fieldErrors={visibleStepErrors}
+            form={state.intake.form}
+            onChange={updateIntakeField}
           />
         );
       case 'documents':
@@ -308,9 +349,10 @@ export function IntakeScreen() {
     string
   > = {
     basicInfo: 'Continue',
-    symptoms: 'Continue to Review',
-    review: 'Continue to Uploads',
-    documents: 'Finish Check-In',
+    symptoms: 'Continue',
+    pastMedicalHistory: 'Continue',
+    documents: 'Continue',
+    review: 'Submit Check-In',
   };
   const nextButtonTitle = isLastStep
     ? isSubmitting
@@ -327,11 +369,12 @@ export function IntakeScreen() {
     !isSubmitted &&
     !isSubmitting &&
     !isSaving &&
-    (isLastStep
-      ? true
-      : currentConfig.key === 'review'
-        ? reviewReadiness.isReady && reviewConfirmed
+    (currentConfig.key === 'review'
+      ? reviewReadiness.isReady && reviewConfirmed
+      : currentConfig.key === 'documents' || currentConfig.key === 'pastMedicalHistory'
+        ? true
         : !hasFieldErrors(localStepErrors));
+  const showBackAction = currentStepIndex > 0 || isEditingFromReview;
   const lookupStatusTone =
     state.backend.lookup.status === 'matched'
       ? 'success'
@@ -389,53 +432,23 @@ export function IntakeScreen() {
             title={currentConfig.title}
           />
           {renderCurrentStep()}
-
-          <View
-            style={[
-              styles.navRow,
-              currentConfig.key === 'basicInfo' ? styles.navColumn : null,
-            ]}
-          >
-            <SecondaryButton
-              disabled={currentStepIndex === 0 || isSubmitting || isSaving}
-              onPress={handleBack}
-              style={[
-                styles.navButton,
-                currentConfig.key === 'basicInfo'
-                  ? styles.navButtonStacked
-                  : styles.navButtonLeft,
-              ]}
-              title="Back"
-            />
-            <PrimaryButton
-              disabled={!canAdvance}
-              loading={isSubmitting || (!isLastStep && isSaving)}
-              onPress={handleNext}
-              style={[
-                styles.navButton,
-                currentConfig.key === 'basicInfo'
-                  ? styles.navButtonStacked
-                  : styles.navButtonRight,
-              ]}
-              title={nextButtonTitle}
-            />
-          </View>
-          {isDocumentsStep ? (
-            <Pressable
-              accessibilityRole="button"
-              disabled={isSubmitting || isSaving}
-              onPress={() => void handleSkipDocumentsForNow()}
-              style={({ pressed }) => [
-                styles.skipForNowButton,
-                (isSubmitting || isSaving) && styles.skipForNowButtonDisabled,
-                pressed && !isSubmitting && !isSaving
-                  ? styles.skipForNowButtonPressed
-                  : null,
-              ]}
-            >
-              <Text style={styles.skipForNowLabel}>Skip for now</Text>
-            </Pressable>
-          ) : null}
+          <IntakeActionBar
+            backDisabled={isSubmitting || isSaving}
+            onBackPress={showBackAction ? handleBack : undefined}
+            onPrimaryPress={() => void handleNext()}
+            onTertiaryPress={
+              isDocumentsStep
+                ? () => {
+                    void handleSkipDocumentsForNow();
+                  }
+                : undefined
+            }
+            primaryDisabled={!canAdvance}
+            primaryLoading={isSubmitting || (!isLastStep && isSaving)}
+            primaryTitle={nextButtonTitle}
+            tertiaryDisabled={isSubmitting || isSaving}
+            tertiaryTitle={isDocumentsStep ? 'Skip and finish' : undefined}
+          />
         </>
       )}
     </ScreenContainer>
@@ -446,45 +459,7 @@ const styles = StyleSheet.create({
   banner: {
     marginBottom: spacing.md,
   },
-  navRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: spacing.xl,
-  },
-  navColumn: {
-    gap: spacing.sm,
-    flexDirection: 'column',
-  },
-  navButton: {
-    flex: 1,
-  },
-  navButtonStacked: {
-    width: '100%',
-  },
-  navButtonLeft: {
-    marginRight: spacing.xs,
-  },
-  navButtonRight: {
-    marginLeft: spacing.xs,
-  },
   resetButton: {
     marginTop: spacing.md,
-  },
-  skipForNowButton: {
-    alignSelf: 'center',
-    marginTop: spacing.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  skipForNowButtonPressed: {
-    opacity: 0.7,
-  },
-  skipForNowButtonDisabled: {
-    opacity: 0.4,
-  },
-  skipForNowLabel: {
-    ...typography.body,
-    color: colors.primaryDeep,
-    fontWeight: '600',
   },
 });

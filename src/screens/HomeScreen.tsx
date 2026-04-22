@@ -15,46 +15,53 @@ import { SecondaryButton } from '../components/SecondaryButton';
 import type { RootTabParamList } from '../navigation/types';
 import {
   type IntakeFormData,
-  hasResumeableDraft,
   useDraftStore,
 } from '../services';
 import { colors, spacing, typography } from '../theme';
 
 type HomeScreenProps = BottomTabScreenProps<RootTabParamList, 'Home'>;
 
-const DEV_PREVIEW_BASIC_PREFILL: Partial<IntakeFormData> = {
-  patientType: 'New patient',
-};
+function createDevPreviewBasicPrefill(): Partial<IntakeFormData> {
+  return {
+    patientType: 'New patient',
+  };
+}
 
-const DEV_PREVIEW_FULL_PREFILL: Partial<IntakeFormData> = {
-  allergies: 'Penicillin',
-  allergyNotes: 'Avoid penicillin products',
-  allergyReaction: 'Rash',
-  chiefConcern: 'Persistent cough',
-  dateOfBirth: '02/14/1989',
-  email: 'jordan.miles@example.com',
-  emergencyContactName: 'Taylor Miles',
-  emergencyContactPhone: '5552221212',
-  firstName: 'Jordan',
-  gender: 'female',
-  groupNumber: 'ABC-1234',
-  heightFt: '5',
-  heightIn: '6',
-  insuranceProvider: 'Aetna',
-  lastDose: 'Today at 8:00 AM',
-  lastName: 'Miles',
-  medicalConditions: 'Asthma',
-  medications: 'Albuterol inhaler',
-  memberId: 'XZY998822',
-  painLevel: '4',
-  patientType: 'New patient',
-  pharmacy: 'CVS Main Street',
-  phoneNumber: '5558675309',
-  subscriberName: 'Jordan Miles',
-  symptomDuration: '3 days',
-  symptomNotes: 'Worse at night',
-  weightLb: '142',
-};
+function createDevPreviewFullPrefill(): Partial<IntakeFormData> {
+  return {
+    allergies: 'Penicillin',
+    allergyNotes: 'Avoid penicillin products',
+    allergyReaction: 'Rash',
+    chiefConcern: 'Persistent cough',
+    dateOfBirth: '02/14/1989',
+    email: 'jordan.miles@example.com',
+    emergencyContactName: 'Taylor Miles',
+    emergencyContactPhone: '5552221212',
+    firstName: 'Jordan',
+    gender: 'female',
+    groupNumber: 'ABC-1234',
+    heightFt: '5',
+    heightIn: '6',
+    insuranceProvider: 'Aetna',
+    lastDose: 'Today at 8:00 AM',
+    lastName: 'Miles',
+    medicalConditions: '',
+    medications: 'Albuterol inhaler',
+    memberId: 'XZY998822',
+    painLevel: '4',
+    pastMedicalHistoryChronicConditions: ['Asthma', 'Anxiety'],
+    pastMedicalHistoryHydrated: true,
+    pastMedicalHistoryOtherRelevantHistory: ['Former smoker'],
+    pastMedicalHistorySurgicalHistory: ['Appendectomy'],
+    patientType: 'New patient',
+    pharmacy: 'CVS Main Street',
+    phoneNumber: '5558675309',
+    subscriberName: 'Jordan Miles',
+    symptomDuration: '3 days',
+    symptomNotes: 'Worse at night',
+    weightLb: '142',
+  };
+}
 
 export function HomeScreen({ navigation }: HomeScreenProps) {
   const {
@@ -67,7 +74,6 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
     updateReturningPatientField,
   } = useDraftStore();
   const checkBackendHealthRef = useRef(checkBackendHealth);
-  const canResume = state.hydrated && hasResumeableDraft(state);
   const [showDeveloperTools, setShowDeveloperTools] = useState(false);
 
   useEffect(() => {
@@ -81,6 +87,7 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
   }, [state.backend.connectivity.status, state.hydrated]);
 
   const openCheckIn = () => {
+    clearDraft('all');
     startNewIntake({
       source: 'home',
       step: 'basicInfo',
@@ -91,28 +98,43 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
     });
   };
 
-  const resumeDraft = () => {
+  const openJanetAssistant = () => {
+    clearDraft('all');
+    startNewIntake({
+      source: 'voice',
+      step: 'basicInfo',
+    });
     navigation.navigate('Intake', {
-      mode: state.activeFlowMode,
-      startStep:
-        state.activeFlowMode === 'intake' ? state.intake.currentStep : undefined,
-      launchSource: 'resume',
+      launchSource: 'voice',
+      mode: 'intake',
+      startStep: 'basicInfo',
     });
   };
 
-  const startFreshVisit = () => {
-    clearDraft('all');
-    openCheckIn();
+  const openResumeCheckIn = () => {
+    openReturningFlow(true);
+    navigation.navigate('Intake', {
+      launchSource: 'returning',
+      mode: 'returning',
+      resetKey: `returning-${Date.now()}`,
+    });
   };
 
   const openIntakePreview = (
-    step: 'basicInfo' | 'documents' | 'review' | 'symptoms',
+    step:
+      | 'basicInfo'
+      | 'documents'
+      | 'pastMedicalHistory'
+      | 'review'
+      | 'symptoms',
   ) => {
     clearDraft('all');
     startNewIntake({
       prefill:
-        step === 'basicInfo' ? DEV_PREVIEW_BASIC_PREFILL : DEV_PREVIEW_FULL_PREFILL,
-      source: 'manual',
+        step === 'basicInfo'
+          ? createDevPreviewBasicPrefill()
+          : createDevPreviewFullPrefill(),
+      source: 'preview',
       step,
     });
     navigation.navigate('Intake', {
@@ -146,53 +168,40 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
         style={styles.heroCard}
       >
         <View style={styles.heroAccent} />
-        <Text style={styles.heroEyebrow}>NexGEN Care</Text>
         <Text style={styles.heroTitleLead}>Welcome</Text>
         <Text
           adjustsFontSizeToFit
-          minimumFontScale={0.92}
+          minimumFontScale={0.88}
           numberOfLines={1}
           style={styles.heroTitleLine}
         >
-          Let&apos;s get you checked in
+          Let&apos;s get you checked in.
         </Text>
         <Text style={styles.heroSubtitle}>
           Type or speak with Janet without losing your place.
         </Text>
       </Pressable>
 
-      <View style={styles.primarySection}>
+      <View style={styles.actionsSection}>
+        <SecondaryButton
+          onPress={openJanetAssistant}
+          style={styles.secondaryAction}
+          title="Janet's Assistant"
+        />
         <PrimaryButton
           onPress={openCheckIn}
           style={styles.primaryAction}
           title="Start Check-In"
         />
-      </View>
-
-      {canResume ? (
-        <View style={styles.continueSection}>
-          <Text style={styles.continueEyebrow}>Resume previous visit</Text>
-          <Text style={styles.continueTitle}>Continue your check-in</Text>
-          <Text style={styles.continueText}>
-            Your progress is saved in the same visit flow.
-          </Text>
-          <PrimaryButton
-            onPress={resumeDraft}
-            style={styles.continueButton}
-            title="Continue My Visit"
+        <View style={styles.resumeSection}>
+          <SecondaryButton
+            onPress={openResumeCheckIn}
+            style={styles.secondaryAction}
+            title="Resume Check-In"
           />
-          <Pressable
-            accessibilityRole="button"
-            onPress={startFreshVisit}
-            style={({ pressed }) => [
-              styles.subtleAction,
-              pressed ? styles.subtleActionPressed : null,
-            ]}
-          >
-            <Text style={styles.subtleActionLabel}>Start New Visit</Text>
-          </Pressable>
+          <Text style={styles.resumeHelper}>Returning patient access</Text>
         </View>
-      ) : null}
+      </View>
 
       {__DEV__ && showDeveloperTools ? (
         <View style={styles.devSection}>
@@ -205,6 +214,7 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
             onOpenBasicInfo={() => openIntakePreview('basicInfo')}
             onOpenDocuments={() => openIntakePreview('documents')}
             onOpenMedicalInfo={() => openIntakePreview('symptoms')}
+            onOpenPastMedicalHistory={() => openIntakePreview('pastMedicalHistory')}
             onOpenReset={() => clearDraft('all')}
             onOpenReturningPatient={openReturningPreview}
             onOpenReview={() => openIntakePreview('review')}
@@ -255,6 +265,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.06,
     shadowRadius: 22,
     elevation: 3,
+    alignItems: 'center',
   },
   heroAccent: {
     position: 'absolute',
@@ -264,101 +275,45 @@ const styles = StyleSheet.create({
     height: 10,
     backgroundColor: colors.primary,
   },
-  heroEyebrow: {
-    ...typography.eyebrow,
-    marginBottom: spacing.sm,
-  },
   heroTitleLead: {
     ...typography.display,
     fontSize: 32,
     lineHeight: 36,
+    textAlign: 'center',
   },
   heroTitleLine: {
     ...typography.display,
-    fontSize: 28,
-    lineHeight: 32,
+    fontSize: 27,
+    lineHeight: 31,
     marginTop: 2,
     marginBottom: spacing.sm,
+    textAlign: 'center',
   },
   heroSubtitle: {
     ...typography.bodyLarge,
     fontSize: 16,
     lineHeight: 24,
     color: colors.textSecondary,
+    textAlign: 'center',
   },
-  primarySection: {
-    marginTop: spacing.md,
+  actionsSection: {
+    gap: spacing.md,
+    marginTop: spacing.lg,
   },
   primaryAction: {
     minHeight: 60,
     borderRadius: 22,
   },
-  continueSection: {
-    marginTop: spacing.lg + spacing.xs,
-    paddingHorizontal: spacing.sm,
-  },
-  continueEyebrow: {
-    ...typography.caption,
-    color: colors.textTertiary,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    marginBottom: spacing.xs,
-    textTransform: 'uppercase',
-  },
-  continueTitle: {
-    ...typography.sectionTitle,
-    marginBottom: spacing.xs,
-  },
-  continueText: {
-    ...typography.body,
-    color: colors.textSecondary,
-    marginBottom: spacing.md,
-  },
-  continueButton: {
-    minHeight: 56,
-  },
-  subtleAction: {
-    alignSelf: 'center',
-    marginTop: spacing.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: 999,
-  },
-  subtleActionPressed: {
-    backgroundColor: colors.surfaceMuted,
-  },
-  subtleActionLabel: {
-    ...typography.label,
-    color: colors.primaryText,
-  },
-  supportCard: {
-    marginTop: spacing.lg,
-    borderRadius: 28,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.divider,
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.xl,
-    shadowColor: colors.shadow,
-    shadowOffset: {
-      width: 0,
-      height: 10,
-    },
-    shadowOpacity: 0.06,
-    shadowRadius: 22,
-    elevation: 3,
-  },
-  supportLabel: {
-    ...typography.sectionTitle,
-    marginBottom: spacing.xs,
-  },
-  supportCopy: {
-    ...typography.body,
-    marginBottom: spacing.lg,
-    color: colors.textSecondary,
-  },
   secondaryAction: {
     minHeight: 56,
+  },
+  resumeSection: {
+    gap: spacing.xs,
+  },
+  resumeHelper: {
+    ...typography.caption,
+    color: colors.textTertiary,
+    textAlign: 'center',
   },
   devSection: {
     marginTop: spacing.xxl,

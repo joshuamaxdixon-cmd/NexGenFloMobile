@@ -74,7 +74,7 @@ function buildFieldPrompt(field: keyof IntakeFormData) {
     case 'dateOfBirth':
       return "What is the patient's date of birth?";
     case 'gender':
-      return 'What gender should we place in the chart, male or female?';
+      return 'What sex should we place in the chart, male, female, or other?';
     case 'phoneNumber':
       return "What is the patient's phone number?";
     case 'email':
@@ -88,7 +88,7 @@ function buildFieldPrompt(field: keyof IntakeFormData) {
     case 'medications':
       return 'What medications are being taken right now?';
     case 'medicalConditions':
-      return 'What medical history should we note for this visit?';
+      return 'Any additional history notes staff should know for this visit?';
     case 'pharmacy':
       return 'What is the preferred pharmacy?';
     case 'lastDose':
@@ -119,7 +119,7 @@ function buildRecognitionContext(field: keyof IntakeFormData) {
     case 'patientType':
       return ['new patient', 'returning patient', 'family member'];
     case 'gender':
-      return ['male', 'female'];
+      return ['male', 'female', 'other'];
     case 'dateOfBirth':
       return ['date of birth', 'month', 'day', 'year'];
     case 'phoneNumber':

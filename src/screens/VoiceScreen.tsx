@@ -93,13 +93,13 @@ const FIELD_LABELS: Record<string, string> = {
   emergencyContactName: 'emergency contact name',
   emergencyContactPhone: 'emergency contact phone',
   firstName: 'first name',
-  gender: 'gender',
+  gender: 'sex',
   groupNumber: 'insurance group number',
   heightFt: 'height',
   heightIn: 'height',
   insuranceProvider: 'insurance provider',
   lastName: 'last name',
-  medicalConditions: 'medical history',
+  medicalConditions: 'additional history notes',
   medications: 'medications',
   memberId: 'insurance member ID',
   painLevel: 'pain level',
@@ -155,7 +155,10 @@ function buildScanPreviewRows(
   confidence: Partial<Record<keyof IntakeFormData, number>>,
 ) {
   return Object.entries(extractedFields)
-    .filter(([, value]) => typeof value === 'string' && value.trim().length > 0)
+    .filter(
+      (entry): entry is [string, string] =>
+        typeof entry[1] === 'string' && entry[1].trim().length > 0,
+    )
     .map(([fieldName, value]) => {
       const fieldConfidence = confidence[fieldName as keyof IntakeFormData] ?? null;
 
@@ -174,6 +177,18 @@ function buildScanPreviewRows(
     });
 }
 
+function hasIntakeProgressValue(value: IntakeFormData[keyof IntakeFormData]) {
+  if (typeof value === 'string') {
+    return value.trim().length > 0;
+  }
+
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+
+  return value === true;
+}
+
 function getStepTitle(field: string | null) {
   switch (field) {
     case 'patientType':
@@ -187,7 +202,7 @@ function getStepTitle(field: string | null) {
     case 'phoneNumber':
       return 'Phone Number';
     case 'gender':
-      return 'Gender';
+      return 'Sex';
     case 'emergencyContactName':
       return 'Emergency Contact';
     case 'emergencyContactPhone':
@@ -266,7 +281,7 @@ function buildPreviewRows(
       ['Phone', form.phoneNumber],
       ['Email', form.email],
       ['Emergency contact', [form.emergencyContactName, form.emergencyContactPhone].filter(Boolean).join(' · ').trim()],
-      ['Gender', form.gender],
+      ['Sex', form.gender],
     ] as const;
   }
 
@@ -325,7 +340,7 @@ function buildRecognitionContext(
     case 'patientType':
       return ['new patient', 'returning patient', 'family member'];
     case 'gender':
-      return ['male', 'female'];
+      return ['male', 'female', 'other'];
     case 'dateOfBirth':
       return ['date of birth', 'month', 'day', 'year'];
     case 'phoneNumber':
@@ -415,7 +430,7 @@ export function VoiceExperience({
     DocumentScanResult['documentType'] | null
   >(null);
   const hasDraftProgress = useMemo(
-    () => Object.values(state.intake.form).some((value) => value.trim().length > 0),
+    () => Object.values(state.intake.form).some((value) => hasIntakeProgressValue(value)),
     [state.intake.form],
   );
   const liveSpeechAvailability = useMemo(

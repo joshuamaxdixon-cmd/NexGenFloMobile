@@ -8,6 +8,7 @@ export type IntakeStepKey =
   | 'patientType'
   | 'basicInfo'
   | 'symptoms'
+  | 'pastMedicalHistory'
   | 'medications'
   | 'allergies'
   | 'insurance'
@@ -35,6 +36,22 @@ export type IntakeFormData = {
   pharmacy: string;
   lastDose: string;
   medicalConditions: string;
+  immunizations: string;
+  medicalInfoHydrated: boolean;
+  allergyMedicationSelections: string[];
+  allergyMaterialSelections: string[];
+  allergyFoodSelections: string[];
+  allergyEnvironmentalSelections: string[];
+  immunizationCoreSelections: string[];
+  immunizationRoutineSelections: string[];
+  immunizationTravelSelections: string[];
+  immunizationUnknownSelections: string[];
+  pastMedicalHistoryHydrated: boolean;
+  pastMedicalHistoryChronicConditions: string[];
+  pastMedicalHistorySurgicalHistory: string[];
+  pastMedicalHistoryOtherRelevantHistory: string[];
+  pastMedicalHistoryOtherMentalHealthCondition: string;
+  pastMedicalHistoryOtherSurgery: string;
   allergies: string;
   allergyReaction: string;
   allergyNotes: string;
@@ -54,7 +71,7 @@ export type ReturningPatientFormData = {
 export const intakeFlowSteps = [
   {
     key: 'basicInfo',
-    title: 'Patient Info',
+    title: 'Patient Information',
     subtitle: 'Enter the patient details to begin check-in.',
   },
   {
@@ -63,20 +80,1070 @@ export const intakeFlowSteps = [
     subtitle: 'Add the health details that matter for today.',
   },
   {
-    key: 'review',
-    title: 'Review & Confirm',
-    subtitle: 'Confirm the information before optional uploads.',
+    key: 'pastMedicalHistory',
+    title: 'Past Medical History',
+    subtitle: 'Select any conditions or history that apply.',
   },
   {
     key: 'documents',
-    title: 'Add Documents (Optional)',
-    subtitle: 'Add documents now, or skip and finish your check-in.',
+    title: 'Add Documents',
+    subtitle: 'Upload documents now or skip and finish check-in.',
+  },
+  {
+    key: 'review',
+    title: 'Review & Confirm',
+    subtitle: 'Confirm the information before you submit check-in.',
   },
 ] as const satisfies readonly {
   key: IntakeStepKey;
   title: string;
   subtitle: string;
 }[];
+
+export const pastMedicalHistoryOptions = {
+  chronicConditions: [
+    'Hypertension',
+    'Diabetes (Type 1 / Type 2)',
+    'High cholesterol',
+    'Thyroid disorder',
+    'Asthma',
+    'COPD',
+    'Heart disease',
+    'Congestive heart failure',
+    'Atrial fibrillation',
+    'Stroke / TIA',
+    'Kidney disease',
+    'Liver disease',
+    'Autoimmune disorder',
+    'Immunocompromised',
+    'Cancer (current or past)',
+    'Blood clot history (DVT/PE)',
+    'Bleeding disorder',
+    'Seizure disorder',
+    'Migraines',
+    'Anxiety',
+    'Depression',
+    'Other mental health condition',
+  ],
+  otherRelevantHistory: [
+    'Smoker (current)',
+    'Former smoker',
+    'Alcohol use',
+    'Recreational drug use',
+    'Pregnant',
+    'Breastfeeding',
+    'None of the above',
+  ],
+  surgicalHistory: [
+    'Appendectomy',
+    'Gallbladder removal',
+    'C-section',
+    'Hysterectomy',
+    'Hernia repair',
+    'Joint replacement',
+    'Heart surgery',
+    'Other surgery',
+  ],
+} as const;
+
+const MEDICAL_INFO_ALLERGY_OPTIONS = {
+  medication: [
+    'Penicillin',
+    'Amoxicillin',
+    'Cephalosporins',
+    'Sulfa drugs (Bactrim)',
+    'Macrolides (Azithromycin, etc.)',
+    'Fluoroquinolones (Cipro, Levaquin)',
+    'NSAIDs (Ibuprofen, Naproxen)',
+    'Aspirin',
+    'Opioids (Morphine, Codeine)',
+    'Other medication allergies',
+    'Unknown / Unsure',
+  ],
+  material: [
+    'Latex',
+    'Adhesive tape',
+    'Nickel',
+    'Fragrances / perfumes',
+    'Cleaning products',
+    'Other',
+    'Unknown / Unsure',
+  ],
+  food: [
+    'Shellfish',
+    'Peanuts',
+    'Tree nuts',
+    'Eggs',
+    'Milk / dairy',
+    'Wheat / gluten',
+    'Soy',
+    'Other',
+    'Unknown / Unsure',
+  ],
+  environmental: [
+    'Pollen',
+    'Dust mites',
+    'Mold',
+    'Pet dander',
+    'Insect stings (bees/wasps)',
+    'Other',
+    'Unknown / Unsure',
+  ],
+} as const;
+
+const MEDICAL_INFO_ALLERGY_ALIASES: Record<string, string[]> = {
+  Penicillin: ['pen', 'penicillin allergy'],
+  Amoxicillin: ['amox', 'amoxil'],
+  Cephalosporins: ['cephalosporin', 'ceph'],
+  'Sulfa drugs (Bactrim)': ['sulfer', 'sulfur', 'sulfa', 'sulfonamide', 'bactrim'],
+  'Macrolides (Azithromycin, etc.)': ['macrolide', 'azithromycin', 'z-pack', 'zithromax'],
+  'Fluoroquinolones (Cipro, Levaquin)': ['fluoroquinolone', 'cipro', 'levofloxacin', 'levaquin'],
+  'NSAIDs (Ibuprofen, Naproxen)': [
+    'nsaids',
+    'ibuprofen',
+    'naproxen',
+    'advil',
+    'aleve',
+  ],
+  Aspirin: ['asa'],
+  'Opioids (Morphine, Codeine)': ['opioid', 'pain meds', 'morphine', 'codeine'],
+  'Other medication allergies': ['other medication allergy', 'other drug allergy'],
+  'Unknown / Unsure': ['unknown', 'unsure', 'not sure'],
+  Latex: ['rubber'],
+  'Adhesive tape': ['bandage adhesive', 'tape'],
+  Nickel: ['metal allergy'],
+  'Fragrances / perfumes': ['scent', 'fragrance', 'perfume', 'cologne'],
+  'Cleaning products': ['cleaners', 'bleach'],
+  Other: ['other'],
+  Shellfish: ['shrimp', 'crab', 'lobster'],
+  Peanuts: ['peanut', 'peanut allergy'],
+  'Tree nuts': ['almond', 'walnut', 'cashew', 'nut allergy'],
+  Eggs: ['egg'],
+  'Milk / dairy': ['milk', 'dairy', 'lactose'],
+  'Wheat / gluten': ['wheat', 'gluten'],
+  Soy: ['soya'],
+  Pollen: ['seasonal allergy', 'hay fever'],
+  'Dust mites': ['dust'],
+  Mold: ['mould'],
+  'Pet dander': ['pet', 'cat', 'dog', 'animal dander'],
+  'Insect stings (bees/wasps)': ['bee sting', 'wasp sting', 'sting allergy', 'insect sting'],
+};
+
+export const medicalInfoCategoryOptions = {
+  allergyEnvironmental: MEDICAL_INFO_ALLERGY_OPTIONS.environmental,
+  allergyFood: MEDICAL_INFO_ALLERGY_OPTIONS.food,
+  allergyMaterial: MEDICAL_INFO_ALLERGY_OPTIONS.material,
+  allergyMedication: MEDICAL_INFO_ALLERGY_OPTIONS.medication,
+  immunizationCore: [
+    'Tetanus / Tdap (within 10 years)',
+    'MMR (Measles, Mumps, Rubella)',
+    'Varicella (Chickenpox)',
+    'Polio (IPV)',
+    'Hepatitis B',
+    'Hepatitis A',
+    'HPV (Gardasil)',
+    'Meningococcal ACWY (MenACWY)',
+    'Meningococcal B (MenB)',
+    'Unknown / Unsure',
+  ],
+  immunizationRoutine: [
+    'Influenza (yearly)',
+    'COVID-19 vaccine',
+    'Pneumococcal',
+    'Shingles',
+    'Shingrix - age 50+',
+    'Unknown / Unsure',
+  ],
+  immunizationTravel: [
+    'Typhoid',
+    'Yellow Fever',
+    'Japanese Encephalitis',
+    'Rabies (pre-exposure)',
+    'Other travel vaccines',
+    'Unknown / Unsure',
+  ],
+  immunizationUnknown: [
+    'Unsure of immunization history',
+    'No records available',
+  ],
+} as const;
+
+const MEDICAL_INFO_IMMUNIZATION_ALIASES: Record<string, string[]> = {
+  'Tetanus / Tdap (within 10 years)': ['tetanus', 'tdap', 'tetanus tdap'],
+  'MMR (Measles, Mumps, Rubella)': ['mmr', 'measles mumps rubella'],
+  'Varicella (Chickenpox)': ['varicella', 'chickenpox', 'chicken pox'],
+  'Polio (IPV)': ['polio', 'ipv'],
+  'Hepatitis B': ['hepatitis b', 'hep b'],
+  'Hepatitis A': ['hepatitis a', 'hep a'],
+  'HPV (Gardasil)': ['hpv', 'gardasil'],
+  'Meningococcal ACWY (MenACWY)': ['meningococcal acwy', 'menacwy'],
+  'Meningococcal B (MenB)': ['meningococcal b', 'menb'],
+  'Influenza (yearly)': ['influenza', 'flu', 'flu shot'],
+  'COVID-19 vaccine': ['covid', 'covid 19', 'covid vaccine'],
+  Pneumococcal: ['pneumococcal', 'pneumonia shot'],
+  Shingles: ['shingles'],
+  'Shingrix - age 50+': ['shingrix'],
+  Typhoid: ['typhoid'],
+  'Yellow Fever': ['yellow fever'],
+  'Japanese Encephalitis': ['japanese encephalitis'],
+  'Rabies (pre-exposure)': ['rabies', 'rabies pre exposure'],
+  'Other travel vaccines': ['other travel vaccine', 'travel vaccine other'],
+  'Unsure of immunization history': ['unsure', 'not sure', 'unknown history'],
+  'No records available': ['no records', 'no vaccine records'],
+};
+
+export const PAST_MEDICAL_HISTORY_NONE_OF_ABOVE = 'None of the above';
+export const PAST_MEDICAL_HISTORY_OTHER_MENTAL_HEALTH =
+  'Other mental health condition';
+export const PAST_MEDICAL_HISTORY_OTHER_SURGERY = 'Other surgery';
+
+type PastMedicalHistoryForm = Pick<
+  IntakeFormData,
+  | 'medicalConditions'
+  | 'pastMedicalHistoryChronicConditions'
+  | 'pastMedicalHistoryHydrated'
+  | 'pastMedicalHistoryOtherMentalHealthCondition'
+  | 'pastMedicalHistoryOtherRelevantHistory'
+  | 'pastMedicalHistoryOtherSurgery'
+  | 'pastMedicalHistorySurgicalHistory'
+>;
+
+type MedicalInfoForm = Pick<
+  IntakeFormData,
+  | 'allergies'
+  | 'allergyEnvironmentalSelections'
+  | 'allergyFoodSelections'
+  | 'allergyMaterialSelections'
+  | 'allergyMedicationSelections'
+  | 'immunizations'
+  | 'immunizationCoreSelections'
+  | 'immunizationRoutineSelections'
+  | 'immunizationTravelSelections'
+  | 'immunizationUnknownSelections'
+  | 'medicalInfoHydrated'
+>;
+
+function hasStructuredPastMedicalHistoryValues(
+  values: Partial<IntakeFormData>,
+) {
+  return (
+    Array.isArray(values.pastMedicalHistoryChronicConditions) &&
+      values.pastMedicalHistoryChronicConditions.length > 0 ||
+    Array.isArray(values.pastMedicalHistorySurgicalHistory) &&
+      values.pastMedicalHistorySurgicalHistory.length > 0 ||
+    Array.isArray(values.pastMedicalHistoryOtherRelevantHistory) &&
+      values.pastMedicalHistoryOtherRelevantHistory.length > 0 ||
+    typeof values.pastMedicalHistoryOtherMentalHealthCondition === 'string' &&
+      values.pastMedicalHistoryOtherMentalHealthCondition.trim().length > 0 ||
+    typeof values.pastMedicalHistoryOtherSurgery === 'string' &&
+      values.pastMedicalHistoryOtherSurgery.trim().length > 0
+  );
+}
+
+function normalizePastMedicalHistoryText(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[()]/g, ' ')
+    .replace(/[/:]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function normalizePastMedicalHistorySelection(
+  value: unknown,
+  allowedValues: readonly string[],
+) {
+  if (!Array.isArray(value)) {
+    return [] as string[];
+  }
+
+  const normalized = value.filter(
+    (entry): entry is string =>
+      typeof entry === 'string' && allowedValues.includes(entry),
+  );
+
+  return Array.from(new Set(normalized));
+}
+
+function normalizePastMedicalHistoryOtherRelevantHistory(value: unknown) {
+  const normalized = normalizePastMedicalHistorySelection(
+    value,
+    pastMedicalHistoryOptions.otherRelevantHistory,
+  );
+
+  if (
+    normalized.includes(PAST_MEDICAL_HISTORY_NONE_OF_ABOVE) &&
+    normalized.length > 1
+  ) {
+    return normalized.filter(
+      (entry) => entry !== PAST_MEDICAL_HISTORY_NONE_OF_ABOVE,
+    );
+  }
+
+  return normalized;
+}
+
+function splitPastMedicalHistoryNotes(value: string) {
+  return value
+    .split(/[\n,;]+/)
+    .map((entry) => entry.trim().split(/\s+/).join(' '))
+    .filter(Boolean);
+}
+
+function extractLabeledPastMedicalHistoryValue(
+  rawEntry: string,
+  prefixes: readonly string[],
+) {
+  const normalizedEntry = normalizePastMedicalHistoryText(rawEntry);
+
+  for (const prefix of prefixes) {
+    if (!normalizedEntry.startsWith(prefix)) {
+      continue;
+    }
+
+    const detail = rawEntry
+      .replace(new RegExp(`^${prefix}`, 'i'), '')
+      .replace(/^[:\-–—\s]+/, '')
+      .trim();
+
+    return detail;
+  }
+
+  return '';
+}
+
+function matchesPastMedicalHistoryAlias(
+  rawEntry: string,
+  aliases: readonly string[],
+) {
+  const normalizedEntry = normalizePastMedicalHistoryText(rawEntry);
+  return aliases.some((alias) => normalizedEntry === alias);
+}
+
+export function hydratePastMedicalHistoryFromLegacy(value: string) {
+  const chronicConditions = new Set<string>();
+  const surgicalHistory = new Set<string>();
+  const otherRelevantHistory = new Set<string>();
+  let otherMentalHealthCondition = '';
+  let otherSurgery = '';
+  const remainingNotes: string[] = [];
+
+  for (const entry of splitPastMedicalHistoryNotes(value)) {
+    if (
+      matchesPastMedicalHistoryAlias(entry, ['hypertension', 'high blood pressure'])
+    ) {
+      chronicConditions.add('Hypertension');
+      continue;
+    }
+    if (
+      matchesPastMedicalHistoryAlias(entry, [
+        'diabetes',
+        'type 1 diabetes',
+        'type 2 diabetes',
+        'diabetes type 1',
+        'diabetes type 2',
+      ])
+    ) {
+      chronicConditions.add('Diabetes (Type 1 / Type 2)');
+      continue;
+    }
+    if (
+      matchesPastMedicalHistoryAlias(entry, ['high cholesterol', 'hyperlipidemia'])
+    ) {
+      chronicConditions.add('High cholesterol');
+      continue;
+    }
+    if (
+      matchesPastMedicalHistoryAlias(entry, [
+        'thyroid disorder',
+        'thyroid disease',
+        'hypothyroid',
+        'hyperthyroid',
+      ])
+    ) {
+      chronicConditions.add('Thyroid disorder');
+      continue;
+    }
+    if (matchesPastMedicalHistoryAlias(entry, ['asthma'])) {
+      chronicConditions.add('Asthma');
+      continue;
+    }
+    if (matchesPastMedicalHistoryAlias(entry, ['copd'])) {
+      chronicConditions.add('COPD');
+      continue;
+    }
+    if (matchesPastMedicalHistoryAlias(entry, ['heart disease'])) {
+      chronicConditions.add('Heart disease');
+      continue;
+    }
+    if (
+      matchesPastMedicalHistoryAlias(entry, [
+        'congestive heart failure',
+        'chf',
+      ])
+    ) {
+      chronicConditions.add('Congestive heart failure');
+      continue;
+    }
+    if (
+      matchesPastMedicalHistoryAlias(entry, [
+        'atrial fibrillation',
+        'afib',
+        'a fib',
+      ])
+    ) {
+      chronicConditions.add('Atrial fibrillation');
+      continue;
+    }
+    if (
+      matchesPastMedicalHistoryAlias(entry, ['stroke', 'tia', 'stroke tia'])
+    ) {
+      chronicConditions.add('Stroke / TIA');
+      continue;
+    }
+    if (
+      matchesPastMedicalHistoryAlias(entry, ['kidney disease', 'ckd'])
+    ) {
+      chronicConditions.add('Kidney disease');
+      continue;
+    }
+    if (matchesPastMedicalHistoryAlias(entry, ['liver disease'])) {
+      chronicConditions.add('Liver disease');
+      continue;
+    }
+    if (
+      matchesPastMedicalHistoryAlias(entry, [
+        'autoimmune disorder',
+        'autoimmune disease',
+      ])
+    ) {
+      chronicConditions.add('Autoimmune disorder');
+      continue;
+    }
+    if (
+      matchesPastMedicalHistoryAlias(entry, [
+        'immunocompromised',
+        'immune compromised',
+      ])
+    ) {
+      chronicConditions.add('Immunocompromised');
+      continue;
+    }
+    if (matchesPastMedicalHistoryAlias(entry, ['cancer', 'cancer current or past'])) {
+      chronicConditions.add('Cancer (current or past)');
+      continue;
+    }
+    if (
+      matchesPastMedicalHistoryAlias(entry, [
+        'blood clot history',
+        'blood clot',
+        'dvt',
+        'pe',
+        'dvt pe',
+      ])
+    ) {
+      chronicConditions.add('Blood clot history (DVT/PE)');
+      continue;
+    }
+    if (matchesPastMedicalHistoryAlias(entry, ['bleeding disorder'])) {
+      chronicConditions.add('Bleeding disorder');
+      continue;
+    }
+    if (matchesPastMedicalHistoryAlias(entry, ['seizure disorder', 'seizures'])) {
+      chronicConditions.add('Seizure disorder');
+      continue;
+    }
+    if (matchesPastMedicalHistoryAlias(entry, ['migraines', 'migraine'])) {
+      chronicConditions.add('Migraines');
+      continue;
+    }
+    if (matchesPastMedicalHistoryAlias(entry, ['anxiety'])) {
+      chronicConditions.add('Anxiety');
+      continue;
+    }
+    if (matchesPastMedicalHistoryAlias(entry, ['depression'])) {
+      chronicConditions.add('Depression');
+      continue;
+    }
+
+    const mentalHealthDetail = extractLabeledPastMedicalHistoryValue(entry, [
+      'other mental health condition',
+    ]);
+    if (mentalHealthDetail || normalizePastMedicalHistoryText(entry).includes('mental health')) {
+      chronicConditions.add(PAST_MEDICAL_HISTORY_OTHER_MENTAL_HEALTH);
+      otherMentalHealthCondition =
+        mentalHealthDetail || otherMentalHealthCondition || entry.trim();
+      continue;
+    }
+
+    if (
+      matchesPastMedicalHistoryAlias(entry, [
+        'appendectomy',
+        'appendicectomy',
+      ])
+    ) {
+      surgicalHistory.add('Appendectomy');
+      continue;
+    }
+    if (
+      matchesPastMedicalHistoryAlias(entry, [
+        'gallbladder removal',
+        'cholecystectomy',
+      ])
+    ) {
+      surgicalHistory.add('Gallbladder removal');
+      continue;
+    }
+    if (
+      matchesPastMedicalHistoryAlias(entry, [
+        'c section',
+        'c-section',
+        'cesarean',
+      ])
+    ) {
+      surgicalHistory.add('C-section');
+      continue;
+    }
+    if (matchesPastMedicalHistoryAlias(entry, ['hysterectomy'])) {
+      surgicalHistory.add('Hysterectomy');
+      continue;
+    }
+    if (matchesPastMedicalHistoryAlias(entry, ['hernia repair'])) {
+      surgicalHistory.add('Hernia repair');
+      continue;
+    }
+    if (matchesPastMedicalHistoryAlias(entry, ['joint replacement'])) {
+      surgicalHistory.add('Joint replacement');
+      continue;
+    }
+    if (matchesPastMedicalHistoryAlias(entry, ['heart surgery'])) {
+      surgicalHistory.add('Heart surgery');
+      continue;
+    }
+
+    const surgeryDetail = extractLabeledPastMedicalHistoryValue(entry, [
+      'other surgery',
+    ]);
+    if (surgeryDetail) {
+      surgicalHistory.add(PAST_MEDICAL_HISTORY_OTHER_SURGERY);
+      otherSurgery = surgeryDetail;
+      continue;
+    }
+
+    if (
+      matchesPastMedicalHistoryAlias(entry, [
+        'smoker current',
+        'current smoker',
+        'smoker',
+      ])
+    ) {
+      otherRelevantHistory.add('Smoker (current)');
+      continue;
+    }
+    if (matchesPastMedicalHistoryAlias(entry, ['former smoker'])) {
+      otherRelevantHistory.add('Former smoker');
+      continue;
+    }
+    if (matchesPastMedicalHistoryAlias(entry, ['alcohol use'])) {
+      otherRelevantHistory.add('Alcohol use');
+      continue;
+    }
+    if (
+      matchesPastMedicalHistoryAlias(entry, [
+        'recreational drug use',
+        'drug use',
+      ])
+    ) {
+      otherRelevantHistory.add('Recreational drug use');
+      continue;
+    }
+    if (matchesPastMedicalHistoryAlias(entry, ['pregnant', 'pregnancy'])) {
+      otherRelevantHistory.add('Pregnant');
+      continue;
+    }
+    if (matchesPastMedicalHistoryAlias(entry, ['breastfeeding'])) {
+      otherRelevantHistory.add('Breastfeeding');
+      continue;
+    }
+    if (
+      matchesPastMedicalHistoryAlias(entry, [
+        'none of the above',
+        'none',
+      ])
+    ) {
+      otherRelevantHistory.clear();
+      otherRelevantHistory.add(PAST_MEDICAL_HISTORY_NONE_OF_ABOVE);
+      continue;
+    }
+
+    remainingNotes.push(entry.trim());
+  }
+
+  return {
+    medicalConditions: remainingNotes.join(', '),
+    pastMedicalHistoryChronicConditions: Array.from(chronicConditions),
+    pastMedicalHistoryHydrated: true,
+    pastMedicalHistoryOtherMentalHealthCondition:
+      otherMentalHealthCondition,
+    pastMedicalHistoryOtherRelevantHistory: Array.from(otherRelevantHistory),
+    pastMedicalHistoryOtherSurgery: otherSurgery,
+    pastMedicalHistorySurgicalHistory: Array.from(surgicalHistory),
+  } satisfies Partial<IntakeFormData>;
+}
+
+function uniquePastMedicalHistoryItems(items: string[]) {
+  const seen = new Set<string>();
+  const results: string[] = [];
+
+  for (const item of items) {
+    const normalized = normalizePastMedicalHistoryText(item);
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    results.push(item);
+  }
+
+  return results;
+}
+
+export function buildPastMedicalHistoryEntries(form: PastMedicalHistoryForm) {
+  const chronic = form.pastMedicalHistoryChronicConditions.map((value) =>
+    value === PAST_MEDICAL_HISTORY_OTHER_MENTAL_HEALTH &&
+    form.pastMedicalHistoryOtherMentalHealthCondition.trim()
+      ? `${PAST_MEDICAL_HISTORY_OTHER_MENTAL_HEALTH}: ${form.pastMedicalHistoryOtherMentalHealthCondition.trim()}`
+      : value,
+  );
+  const surgical = form.pastMedicalHistorySurgicalHistory.map((value) =>
+    value === PAST_MEDICAL_HISTORY_OTHER_SURGERY &&
+    form.pastMedicalHistoryOtherSurgery.trim()
+      ? `${PAST_MEDICAL_HISTORY_OTHER_SURGERY}: ${form.pastMedicalHistoryOtherSurgery.trim()}`
+      : value,
+  );
+  const otherRelevant = form.pastMedicalHistoryOtherRelevantHistory.filter(
+    (value) =>
+      value !== PAST_MEDICAL_HISTORY_NONE_OF_ABOVE ||
+      form.pastMedicalHistoryOtherRelevantHistory.length === 1,
+  );
+  const additionalNotes = splitPastMedicalHistoryNotes(form.medicalConditions);
+
+  return {
+    additionalNotes: uniquePastMedicalHistoryItems(additionalNotes),
+    chronic: uniquePastMedicalHistoryItems(chronic),
+    otherRelevant: uniquePastMedicalHistoryItems(otherRelevant),
+    surgical: uniquePastMedicalHistoryItems(surgical),
+  };
+}
+
+export function serializeIntakeForm(form: IntakeFormData): IntakeFormData {
+  const medicallyReconciledForm = reconcileMedicalInfoForm(form);
+  const chronicConditions = normalizePastMedicalHistorySelection(
+    medicallyReconciledForm.pastMedicalHistoryChronicConditions,
+    pastMedicalHistoryOptions.chronicConditions,
+  );
+  const surgicalHistory = normalizePastMedicalHistorySelection(
+    medicallyReconciledForm.pastMedicalHistorySurgicalHistory,
+    pastMedicalHistoryOptions.surgicalHistory,
+  );
+  const otherRelevantHistory = normalizePastMedicalHistoryOtherRelevantHistory(
+    medicallyReconciledForm.pastMedicalHistoryOtherRelevantHistory,
+  );
+
+  const normalizedForm: IntakeFormData = {
+    ...medicallyReconciledForm,
+    allergies: buildMedicalInfoAllergyEntries(medicallyReconciledForm).join(', '),
+    immunizations:
+      buildMedicalInfoImmunizationEntries(medicallyReconciledForm).join(', '),
+    medicalConditions: typeof medicallyReconciledForm.medicalConditions === 'string'
+      ? medicallyReconciledForm.medicalConditions.trim()
+      : '',
+    pastMedicalHistoryChronicConditions: chronicConditions,
+    pastMedicalHistoryHydrated: true,
+    pastMedicalHistoryOtherMentalHealthCondition:
+      medicallyReconciledForm.pastMedicalHistoryOtherMentalHealthCondition.trim(),
+    pastMedicalHistoryOtherRelevantHistory: otherRelevantHistory,
+    pastMedicalHistoryOtherSurgery:
+      medicallyReconciledForm.pastMedicalHistoryOtherSurgery.trim(),
+    pastMedicalHistorySurgicalHistory: surgicalHistory,
+  };
+
+  const entries = buildPastMedicalHistoryEntries(normalizedForm);
+  const medicalConditions = uniquePastMedicalHistoryItems([
+    ...entries.chronic,
+    ...entries.surgical,
+    ...entries.otherRelevant,
+    ...entries.additionalNotes,
+  ]).join(', ');
+
+  return {
+    ...normalizedForm,
+    medicalConditions,
+  };
+}
+
+export function reconcilePastMedicalHistoryForm(
+  form: IntakeFormData,
+): IntakeFormData {
+  const legacyValue = form.medicalConditions.trim();
+  const hasStructuredSelections = hasStructuredPastMedicalHistoryValues(form);
+
+  if (!legacyValue && !hasStructuredSelections) {
+    return form;
+  }
+
+  const hydrated = legacyValue
+    ? hydratePastMedicalHistoryFromLegacy(legacyValue)
+    : null;
+
+  if (!hydrated) {
+    return {
+      ...form,
+      pastMedicalHistoryHydrated: true,
+    };
+  }
+
+  return {
+    ...form,
+    medicalConditions: hydrated.medicalConditions ?? '',
+    pastMedicalHistoryChronicConditions: uniquePastMedicalHistoryItems([
+      ...form.pastMedicalHistoryChronicConditions,
+      ...(hydrated.pastMedicalHistoryChronicConditions ?? []),
+    ]),
+    pastMedicalHistoryHydrated: true,
+    pastMedicalHistoryOtherMentalHealthCondition:
+      form.pastMedicalHistoryOtherMentalHealthCondition.trim() ||
+      hydrated.pastMedicalHistoryOtherMentalHealthCondition ||
+      '',
+    pastMedicalHistoryOtherRelevantHistory: uniquePastMedicalHistoryItems([
+      ...normalizePastMedicalHistoryOtherRelevantHistory(
+        form.pastMedicalHistoryOtherRelevantHistory,
+      ),
+      ...(hydrated.pastMedicalHistoryOtherRelevantHistory ?? []),
+    ]),
+    pastMedicalHistoryOtherSurgery:
+      form.pastMedicalHistoryOtherSurgery.trim() ||
+      hydrated.pastMedicalHistoryOtherSurgery ||
+      '',
+    pastMedicalHistorySurgicalHistory: uniquePastMedicalHistoryItems([
+      ...form.pastMedicalHistorySurgicalHistory,
+      ...(hydrated.pastMedicalHistorySurgicalHistory ?? []),
+    ]),
+  };
+}
+
+export function formatPastMedicalHistorySummary(
+  items: string[],
+  emptyLabel = 'None selected',
+) {
+  return items.length > 0 ? items.join(', ') : emptyLabel;
+}
+
+function normalizeMedicalInfoSelection(
+  value: unknown,
+  allowedValues: readonly string[],
+) {
+  if (!Array.isArray(value)) {
+    return [] as string[];
+  }
+
+  const normalized = value.filter(
+    (entry): entry is string =>
+      typeof entry === 'string' && allowedValues.includes(entry),
+  );
+
+  return Array.from(new Set(normalized));
+}
+
+function normalizeMedicalInfoText(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[()]/g, ' ')
+    .replace(/[/:]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function splitMedicalInfoEntries(value: string) {
+  return value
+    .split(/[\n,;]+/)
+    .map((entry) => entry.trim().split(/\s+/).join(' '))
+    .filter(Boolean);
+}
+
+function matchesMedicalInfoAlias(
+  rawEntry: string,
+  option: string,
+  aliases: readonly string[] = [],
+) {
+  const normalizedEntry = normalizeMedicalInfoText(rawEntry);
+  const normalizedOption = normalizeMedicalInfoText(option);
+
+  if (normalizedEntry === normalizedOption) {
+    return true;
+  }
+
+  return aliases.some((alias) => {
+    const normalizedAlias = normalizeMedicalInfoText(alias);
+    return (
+      normalizedEntry === normalizedAlias ||
+      normalizedEntry.includes(normalizedAlias)
+    );
+  });
+}
+
+function uniqueMedicalInfoItems(items: string[]) {
+  const seen = new Set<string>();
+  const results: string[] = [];
+
+  for (const item of items) {
+    const normalized = normalizeMedicalInfoText(item);
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    results.push(item);
+  }
+
+  return results;
+}
+
+function hasStructuredMedicalInfoSelections(values: Partial<IntakeFormData>) {
+  return (
+    Array.isArray(values.allergyMedicationSelections) &&
+      values.allergyMedicationSelections.length > 0 ||
+    Array.isArray(values.allergyMaterialSelections) &&
+      values.allergyMaterialSelections.length > 0 ||
+    Array.isArray(values.allergyFoodSelections) &&
+      values.allergyFoodSelections.length > 0 ||
+    Array.isArray(values.allergyEnvironmentalSelections) &&
+      values.allergyEnvironmentalSelections.length > 0 ||
+    Array.isArray(values.immunizationCoreSelections) &&
+      values.immunizationCoreSelections.length > 0 ||
+    Array.isArray(values.immunizationRoutineSelections) &&
+      values.immunizationRoutineSelections.length > 0 ||
+    Array.isArray(values.immunizationTravelSelections) &&
+      values.immunizationTravelSelections.length > 0 ||
+    Array.isArray(values.immunizationUnknownSelections) &&
+      values.immunizationUnknownSelections.length > 0
+  );
+}
+
+export function buildMedicalInfoAllergyEntries(form: MedicalInfoForm) {
+  return uniqueMedicalInfoItems([
+    ...form.allergyMedicationSelections,
+    ...form.allergyMaterialSelections,
+    ...form.allergyFoodSelections,
+    ...form.allergyEnvironmentalSelections,
+  ]);
+}
+
+export function buildMedicalInfoImmunizationEntries(form: MedicalInfoForm) {
+  return uniqueMedicalInfoItems([
+    ...form.immunizationCoreSelections,
+    ...form.immunizationRoutineSelections,
+    ...form.immunizationTravelSelections,
+    ...form.immunizationUnknownSelections,
+  ]);
+}
+
+export function formatCompactSelectionSummary(
+  items: string[],
+  emptyLabel = 'No selections yet',
+) {
+  if (items.length === 0) {
+    return emptyLabel;
+  }
+
+  if (items.length <= 2) {
+    return items.join(', ');
+  }
+
+  return `${items[0]}, ${items[1]} +${items.length - 2}`;
+}
+
+export function formatCompactTextSummary(
+  value: string,
+  emptyLabel = 'No selections yet',
+) {
+  const normalized = value.trim().replace(/\s+/g, ' ');
+
+  if (!normalized) {
+    return emptyLabel;
+  }
+
+  if (normalized.length <= 48) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, 45).trimEnd()}...`;
+}
+
+export function hydrateMedicalInfoFromLegacy(allergies: string, immunizations: string) {
+  const allergyMedicationSelections = new Set<string>();
+  const allergyMaterialSelections = new Set<string>();
+  const allergyFoodSelections = new Set<string>();
+  const allergyEnvironmentalSelections = new Set<string>();
+  const immunizationCoreSelections = new Set<string>();
+  const immunizationRoutineSelections = new Set<string>();
+  const immunizationTravelSelections = new Set<string>();
+  const immunizationUnknownSelections = new Set<string>();
+
+  for (const entry of splitMedicalInfoEntries(allergies)) {
+    const medicationMatch = medicalInfoCategoryOptions.allergyMedication.find((option) =>
+      matchesMedicalInfoAlias(entry, option, MEDICAL_INFO_ALLERGY_ALIASES[option]),
+    );
+    if (medicationMatch) {
+      allergyMedicationSelections.add(medicationMatch);
+      continue;
+    }
+
+    const materialMatch = medicalInfoCategoryOptions.allergyMaterial.find((option) =>
+      matchesMedicalInfoAlias(entry, option, MEDICAL_INFO_ALLERGY_ALIASES[option]),
+    );
+    if (materialMatch) {
+      allergyMaterialSelections.add(materialMatch);
+      continue;
+    }
+
+    const foodMatch = medicalInfoCategoryOptions.allergyFood.find((option) =>
+      matchesMedicalInfoAlias(entry, option, MEDICAL_INFO_ALLERGY_ALIASES[option]),
+    );
+    if (foodMatch) {
+      allergyFoodSelections.add(foodMatch);
+      continue;
+    }
+
+    const environmentalMatch = medicalInfoCategoryOptions.allergyEnvironmental.find((option) =>
+      matchesMedicalInfoAlias(entry, option, MEDICAL_INFO_ALLERGY_ALIASES[option]),
+    );
+    if (environmentalMatch) {
+      allergyEnvironmentalSelections.add(environmentalMatch);
+    }
+  }
+
+  for (const entry of splitMedicalInfoEntries(immunizations)) {
+    const coreMatch = medicalInfoCategoryOptions.immunizationCore.find((option) =>
+      matchesMedicalInfoAlias(entry, option, MEDICAL_INFO_IMMUNIZATION_ALIASES[option]),
+    );
+    if (coreMatch) {
+      immunizationCoreSelections.add(coreMatch);
+      continue;
+    }
+
+    const routineMatch = medicalInfoCategoryOptions.immunizationRoutine.find((option) =>
+      matchesMedicalInfoAlias(entry, option, MEDICAL_INFO_IMMUNIZATION_ALIASES[option]),
+    );
+    if (routineMatch) {
+      immunizationRoutineSelections.add(routineMatch);
+      continue;
+    }
+
+    const travelMatch = medicalInfoCategoryOptions.immunizationTravel.find((option) =>
+      matchesMedicalInfoAlias(entry, option, MEDICAL_INFO_IMMUNIZATION_ALIASES[option]),
+    );
+    if (travelMatch) {
+      immunizationTravelSelections.add(travelMatch);
+      continue;
+    }
+
+    const unknownMatch = medicalInfoCategoryOptions.immunizationUnknown.find((option) =>
+      matchesMedicalInfoAlias(entry, option, MEDICAL_INFO_IMMUNIZATION_ALIASES[option]),
+    );
+    if (unknownMatch) {
+      immunizationUnknownSelections.add(unknownMatch);
+    }
+  }
+
+  return {
+    allergyEnvironmentalSelections: Array.from(allergyEnvironmentalSelections),
+    allergyFoodSelections: Array.from(allergyFoodSelections),
+    allergyMaterialSelections: Array.from(allergyMaterialSelections),
+    allergyMedicationSelections: Array.from(allergyMedicationSelections),
+    immunizationCoreSelections: Array.from(immunizationCoreSelections),
+    immunizationRoutineSelections: Array.from(immunizationRoutineSelections),
+    immunizationTravelSelections: Array.from(immunizationTravelSelections),
+    immunizationUnknownSelections: Array.from(immunizationUnknownSelections),
+    medicalInfoHydrated: true,
+  } satisfies Partial<IntakeFormData>;
+}
+
+export function reconcileMedicalInfoForm(form: IntakeFormData): IntakeFormData {
+  const normalizedForm: IntakeFormData = {
+    ...form,
+    allergyEnvironmentalSelections: normalizeMedicalInfoSelection(
+      form.allergyEnvironmentalSelections,
+      medicalInfoCategoryOptions.allergyEnvironmental,
+    ),
+    allergyFoodSelections: normalizeMedicalInfoSelection(
+      form.allergyFoodSelections,
+      medicalInfoCategoryOptions.allergyFood,
+    ),
+    allergyMaterialSelections: normalizeMedicalInfoSelection(
+      form.allergyMaterialSelections,
+      medicalInfoCategoryOptions.allergyMaterial,
+    ),
+    allergyMedicationSelections: normalizeMedicalInfoSelection(
+      form.allergyMedicationSelections,
+      medicalInfoCategoryOptions.allergyMedication,
+    ),
+    immunizationCoreSelections: normalizeMedicalInfoSelection(
+      form.immunizationCoreSelections,
+      medicalInfoCategoryOptions.immunizationCore,
+    ),
+    immunizationRoutineSelections: normalizeMedicalInfoSelection(
+      form.immunizationRoutineSelections,
+      medicalInfoCategoryOptions.immunizationRoutine,
+    ),
+    immunizationTravelSelections: normalizeMedicalInfoSelection(
+      form.immunizationTravelSelections,
+      medicalInfoCategoryOptions.immunizationTravel,
+    ),
+    immunizationUnknownSelections: normalizeMedicalInfoSelection(
+      form.immunizationUnknownSelections,
+      medicalInfoCategoryOptions.immunizationUnknown,
+    ),
+    medicalInfoHydrated: form.medicalInfoHydrated === true,
+  };
+
+  if (hasStructuredMedicalInfoSelections(normalizedForm)) {
+    return {
+      ...normalizedForm,
+      allergies: buildMedicalInfoAllergyEntries(normalizedForm).join(', '),
+      immunizations: buildMedicalInfoImmunizationEntries(normalizedForm).join(', '),
+      medicalInfoHydrated: true,
+    };
+  }
+
+  if (!normalizedForm.allergies.trim() && !normalizedForm.immunizations.trim()) {
+    return {
+      ...normalizedForm,
+      medicalInfoHydrated: true,
+    };
+  }
+
+  const hydrated = hydrateMedicalInfoFromLegacy(
+    normalizedForm.allergies,
+    normalizedForm.immunizations,
+  );
+  const hydratedForm = {
+    ...normalizedForm,
+    ...hydrated,
+  } satisfies IntakeFormData;
+  const hydratedAllergies = buildMedicalInfoAllergyEntries(hydratedForm).join(', ');
+  const hydratedImmunizations =
+    buildMedicalInfoImmunizationEntries(hydratedForm).join(', ');
+
+  return {
+    ...hydratedForm,
+    allergies: hydratedAllergies || normalizedForm.allergies,
+    immunizations: hydratedImmunizations || normalizedForm.immunizations,
+    medicalInfoHydrated: true,
+  };
+}
+
+export function reconcileStructuredIntakeForm(form: IntakeFormData): IntakeFormData {
+  return reconcilePastMedicalHistoryForm(reconcileMedicalInfoForm(form));
+}
 
 export const patientTypeOptions = [
   {
@@ -194,7 +1261,9 @@ export function normalizeIntakeFormFields(
   if (typeof nextValues.gender === 'string') {
     const normalizedGender = nextValues.gender.trim().toLowerCase();
     nextValues.gender =
-      normalizedGender === 'male' || normalizedGender === 'female'
+      normalizedGender === 'male' ||
+      normalizedGender === 'female' ||
+      normalizedGender === 'other'
         ? normalizedGender
         : '';
   }
@@ -206,6 +1275,89 @@ export function normalizeIntakeFormFields(
   }
   if (typeof nextValues.weightLb === 'string') {
     nextValues.weightLb = normalizeWeightInput(nextValues.weightLb);
+  }
+  if ('medicalInfoHydrated' in nextValues) {
+    nextValues.medicalInfoHydrated = nextValues.medicalInfoHydrated === true;
+  }
+  if ('allergyMedicationSelections' in nextValues) {
+    nextValues.allergyMedicationSelections = normalizeMedicalInfoSelection(
+      nextValues.allergyMedicationSelections,
+      medicalInfoCategoryOptions.allergyMedication,
+    );
+  }
+  if ('allergyMaterialSelections' in nextValues) {
+    nextValues.allergyMaterialSelections = normalizeMedicalInfoSelection(
+      nextValues.allergyMaterialSelections,
+      medicalInfoCategoryOptions.allergyMaterial,
+    );
+  }
+  if ('allergyFoodSelections' in nextValues) {
+    nextValues.allergyFoodSelections = normalizeMedicalInfoSelection(
+      nextValues.allergyFoodSelections,
+      medicalInfoCategoryOptions.allergyFood,
+    );
+  }
+  if ('allergyEnvironmentalSelections' in nextValues) {
+    nextValues.allergyEnvironmentalSelections = normalizeMedicalInfoSelection(
+      nextValues.allergyEnvironmentalSelections,
+      medicalInfoCategoryOptions.allergyEnvironmental,
+    );
+  }
+  if ('immunizationCoreSelections' in nextValues) {
+    nextValues.immunizationCoreSelections = normalizeMedicalInfoSelection(
+      nextValues.immunizationCoreSelections,
+      medicalInfoCategoryOptions.immunizationCore,
+    );
+  }
+  if ('immunizationRoutineSelections' in nextValues) {
+    nextValues.immunizationRoutineSelections = normalizeMedicalInfoSelection(
+      nextValues.immunizationRoutineSelections,
+      medicalInfoCategoryOptions.immunizationRoutine,
+    );
+  }
+  if ('immunizationTravelSelections' in nextValues) {
+    nextValues.immunizationTravelSelections = normalizeMedicalInfoSelection(
+      nextValues.immunizationTravelSelections,
+      medicalInfoCategoryOptions.immunizationTravel,
+    );
+  }
+  if ('immunizationUnknownSelections' in nextValues) {
+    nextValues.immunizationUnknownSelections = normalizeMedicalInfoSelection(
+      nextValues.immunizationUnknownSelections,
+      medicalInfoCategoryOptions.immunizationUnknown,
+    );
+  }
+  if ('pastMedicalHistoryHydrated' in nextValues) {
+    nextValues.pastMedicalHistoryHydrated =
+      nextValues.pastMedicalHistoryHydrated === true;
+  }
+  if ('pastMedicalHistoryChronicConditions' in nextValues) {
+    nextValues.pastMedicalHistoryChronicConditions =
+      normalizePastMedicalHistorySelection(
+        nextValues.pastMedicalHistoryChronicConditions,
+        pastMedicalHistoryOptions.chronicConditions,
+      );
+  }
+  if ('pastMedicalHistorySurgicalHistory' in nextValues) {
+    nextValues.pastMedicalHistorySurgicalHistory =
+      normalizePastMedicalHistorySelection(
+        nextValues.pastMedicalHistorySurgicalHistory,
+        pastMedicalHistoryOptions.surgicalHistory,
+      );
+  }
+  if ('pastMedicalHistoryOtherRelevantHistory' in nextValues) {
+    nextValues.pastMedicalHistoryOtherRelevantHistory =
+      normalizePastMedicalHistoryOtherRelevantHistory(
+        nextValues.pastMedicalHistoryOtherRelevantHistory,
+      );
+  }
+  if (typeof nextValues.pastMedicalHistoryOtherMentalHealthCondition === 'string') {
+    nextValues.pastMedicalHistoryOtherMentalHealthCondition =
+      nextValues.pastMedicalHistoryOtherMentalHealthCondition.trim();
+  }
+  if (typeof nextValues.pastMedicalHistoryOtherSurgery === 'string') {
+    nextValues.pastMedicalHistoryOtherSurgery =
+      nextValues.pastMedicalHistoryOtherSurgery.trim();
   }
 
   return nextValues;
@@ -248,6 +1400,22 @@ export function createInitialIntakeForm(): IntakeFormData {
     pharmacy: '',
     lastDose: '',
     medicalConditions: '',
+    immunizations: '',
+    medicalInfoHydrated: false,
+    allergyMedicationSelections: [],
+    allergyMaterialSelections: [],
+    allergyFoodSelections: [],
+    allergyEnvironmentalSelections: [],
+    immunizationCoreSelections: [],
+    immunizationRoutineSelections: [],
+    immunizationTravelSelections: [],
+    immunizationUnknownSelections: [],
+    pastMedicalHistoryHydrated: false,
+    pastMedicalHistoryChronicConditions: [],
+    pastMedicalHistorySurgicalHistory: [],
+    pastMedicalHistoryOtherRelevantHistory: [],
+    pastMedicalHistoryOtherMentalHealthCondition: '',
+    pastMedicalHistoryOtherSurgery: '',
     allergies: '',
     allergyReaction: '',
     allergyNotes: '',
@@ -460,7 +1628,7 @@ function toRemoteDraftPayload(payload: IntakeDraftPayload) {
   return {
     current_step: payload.currentStep,
     draft_id: payload.draftId ?? null,
-    form: payload.form,
+    form: serializeIntakeForm(payload.form),
     janet_handoff: payload.janetHandoff ?? null,
     patient_id: payload.patientId ?? null,
     returning_patient: payload.returningPatient ?? null,
@@ -473,7 +1641,7 @@ function toRemoteDraftPayload(payload: IntakeDraftPayload) {
 function toSubmitPayload(payload: IntakeSubmitPayload) {
   return {
     draft_id: payload.draftId ?? null,
-    form: payload.form,
+    form: serializeIntakeForm(payload.form),
     janet_handoff: payload.janetHandoff ?? null,
     patient_id: payload.patientId ?? null,
     returning_patient: payload.returningPatient ?? null,

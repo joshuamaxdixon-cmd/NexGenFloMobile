@@ -9,21 +9,21 @@ import { formatDateInput } from '../../services/intake';
 import { colors, spacing, typography } from '../../theme';
 import type { IntakeStepComponentProps } from './types';
 
-type PatientTypeChoice = 'myself' | 'someone_else';
-
 const REQUIRED_VOICE_FIELDS: (keyof IntakeStepComponentProps['form'])[] = [
-  'patientType',
   'firstName',
   'lastName',
   'dateOfBirth',
+  'gender',
   'phoneNumber',
+  'heightFt',
+  'weightLb',
 ];
 
-function derivePatientTypeChoice(patientType: string): PatientTypeChoice {
-  return patientType.trim() === 'Dependent / family member'
-    ? 'someone_else'
-    : 'myself';
-}
+const sexOptions = [
+  { label: 'Male', value: 'male' },
+  { label: 'Female', value: 'female' },
+  { label: 'Other', value: 'other' },
+] as const;
 
 function SelectionChip({
   label,
@@ -66,8 +66,10 @@ export function BasicInfoScreen({
   const firstNameVoice = voice?.bindField('firstName');
   const lastNameVoice = voice?.bindField('lastName');
   const dateOfBirthVoice = voice?.bindField('dateOfBirth');
+  const genderVoice = voice?.bindField('gender');
   const phoneVoice = voice?.bindField('phoneNumber');
-  const patientTypeVoice = voice?.bindField('patientType');
+  const heightVoice = voice?.bindField('heightFt');
+  const weightVoice = voice?.bindField('weightLb');
 
   useEffect(() => {
     if (!form.patientType.trim()) {
@@ -75,59 +77,37 @@ export function BasicInfoScreen({
     }
   }, [form.patientType, onChange]);
 
-  const patientTypeChoice = derivePatientTypeChoice(form.patientType);
-  const preferredVoiceField = useMemo(() => {
-    if (patientTypeChoice === 'someone_else') {
-      return 'firstName' as const;
-    }
-
-    return (
+  const preferredVoiceField = useMemo(
+    () =>
       REQUIRED_VOICE_FIELDS.find((field) => {
         const value = form[field];
         return typeof value === 'string' && value.trim().length === 0;
-      }) ?? 'firstName'
-    );
-  }, [form, patientTypeChoice]);
+      }) ?? 'firstName',
+    [form],
+  );
 
   const preferredVoiceBinding =
-    preferredVoiceField === 'patientType'
-      ? patientTypeVoice
-      : preferredVoiceField === 'firstName'
-        ? firstNameVoice
-        : preferredVoiceField === 'lastName'
-          ? lastNameVoice
-          : preferredVoiceField === 'dateOfBirth'
-            ? dateOfBirthVoice
-            : phoneVoice;
+    preferredVoiceField === 'firstName'
+      ? firstNameVoice
+      : preferredVoiceField === 'lastName'
+        ? lastNameVoice
+        : preferredVoiceField === 'dateOfBirth'
+          ? dateOfBirthVoice
+          : preferredVoiceField === 'gender'
+            ? genderVoice
+            : preferredVoiceField === 'phoneNumber'
+              ? phoneVoice
+              : preferredVoiceField === 'heightFt'
+                ? heightVoice
+                : weightVoice;
 
   return (
     <View>
       <InfoCard>
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Patient type</Text>
-          <View style={styles.selectionRow}>
-            <SelectionChip
-              label="Myself"
-              onPress={() => onChange('patientType', 'New patient')}
-              selected={patientTypeChoice === 'myself'}
-            />
-            <SelectionChip
-              label="Someone else"
-              onPress={() => onChange('patientType', 'Dependent / family member')}
-              selected={patientTypeChoice === 'someone_else'}
-            />
-          </View>
-          {fieldErrors?.patientType ? (
-            <Text style={styles.errorText}>{fieldErrors.patientType}</Text>
-          ) : null}
-        </View>
-
         <View style={styles.voiceAssistRow}>
-          <View style={styles.voiceAssistCopy}>
-            <Text style={styles.voiceAssistTitle}>
-              Need help? Use Janet to fill this faster
-            </Text>
-          </View>
+          <Text style={styles.voiceAssistText}>
+            Need help? Use Janet to fill this faster
+          </Text>
           <SecondaryButton
             onPress={preferredVoiceBinding?.onVoicePress ?? (() => undefined)}
             style={styles.voiceAssistButton}
@@ -138,12 +118,11 @@ export function BasicInfoScreen({
           <View style={styles.voiceAssistFooter}>{preferredVoiceBinding.footer}</View>
         ) : null}
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Basic info</Text>
+        <View style={styles.formStack}>
           <InputField
             autoCapitalize="words"
             errorText={fieldErrors?.firstName}
-            label="First name"
+            label="First Name"
             onChangeText={(value) => onChange('firstName', value)}
             placeholder="Ava"
             value={form.firstName}
@@ -151,7 +130,7 @@ export function BasicInfoScreen({
           <InputField
             autoCapitalize="words"
             errorText={fieldErrors?.lastName}
-            label="Last name"
+            label="Last Name"
             onChangeText={(value) => onChange('lastName', value)}
             placeholder="Johnson"
             value={form.lastName}
@@ -159,19 +138,69 @@ export function BasicInfoScreen({
           <InputField
             errorText={fieldErrors?.dateOfBirth}
             keyboardType="numbers-and-punctuation"
-            label="Date of birth"
+            label="Date of Birth"
             onChangeText={(value) => onChange('dateOfBirth', formatDateInput(value))}
             placeholder="MM/DD/YYYY"
             value={form.dateOfBirth}
           />
-        </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Contact info</Text>
+          <View style={styles.measurementsRow}>
+            <View style={styles.measurementField}>
+              <InputField
+                errorText={fieldErrors?.heightFt}
+                keyboardType="number-pad"
+                label="Height (ft)"
+                onChangeText={(value) => onChange('heightFt', value)}
+                optional
+                placeholder="5"
+                value={form.heightFt}
+              />
+            </View>
+            <View style={styles.measurementField}>
+              <InputField
+                errorText={fieldErrors?.heightIn}
+                keyboardType="number-pad"
+                label="Height (in)"
+                onChangeText={(value) => onChange('heightIn', value)}
+                optional
+                placeholder="6"
+                value={form.heightIn}
+              />
+            </View>
+          </View>
+          <InputField
+            errorText={fieldErrors?.weightLb}
+            keyboardType="decimal-pad"
+            label="Weight (lb)"
+            onChangeText={(value) => onChange('weightLb', value)}
+            optional
+            placeholder="140"
+            value={form.weightLb}
+          />
+
+          <View style={styles.fieldGroup}>
+            <Text style={typography.label}>Sex</Text>
+            <View style={styles.selectionRow}>
+              {sexOptions.map((option) => (
+                <SelectionChip
+                  key={option.value}
+                  label={option.label}
+                  onPress={() =>
+                    onChange('gender', form.gender === option.value ? '' : option.value)
+                  }
+                  selected={form.gender === option.value}
+                />
+              ))}
+            </View>
+            {fieldErrors?.gender ? (
+              <Text style={styles.errorText}>{fieldErrors.gender}</Text>
+            ) : null}
+          </View>
+
           <InputField
             errorText={fieldErrors?.phoneNumber}
             keyboardType="phone-pad"
-            label="Phone number"
+            label="Phone Number"
             onChangeText={(value) => onChange('phoneNumber', value)}
             placeholder="555-555-5555"
             value={form.phoneNumber}
@@ -186,46 +215,46 @@ export function BasicInfoScreen({
             placeholder="patient@example.com"
             value={form.email}
           />
-        </View>
 
-        <View style={styles.section}>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => setEmergencyExpanded((current) => !current)}
-            style={({ pressed }) => [
-              styles.accordionHeader,
-              pressed ? styles.accordionHeaderPressed : null,
-            ]}
-          >
-            <Text style={styles.sectionTitle}>Emergency contact</Text>
-            <Ionicons
-              color={colors.textSecondary}
-              name={emergencyExpanded ? 'chevron-up-outline' : 'chevron-down-outline'}
-              size={20}
-            />
-          </Pressable>
-          {emergencyExpanded ? (
-            <View style={styles.accordionContent}>
-              <InputField
-                autoCapitalize="words"
-                errorText={fieldErrors?.emergencyContactName}
-                label="Name"
-                onChangeText={(value) => onChange('emergencyContactName', value)}
-                optional
-                placeholder="Terry Cruise"
-                value={form.emergencyContactName}
+          <View style={styles.fieldGroup}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setEmergencyExpanded((current) => !current)}
+              style={({ pressed }) => [
+                styles.accordionHeader,
+                pressed ? styles.accordionHeaderPressed : null,
+              ]}
+            >
+              <Text style={styles.accordionLabel}>Emergency Contact (optional)</Text>
+              <Ionicons
+                color={colors.textSecondary}
+                name={emergencyExpanded ? 'chevron-up-outline' : 'chevron-down-outline'}
+                size={20}
               />
-              <InputField
-                errorText={fieldErrors?.emergencyContactPhone}
-                keyboardType="phone-pad"
-                label="Phone"
-                onChangeText={(value) => onChange('emergencyContactPhone', value)}
-                optional
-                placeholder="555-555-1212"
-                value={form.emergencyContactPhone}
-              />
-            </View>
-          ) : null}
+            </Pressable>
+            {emergencyExpanded ? (
+              <View style={styles.accordionContent}>
+                <InputField
+                  autoCapitalize="words"
+                  errorText={fieldErrors?.emergencyContactName}
+                  label="Full Name"
+                  onChangeText={(value) => onChange('emergencyContactName', value)}
+                  optional
+                  placeholder="Terry Cruise"
+                  value={form.emergencyContactName}
+                />
+                <InputField
+                  errorText={fieldErrors?.emergencyContactPhone}
+                  keyboardType="phone-pad"
+                  label="Phone Number"
+                  onChangeText={(value) => onChange('emergencyContactPhone', value)}
+                  optional
+                  placeholder="555-555-1212"
+                  value={form.emergencyContactPhone}
+                />
+              </View>
+            ) : null}
+          </View>
         </View>
       </InfoCard>
     </View>
@@ -233,16 +262,41 @@ export function BasicInfoScreen({
 }
 
 const styles = StyleSheet.create({
-  section: {
-    gap: spacing.sm,
-    marginTop: spacing.xl,
+  voiceAssistRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.md,
+    justifyContent: 'space-between',
+    marginBottom: spacing.lg,
   },
-  sectionTitle: {
-    ...typography.sectionTitle,
+  voiceAssistText: {
+    ...typography.body,
+    color: colors.textPrimary,
+    flex: 1,
+  },
+  voiceAssistButton: {
+    minWidth: 160,
+  },
+  voiceAssistFooter: {
+    marginBottom: spacing.md,
+  },
+  formStack: {
+    gap: spacing.sm,
+  },
+  fieldGroup: {
+    gap: spacing.xs,
+    marginBottom: spacing.md,
   },
   selectionRow: {
     flexDirection: 'row',
     gap: spacing.sm,
+  },
+  measurementsRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  measurementField: {
+    flex: 1,
   },
   selectionChip: {
     alignItems: 'center',
@@ -269,37 +323,18 @@ const styles = StyleSheet.create({
   selectionChipLabelSelected: {
     color: colors.primaryDeep,
   },
-  voiceAssistRow: {
-    alignItems: 'center',
-    backgroundColor: colors.surfaceSoft,
-    borderColor: colors.divider,
-    borderRadius: 20,
-    borderWidth: 1,
-    gap: spacing.md,
-    marginTop: spacing.xl,
-    padding: spacing.lg,
-  },
-  voiceAssistCopy: {
-    width: '100%',
-  },
-  voiceAssistTitle: {
-    ...typography.body,
-    color: colors.textPrimary,
-  },
-  voiceAssistButton: {
-    width: '100%',
-  },
-  voiceAssistFooter: {
-    marginTop: spacing.md,
-  },
   accordionHeader: {
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
+    minHeight: 44,
     paddingVertical: spacing.xs,
   },
   accordionHeaderPressed: {
     opacity: 0.75,
+  },
+  accordionLabel: {
+    ...typography.sectionTitle,
   },
   accordionContent: {
     gap: spacing.sm,

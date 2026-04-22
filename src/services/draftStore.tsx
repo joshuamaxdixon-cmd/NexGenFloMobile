@@ -27,6 +27,7 @@ import {
   createInitialReturningPatientForm,
   intakeFlowSteps,
   normalizeIntakeFormFields,
+  reconcileStructuredIntakeForm,
   normalizeReturningPatientFields,
   type IntakeDraftRecord,
   type IntakeFormData,
@@ -58,6 +59,7 @@ import {
 export type DraftSource =
   | 'home'
   | 'manual'
+  | 'preview'
   | 'resume'
   | 'returning'
   | 'voice';
@@ -329,7 +331,10 @@ type DraftStoreContextValue = {
   syncCurrentDraft: () => Promise<boolean>;
   syncSelectedUpload: (documentType: UploadDocumentType) => Promise<boolean>;
   syncVoiceHandoff: () => Promise<boolean>;
-  updateIntakeField: (field: keyof IntakeFormData, value: string) => void;
+  updateIntakeField: <K extends keyof IntakeFormData>(
+    field: K,
+    value: IntakeFormData[K],
+  ) => void;
   updateIntakeFields: (values: Partial<IntakeFormData>) => void;
   updateReturningPatientField: (
     field: keyof ReturningPatientFormData,
@@ -349,6 +354,18 @@ function nowIso() {
 
 function hasText(value: string) {
   return value.trim().length > 0;
+}
+
+function hasIntakeFieldValue(value: IntakeFormData[keyof IntakeFormData]) {
+  if (typeof value === 'string') {
+    return hasText(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+
+  return value === true;
 }
 
 function getErrorMessage(error: unknown, fallback: string) {
@@ -703,10 +720,12 @@ function mergePersistedState(
       ...initial.intake,
       ...payload.intake,
       currentStep: normalizedPersistedStep ?? initial.intake.currentStep,
-      form: normalizeIntakeFormFields({
-        ...initial.intake.form,
-        ...payload.intake?.form,
-      }) as IntakeFormData,
+      form: reconcileStructuredIntakeForm(
+        normalizeIntakeFormFields({
+          ...initial.intake.form,
+          ...payload.intake?.form,
+        }) as IntakeFormData,
+      ),
     },
     returningPatient: {
       ...initial.returningPatient,
@@ -844,10 +863,12 @@ function applyRemoteDraftToState(
     intake: {
       ...state.intake,
       currentStep: draft.currentStep,
-      form: normalizeIntakeFormFields({
-        ...state.intake.form,
-        ...draft.form,
-      }) as IntakeFormData,
+      form: reconcileStructuredIntakeForm(
+        normalizeIntakeFormFields({
+          ...state.intake.form,
+          ...draft.form,
+        }) as IntakeFormData,
+      ),
       lastUpdatedAt: timestamp,
       source: state.intake.source,
       voiceImportedAt:
@@ -879,22 +900,29 @@ function reducer(
       return mergePersistedState(action.payload);
     case 'start_new_intake': {
       const timestamp = nowIso();
-      const nextForm = normalizeIntakeFormFields({
-        ...createInitialIntakeForm(),
-        ...action.payload?.prefill,
-      }) as IntakeFormData;
+      const initial = createInitialPersistedState();
+      const nextForm = reconcileStructuredIntakeForm(
+        normalizeIntakeFormFields({
+          ...createInitialIntakeForm(),
+          ...action.payload?.prefill,
+        }) as IntakeFormData,
+      );
 
       return {
         ...state,
         activeFlowMode: 'intake',
         backend: {
           ...state.backend,
+          draft: initial.backend.draft,
+          janet: initial.backend.janet,
           lookup: {
             ...createInitialBackendState().lookup,
           },
           submit: {
             ...createInitialBackendState().submit,
           },
+          uploads: initial.backend.uploads,
+          qa: initial.backend.qa,
         },
         intake: {
           currentStep: action.payload?.step ?? 'basicInfo',
@@ -903,6 +931,9 @@ function reducer(
           source: action.payload?.source ?? 'home',
           voiceImportedAt: null,
         },
+        returningPatient: initial.returningPatient,
+        uploads: initial.uploads,
+        voice: initial.voice,
       };
     }
     case 'set_active_flow_mode':
@@ -926,10 +957,12 @@ function reducer(
         activeFlowMode: 'intake',
         intake: {
           ...state.intake,
-          form: normalizeIntakeFormFields({
-            ...state.intake.form,
-            ...action.payload,
-          }) as IntakeFormData,
+          form: reconcileStructuredIntakeForm(
+            normalizeIntakeFormFields({
+              ...state.intake.form,
+              ...action.payload,
+            }) as IntakeFormData,
+          ),
           lastUpdatedAt: nowIso(),
         },
       };
@@ -970,14 +1003,16 @@ function reducer(
         activeFlowMode: 'intake',
         intake: {
           currentStep: 'symptoms',
-          form: normalizeIntakeFormFields({
-            ...state.intake.form,
-            patientType: 'Returning patient',
-            firstName: state.returningPatient.form.firstName,
-            lastName: state.returningPatient.form.lastName,
-            dateOfBirth: state.returningPatient.form.dateOfBirth,
-            phoneNumber: state.returningPatient.form.phoneNumber,
-          }) as IntakeFormData,
+          form: reconcileStructuredIntakeForm(
+            normalizeIntakeFormFields({
+              ...state.intake.form,
+              patientType: 'Returning patient',
+              firstName: state.returningPatient.form.firstName,
+              lastName: state.returningPatient.form.lastName,
+              dateOfBirth: state.returningPatient.form.dateOfBirth,
+              phoneNumber: state.returningPatient.form.phoneNumber,
+            }) as IntakeFormData,
+          ),
           lastUpdatedAt: timestamp,
           source: 'returning',
           voiceImportedAt: state.intake.voiceImportedAt,
@@ -1061,18 +1096,20 @@ function reducer(
         activeFlowMode: 'intake',
         intake: {
           currentStep: 'symptoms',
-          form: normalizeIntakeFormFields({
-            ...state.intake.form,
-            patientType: state.intake.form.patientType || 'New patient',
-            chiefConcern: state.voice.handoff.symptomSummary,
-            symptomDuration: state.voice.handoff.duration,
-            medications:
-              state.voice.handoff.medicationNotes || state.intake.form.medications,
-            allergyNotes:
-              state.voice.handoff.allergyNotes || state.intake.form.allergyNotes,
-            symptomNotes:
-              state.voice.handoff.transcript || state.intake.form.symptomNotes,
-          }) as IntakeFormData,
+          form: reconcileStructuredIntakeForm(
+            normalizeIntakeFormFields({
+              ...state.intake.form,
+              patientType: state.intake.form.patientType || 'New patient',
+              chiefConcern: state.voice.handoff.symptomSummary,
+              symptomDuration: state.voice.handoff.duration,
+              medications:
+                state.voice.handoff.medicationNotes || state.intake.form.medications,
+              allergyNotes:
+                state.voice.handoff.allergyNotes || state.intake.form.allergyNotes,
+              symptomNotes:
+                state.voice.handoff.transcript || state.intake.form.symptomNotes,
+            }) as IntakeFormData,
+          ),
           lastUpdatedAt: timestamp,
           source: 'voice',
           voiceImportedAt: timestamp,
@@ -1208,11 +1245,13 @@ function reducer(
         },
         intake: {
           currentStep: 'symptoms',
-          form: normalizeIntakeFormFields({
-            ...state.intake.form,
-            ...memoryPrefill,
-            ...lookupPrefill,
-          }) as IntakeFormData,
+          form: reconcileStructuredIntakeForm(
+            normalizeIntakeFormFields({
+              ...state.intake.form,
+              ...memoryPrefill,
+              ...lookupPrefill,
+            }) as IntakeFormData,
+          ),
           lastUpdatedAt: timestamp,
           source: 'returning',
           voiceImportedAt: state.intake.voiceImportedAt,
@@ -2399,7 +2438,7 @@ export function formatDraftSyncStatus(state: DraftStoreState) {
 
 export function hasResumeableDraft(state: DraftStoreState) {
   const intakeHasData = Object.values(state.intake.form).some((value) =>
-    hasText(value),
+    hasIntakeFieldValue(value),
   );
   const returningHasData = Object.values(state.returningPatient.form).some(
     (value) => hasText(value),

@@ -8,6 +8,7 @@ type DevPreviewPanelProps = {
   onOpenBasicInfo: () => void;
   onOpenDocuments: () => void;
   onOpenMedicalInfo: () => void;
+  onOpenPastMedicalHistory: () => void;
   onOpenReset: () => void;
   onOpenReturningPatient: () => void;
   onOpenReview: () => void;
@@ -17,6 +18,7 @@ export function DevPreviewPanel({
   onOpenBasicInfo,
   onOpenDocuments,
   onOpenMedicalInfo,
+  onOpenPastMedicalHistory,
   onOpenReset,
   onOpenReturningPatient,
   onOpenReview,
@@ -41,7 +43,7 @@ export function DevPreviewPanel({
             title="Open Step 2"
           />
           <SecondaryButton
-            onPress={onOpenReview}
+            onPress={onOpenPastMedicalHistory}
             style={styles.button}
             title="Open Step 3"
           />
@@ -49,6 +51,11 @@ export function DevPreviewPanel({
             onPress={onOpenDocuments}
             style={styles.button}
             title="Open Step 4"
+          />
+          <SecondaryButton
+            onPress={onOpenReview}
+            style={styles.button}
+            title="Open Step 5"
           />
         </View>
       </View>

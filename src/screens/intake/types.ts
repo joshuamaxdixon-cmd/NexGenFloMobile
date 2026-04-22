@@ -22,6 +22,9 @@ export type IntakeVoiceBindings = {
 export type IntakeStepComponentProps = {
   fieldErrors?: IntakeFieldErrors;
   form: IntakeFormData;
-  onChange: (field: keyof IntakeFormData, value: string) => void;
+  onChange: <K extends keyof IntakeFormData>(
+    field: K,
+    value: IntakeFormData[K],
+  ) => void;
   voice?: IntakeVoiceBindings;
 };

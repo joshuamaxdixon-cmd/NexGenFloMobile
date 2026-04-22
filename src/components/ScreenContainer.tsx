@@ -33,29 +33,36 @@ export function ScreenContainer({
 }: ScreenContainerProps) {
   return (
     <SafeAreaView edges={edges} style={[styles.safeArea, style]}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={keyboardOffset}
-        style={styles.flex}
-      >
-        {scroll ? (
-          <ScrollView
-            contentContainerStyle={[
-              styles.scrollContent,
-              contentContainerStyle,
-            ]}
-            keyboardDismissMode="on-drag"
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
-            {children}
-          </ScrollView>
-        ) : (
-          <View style={[styles.staticContent, contentContainerStyle]}>
-            {children}
-          </View>
-        )}
-      </KeyboardAvoidingView>
+      <View style={styles.flex}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={keyboardOffset}
+          style={styles.flex}
+        >
+          {scroll ? (
+            <ScrollView
+              contentContainerStyle={[
+                styles.scrollContent,
+                contentContainerStyle,
+              ]}
+              keyboardDismissMode="on-drag"
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              {children}
+            </ScrollView>
+          ) : (
+            <View
+              style={[
+                styles.staticContent,
+                contentContainerStyle,
+              ]}
+            >
+              {children}
+            </View>
+          )}
+        </KeyboardAvoidingView>
+      </View>
     </SafeAreaView>
   );
 }
@@ -73,11 +80,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
     paddingBottom: spacing.xxxl,
+    width: '100%',
+    maxWidth: 720,
+    alignSelf: 'center',
   },
   staticContent: {
     flex: 1,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
     paddingBottom: spacing.xxxl,
+    width: '100%',
+    maxWidth: 720,
+    alignSelf: 'center',
   },
 });

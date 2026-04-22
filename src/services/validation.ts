@@ -4,6 +4,7 @@ import type {
   IntakeStepKey,
   ReturningPatientFormData,
 } from './intake';
+import { buildPastMedicalHistoryEntries } from './intake';
 
 export type IntakeFieldErrors = Partial<Record<keyof IntakeFormData, string>>;
 export type ReturningPatientFieldErrors = Partial<
@@ -14,7 +15,7 @@ export type ReviewReadiness = {
   blockers: string[];
   isReady: boolean;
   recommendations: {
-    action: 'basicInfo' | 'documents' | 'symptoms';
+    action: 'basicInfo' | 'documents' | 'pastMedicalHistory' | 'symptoms';
     message: string;
   }[];
 };
@@ -268,12 +269,13 @@ export function getReviewReadiness(options: {
   hasInsuranceUpload: boolean;
 }) {
   const fieldErrors = validateIntakeStep('review', options.form);
+  const pastMedicalHistory = buildPastMedicalHistoryEntries(options.form);
   const blockers = Object.values(fieldErrors).filter(
     (value): value is string => typeof value === 'string' && value.length > 0,
   );
   const recommendations: ReviewReadiness['recommendations'] = [];
   const pushRecommendation = (
-    action: 'basicInfo' | 'documents' | 'symptoms',
+    action: 'basicInfo' | 'documents' | 'pastMedicalHistory' | 'symptoms',
     message: string,
   ) => {
     if (recommendations.some((item) => item.message === message)) {
@@ -285,13 +287,13 @@ export function getReviewReadiness(options: {
   if (!options.hasInsuranceUpload) {
     pushRecommendation(
       'documents',
-      'Insurance card can be added on the next optional documents step.',
+      'Insurance card has not been added.',
     );
   }
   if (!options.hasGovernmentIdUpload) {
     pushRecommendation(
       'documents',
-      'Government ID can be added on the next optional documents step.',
+      'Photo ID has not been added.',
     );
   }
   if (
@@ -305,13 +307,13 @@ export function getReviewReadiness(options: {
   }
   if (!hasText(options.form.heightFt) && !hasText(options.form.heightIn)) {
     pushRecommendation(
-      'symptoms',
+      'basicInfo',
       'Height is still blank. Add it now if staff will need vitals from intake.',
     );
   }
   if (!hasText(options.form.weightLb)) {
     pushRecommendation(
-      'symptoms',
+      'basicInfo',
       'Weight is still blank. Add it now if staff will need vitals from intake.',
     );
   }
@@ -351,9 +353,14 @@ export function getReviewReadiness(options: {
       'Safety notes are still missing for the listed allergies.',
     );
   }
-  if (!hasText(options.form.medicalConditions)) {
+  if (
+    pastMedicalHistory.chronic.length === 0 &&
+    pastMedicalHistory.surgical.length === 0 &&
+    pastMedicalHistory.otherRelevant.length === 0 &&
+    pastMedicalHistory.additionalNotes.length === 0
+  ) {
     pushRecommendation(
-      'symptoms',
+      'pastMedicalHistory',
       'Medical history or conditions are still blank. A short summary here can prevent provider follow-up questions.',
     );
   }

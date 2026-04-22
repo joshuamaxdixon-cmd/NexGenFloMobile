@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { InfoCard } from '../../components/InfoCard';
 import { SecondaryButton } from '../../components/SecondaryButton';
 import {
+  buildPastMedicalHistoryEntries,
   getReviewReadiness,
   type IntakeFormData,
 } from '../../services';
@@ -13,7 +14,9 @@ type ReviewScreenProps = {
   form: IntakeFormData;
   hasGovernmentIdUpload: boolean;
   hasInsuranceUpload: boolean;
-  onEditStep?: (step: 'basicInfo' | 'documents' | 'symptoms') => void;
+  onEditStep?: (
+    step: 'basicInfo' | 'documents' | 'pastMedicalHistory' | 'symptoms',
+  ) => void;
   onToggleReviewConfirmed: () => void;
   reviewConfirmed: boolean;
 };
@@ -25,7 +28,11 @@ function valueOrFallback(value: string) {
 function formatGender(value: string) {
   const normalized = value.trim().toLowerCase();
 
-  if (normalized === 'male' || normalized === 'female') {
+  if (
+    normalized === 'male' ||
+    normalized === 'female' ||
+    normalized === 'other'
+  ) {
     return normalized.charAt(0).toUpperCase() + normalized.slice(1);
   }
 
@@ -36,6 +43,14 @@ function formatName(firstName: string, lastName: string) {
   const fullName = `${firstName} ${lastName}`.trim();
 
   return fullName.length > 0 ? fullName : 'Not provided yet';
+}
+
+function formatSelectionList(values: string[]) {
+  if (values.length === 0) {
+    return 'Not provided yet';
+  }
+
+  return values.join(', ');
 }
 
 function formatHeight(heightFt: string, heightIn: string) {
@@ -71,6 +86,7 @@ export function ReviewScreen({
     hasGovernmentIdUpload,
     hasInsuranceUpload,
   });
+  const pastMedicalHistory = buildPastMedicalHistoryEntries(form);
 
   const sections = [
     {
@@ -78,13 +94,15 @@ export function ReviewScreen({
       actionLabel: 'Edit',
       actionStep: 'basicInfo' as const,
       items: [
-        ['Patient type', valueOrFallback(form.patientType)],
-        ['Name', formatName(form.firstName, form.lastName)],
+        ['Full name', formatName(form.firstName, form.lastName)],
         ['Date of birth', valueOrFallback(form.dateOfBirth)],
-        ['Phone', valueOrFallback(form.phoneNumber)],
+        ['Height', formatHeight(form.heightFt, form.heightIn)],
+        ['Weight', valueOrFallback(form.weightLb ? `${form.weightLb} lb` : '')],
+        ['Sex', valueOrFallback(formatGender(form.gender))],
+        ['Phone number', valueOrFallback(form.phoneNumber)],
         ['Email', valueOrFallback(form.email)],
-        ['Emergency contact', valueOrFallback(form.emergencyContactName)],
-        ['Emergency phone', valueOrFallback(form.emergencyContactPhone)],
+        ['Emergency contact full name', valueOrFallback(form.emergencyContactName)],
+        ['Emergency contact phone', valueOrFallback(form.emergencyContactPhone)],
       ],
     },
     {
@@ -92,31 +110,61 @@ export function ReviewScreen({
       actionLabel: 'Edit',
       actionStep: 'symptoms' as const,
       items: [
-        ['Gender', valueOrFallback(formatGender(form.gender))],
-        ['Height', formatHeight(form.heightFt, form.heightIn)],
-        ['Weight', valueOrFallback(form.weightLb ? `${form.weightLb} lb` : '')],
+        [
+          'Medication Allergies',
+          formatSelectionList(form.allergyMedicationSelections),
+        ],
+        [
+          'Material / Contact Allergies',
+          formatSelectionList(form.allergyMaterialSelections),
+        ],
+        ['Food Allergies', formatSelectionList(form.allergyFoodSelections)],
+        [
+          'Environmental Allergies',
+          formatSelectionList(form.allergyEnvironmentalSelections),
+        ],
+        ['Medications', valueOrFallback(form.medications)],
+        ['Preferred pharmacy', valueOrFallback(form.pharmacy)],
+        ['Last dose', valueOrFallback(form.lastDose)],
+        ['Core Vaccines', formatSelectionList(form.immunizationCoreSelections)],
+        [
+          'Routine Adult Vaccines',
+          formatSelectionList(form.immunizationRoutineSelections),
+        ],
+        [
+          'Travel / Risk-Based Vaccines',
+          formatSelectionList(form.immunizationTravelSelections),
+        ],
         ['Reason for visit', valueOrFallback(form.chiefConcern)],
         ['Duration', valueOrFallback(form.symptomDuration)],
         ['Severity', valueOrFallback(form.painLevel)],
         ['Symptom notes', valueOrFallback(form.symptomNotes)],
-        ['Allergies', valueOrFallback(form.allergies)],
-        ['Reaction details', valueOrFallback(form.allergyReaction)],
-        ['Safety notes', valueOrFallback(form.allergyNotes)],
-        ['Medications', valueOrFallback(form.medications)],
-        ['Preferred pharmacy', valueOrFallback(form.pharmacy)],
-        ['Last dose', valueOrFallback(form.lastDose)],
-        ['Conditions / history', valueOrFallback(form.medicalConditions)],
       ],
     },
     {
-      title: 'Insurance Details',
+      title: 'Past Medical History',
+      actionLabel: 'Edit',
+      actionStep: 'pastMedicalHistory' as const,
       items: [
-        ['Insurance card', hasInsuranceUpload ? 'On file' : 'Add on the next step'],
-        ['Photo ID', hasGovernmentIdUpload ? 'On file' : 'Add on the next step'],
-        ['Insurance provider', valueOrFallback(form.insuranceProvider)],
-        ['Member ID', valueOrFallback(form.memberId)],
-        ['Group number', valueOrFallback(form.groupNumber)],
-        ['Subscriber', valueOrFallback(form.subscriberName)],
+        [
+          'Chronic conditions',
+          formatSelectionList(pastMedicalHistory.chronic),
+        ],
+        [
+          'Surgical history',
+          formatSelectionList(pastMedicalHistory.surgical),
+        ],
+        [
+          'Other relevant history',
+          formatSelectionList(pastMedicalHistory.otherRelevant),
+        ],
+      ],
+    },
+    {
+      title: 'Documents',
+      items: [
+        ['Insurance Card', hasInsuranceUpload ? 'Added' : 'Not added'],
+        ['Photo ID', hasGovernmentIdUpload ? 'Added' : 'Not added'],
       ],
     },
   ] as const;
@@ -126,7 +174,7 @@ export function ReviewScreen({
       <InfoCard>
         {reviewReadiness.blockers.length > 0 ? (
           <View style={styles.noticeBox}>
-            <Text style={styles.noticeTitle}>Update before continuing</Text>
+            <Text style={styles.noticeTitle}>Update before submitting</Text>
             {reviewReadiness.blockers.map((blocker) => (
               <Text key={blocker} style={styles.noticeItem}>
                 • {blocker}
@@ -179,12 +227,15 @@ export function ReviewScreen({
             size={22}
           />
           <Text style={styles.checkboxLabel}>
-            I confirm this information is ready for the final documents step.
+            I confirm this check-in information is accurate.
           </Text>
         </Pressable>
+        <Text style={styles.confirmationHelp}>
+          This information will be shared with clinic staff for today’s visit.
+        </Text>
         {!reviewReadiness.isReady ? (
           <Text style={styles.checkboxHint}>
-            Required items above need to be completed before you continue.
+            Required items above need to be completed before you submit.
           </Text>
         ) : null}
       </InfoCard>
@@ -262,6 +313,11 @@ const styles = StyleSheet.create({
     ...typography.body,
     color: colors.textPrimary,
     flex: 1,
+  },
+  confirmationHelp: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginTop: spacing.sm,
   },
   checkboxHint: {
     ...typography.caption,

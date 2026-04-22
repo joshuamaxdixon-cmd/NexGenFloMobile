@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
@@ -40,7 +40,7 @@ function DocumentPreview({
 }) {
   if (asset) {
     return (
-      <View style={styles.previewBox}>
+      <View style={styles.uploadSurface}>
         <Image
           contentFit="cover"
           source={{ uri: asset.uri }}
@@ -51,8 +51,9 @@ function DocumentPreview({
   }
 
   return (
-    <View style={[styles.previewBox, styles.previewEmpty]}>
-      <Ionicons color={colors.primaryDeep} name={icon} size={28} />
+    <View style={[styles.uploadSurface, styles.uploadSurfaceEmpty]}>
+      <Ionicons color={colors.primaryDeep} name={icon} size={30} />
+      <Text style={styles.uploadSurfaceText}>Tap to add photo</Text>
     </View>
   );
 }
@@ -64,7 +65,6 @@ function UploadDocumentCard({
   errorMessage,
   onPick,
   remoteStatus,
-  title,
 }: {
   asset: UploadDocumentAsset | null;
   busyAction: string | null;
@@ -75,21 +75,13 @@ function UploadDocumentCard({
     source: 'camera' | 'gallery',
   ) => Promise<void>;
   remoteStatus: 'error' | 'idle' | 'uploaded' | 'uploading';
-  title: string;
 }) {
   const statusLabel = getUploadStatusLabel(remoteStatus);
 
   return (
-    <View style={styles.uploadCard}>
-      <View style={styles.uploadCardHeader}>
-        <View>
-          <Text style={styles.uploadTitle}>{title}</Text>
-          {asset?.fileName ? (
-            <Text numberOfLines={1} style={styles.uploadMeta}>
-              {asset.fileName}
-            </Text>
-          ) : null}
-        </View>
+    <View style={styles.uploadBlock}>
+      <View style={styles.uploadHeaderRow}>
+        <View />
         <View
           style={[
             styles.statusPill,
@@ -120,6 +112,11 @@ function UploadDocumentCard({
         icon={documentType === 'insurance' ? 'card-outline' : 'person-circle-outline'}
       />
 
+      {asset?.fileName ? (
+        <Text numberOfLines={1} style={styles.uploadMeta}>
+          {asset.fileName}
+        </Text>
+      ) : null}
       {errorMessage ? <Text style={styles.inlineError}>{errorMessage}</Text> : null}
 
       <View style={styles.uploadActions}>
@@ -151,7 +148,6 @@ export function DocumentsScreen({
 }: IntakeStepComponentProps) {
   const { setUploadAsset, state, syncSelectedUpload } = useDraftStore();
   const [busyAction, setBusyAction] = useState<string | null>(null);
-  const [insuranceExpanded, setInsuranceExpanded] = useState(false);
   const [permissionMessage, setPermissionMessage] = useState<string | null>(null);
   const attemptedUploadRef = useRef<Record<UploadDocumentType, string | null>>({
     id: null,
@@ -240,21 +236,11 @@ export function DocumentsScreen({
   return (
     <InfoCard style={styles.mainCard}>
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Upload Documents</Text>
+        <Text style={styles.sectionTitle}>Photo ID (Optional)</Text>
 
         {permissionMessage ? (
           <Text style={styles.permissionText}>{permissionMessage}</Text>
         ) : null}
-
-        <UploadDocumentCard
-          asset={state.uploads.insurance}
-          busyAction={busyAction}
-          documentType="insurance"
-          errorMessage={state.backend.uploads.insurance.message}
-          onPick={handlePickDocument}
-          remoteStatus={state.backend.uploads.insurance.status}
-          title="Insurance Card"
-        />
 
         <UploadDocumentCard
           asset={state.uploads.id}
@@ -263,60 +249,51 @@ export function DocumentsScreen({
           errorMessage={state.backend.uploads.id.message}
           onPick={handlePickDocument}
           remoteStatus={state.backend.uploads.id.status}
-          title="Photo ID"
         />
       </View>
 
       <View style={styles.section}>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => setInsuranceExpanded((previous) => !previous)}
-          style={styles.accordionHeader}
-        >
-          <View>
-            <Text style={styles.sectionTitle}>Insurance Details (Optional)</Text>
-          </View>
-          <Ionicons
-            color={colors.primaryDeep}
-            name={insuranceExpanded ? 'chevron-up-outline' : 'chevron-down-outline'}
-            size={20}
+        <Text style={styles.sectionTitle}>Insurance Card (Optional)</Text>
+        <UploadDocumentCard
+          asset={state.uploads.insurance}
+          busyAction={busyAction}
+          documentType="insurance"
+          errorMessage={state.backend.uploads.insurance.message}
+          onPick={handlePickDocument}
+          remoteStatus={state.backend.uploads.insurance.status}
+        />
+        <View style={styles.fieldsGroup}>
+          <InputField
+            errorText={fieldErrors?.insuranceProvider}
+            label="Insurance provider"
+            onChangeText={(value) => onChange('insuranceProvider', value)}
+            optional
+            placeholder="Blue Cross Blue Shield"
+            value={form.insuranceProvider}
           />
-        </Pressable>
-
-        {insuranceExpanded ? (
-          <View style={styles.accordionBody}>
-            <InputField
-              errorText={fieldErrors?.insuranceProvider}
-              label="Insurance provider"
-              onChangeText={(value) => onChange('insuranceProvider', value)}
-              optional
-              placeholder="Blue Cross Blue Shield"
-              value={form.insuranceProvider}
-            />
-            <InputField
-              errorText={fieldErrors?.memberId}
-              label="Member ID"
-              onChangeText={(value) => onChange('memberId', value)}
-              optional
-              placeholder="XJH-449922"
-              value={form.memberId}
-            />
-            <InputField
-              label="Group number"
-              onChangeText={(value) => onChange('groupNumber', value)}
-              optional
-              placeholder="GRP-2024"
-              value={form.groupNumber}
-            />
-            <InputField
-              label="Subscriber name"
-              onChangeText={(value) => onChange('subscriberName', value)}
-              optional
-              placeholder="Ava Johnson"
-              value={form.subscriberName}
-            />
-          </View>
-        ) : null}
+          <InputField
+            errorText={fieldErrors?.memberId}
+            label="Member ID"
+            onChangeText={(value) => onChange('memberId', value)}
+            optional
+            placeholder="XJH-449922"
+            value={form.memberId}
+          />
+          <InputField
+            label="Group number"
+            onChangeText={(value) => onChange('groupNumber', value)}
+            optional
+            placeholder="GRP-2024"
+            value={form.groupNumber}
+          />
+          <InputField
+            label="Subscriber name"
+            onChangeText={(value) => onChange('subscriberName', value)}
+            optional
+            placeholder="Ava Johnson"
+            value={form.subscriberName}
+          />
+        </View>
       </View>
     </InfoCard>
   );
@@ -327,7 +304,7 @@ const styles = StyleSheet.create({
     gap: spacing.xl,
   },
   section: {
-    gap: spacing.xl,
+    gap: spacing.md,
   },
   sectionTitle: {
     ...typography.sectionTitle,
@@ -336,49 +313,48 @@ const styles = StyleSheet.create({
   permissionText: {
     ...typography.caption,
     color: colors.warning,
-    marginTop: -spacing.sm,
   },
-  uploadCard: {
-    borderWidth: 1,
-    borderColor: colors.divider,
-    borderRadius: 22,
-    padding: spacing.lg,
+  fieldsGroup: {
     gap: spacing.md,
-    backgroundColor: colors.surfaceSoft,
   },
-  uploadCardHeader: {
+  uploadBlock: {
+    gap: spacing.md,
+  },
+  uploadHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     gap: spacing.md,
   },
-  uploadTitle: {
-    ...typography.label,
-    color: colors.textPrimary,
-  },
   uploadMeta: {
     ...typography.caption,
     color: colors.textSecondary,
-    marginTop: spacing.xxs,
-    maxWidth: 220,
+    maxWidth: 260,
   },
-  previewBox: {
-    height: 148,
+  uploadSurface: {
+    minHeight: 156,
     borderRadius: 18,
     overflow: 'hidden',
-    backgroundColor: colors.backgroundAlt,
-    borderWidth: 1,
-    borderColor: colors.divider,
+    backgroundColor: colors.surfaceMuted,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    borderStyle: 'dashed',
     alignItems: 'center',
     justifyContent: 'center',
+    padding: spacing.lg,
   },
-  previewEmpty: {
-    backgroundColor: colors.surfaceMuted,
-    borderStyle: 'dashed',
+  uploadSurfaceEmpty: {
+    gap: spacing.sm,
   },
   previewImage: {
     width: '100%',
-    height: '100%',
+    height: 156,
+    borderRadius: 16,
+  },
+  uploadSurfaceText: {
+    ...typography.body,
+    color: colors.primaryDeep,
+    fontWeight: '600',
   },
   uploadActions: {
     flexDirection: 'row',
@@ -416,16 +392,5 @@ const styles = StyleSheet.create({
   },
   statusPillLabelWarning: {
     color: colors.warning,
-  },
-  accordionHeader: {
-    minHeight: 28,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  accordionBody: {
-    gap: spacing.md,
-    marginTop: -spacing.sm,
   },
 });

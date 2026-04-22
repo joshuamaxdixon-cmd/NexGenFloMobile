@@ -15,6 +15,7 @@ import { SecondaryButton } from '../components/SecondaryButton';
 import type { RootTabParamList } from '../navigation/types';
 import {
   type IntakeFormData,
+  usePatientPortal,
   useDraftStore,
 } from '../services';
 import { colors, spacing, typography } from '../theme';
@@ -105,6 +106,7 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
     state,
     updateReturningPatientField,
   } = useDraftStore();
+  const { openPortalLogin } = usePatientPortal();
   const checkBackendHealthRef = useRef(checkBackendHealth);
   const [showDeveloperTools, setShowDeveloperTools] = useState(false);
 
@@ -148,11 +150,10 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
   };
 
   const openResumeCheckIn = () => {
-    openReturningFlow(true);
+    openPortalLogin();
     navigation.navigate('Intake', {
       launchSource: 'returning',
-      mode: 'returning',
-      resetKey: `returning-${Date.now()}`,
+      resetKey: `portal-${Date.now()}`,
     });
   };
 

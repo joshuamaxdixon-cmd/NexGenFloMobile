@@ -5,5 +5,7 @@ export * from './intake';
 export * from './janet';
 export * from './janetLiveSpeech';
 export * from './patients';
+export * from './patientPortal';
+export { PatientPortalProvider, usePatientPortal } from './patientPortalStore';
 export * from './uploads';
 export * from './validation';

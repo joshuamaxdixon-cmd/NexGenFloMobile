@@ -6,7 +6,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AppNavigator } from './src/navigation/AppNavigator';
-import { DraftStoreProvider } from './src/services';
+import { DraftStoreProvider, PatientPortalProvider } from './src/services';
 import { colors } from './src/theme';
 
 const navigationTheme = {
@@ -28,12 +28,14 @@ export default function App() {
       style={{ flex: 1, backgroundColor: colors.background }}
     >
       <SafeAreaProvider>
-        <DraftStoreProvider>
-          <NavigationContainer theme={navigationTheme}>
-            <StatusBar style="dark" />
-            <AppNavigator />
-          </NavigationContainer>
-        </DraftStoreProvider>
+        <PatientPortalProvider>
+          <DraftStoreProvider>
+            <NavigationContainer theme={navigationTheme}>
+              <StatusBar style="dark" />
+              <AppNavigator />
+            </NavigationContainer>
+          </DraftStoreProvider>
+        </PatientPortalProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

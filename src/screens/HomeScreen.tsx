@@ -21,6 +21,38 @@ import { colors, spacing, typography } from '../theme';
 
 type HomeScreenProps = BottomTabScreenProps<RootTabParamList, 'Home'>;
 
+function createFreshIntakePrefill(): Partial<IntakeFormData> {
+  return {
+    allergies: '',
+    allergyEnvironmentalSelections: [],
+    allergyFoodSelections: [],
+    allergyMaterialSelections: [],
+    allergyMedicationSelections: [],
+    allergyNotes: '',
+    allergyReaction: '',
+    chiefConcern: '',
+    immunizations: '',
+    immunizationCoreSelections: [],
+    immunizationRoutineSelections: [],
+    immunizationTravelSelections: [],
+    immunizationUnknownSelections: [],
+    lastDose: '',
+    medicalConditions: '',
+    medicalInfoHydrated: false,
+    medications: '',
+    painLevel: '',
+    pastMedicalHistoryChronicConditions: [],
+    pastMedicalHistoryHydrated: false,
+    pastMedicalHistoryOtherMentalHealthCondition: '',
+    pastMedicalHistoryOtherRelevantHistory: [],
+    pastMedicalHistoryOtherSurgery: '',
+    pastMedicalHistorySurgicalHistory: [],
+    pharmacy: '',
+    symptomDuration: '',
+    symptomNotes: '',
+  };
+}
+
 function createDevPreviewBasicPrefill(): Partial<IntakeFormData> {
   return {
     patientType: 'New patient',
@@ -89,11 +121,13 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
   const openCheckIn = () => {
     clearDraft('all');
     startNewIntake({
+      prefill: createFreshIntakePrefill(),
       source: 'home',
       step: 'basicInfo',
     });
     navigation.navigate('Intake', {
       mode: 'intake',
+      resetKey: `home-basic-${Date.now()}`,
       startStep: 'basicInfo',
     });
   };
@@ -101,12 +135,14 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
   const openJanetAssistant = () => {
     clearDraft('all');
     startNewIntake({
+      prefill: createFreshIntakePrefill(),
       source: 'voice',
       step: 'basicInfo',
     });
     navigation.navigate('Intake', {
       launchSource: 'voice',
       mode: 'intake',
+      resetKey: `voice-basic-${Date.now()}`,
       startStep: 'basicInfo',
     });
   };

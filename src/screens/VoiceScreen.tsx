@@ -85,6 +85,36 @@ const EMPTY_CONFIRMATION: JanetConfirmationState = {
   required: false,
 };
 
+const EMPTY_MEDICAL_AND_PMH_PREFILL: Partial<IntakeFormData> = {
+  allergies: '',
+  allergyEnvironmentalSelections: [],
+  allergyFoodSelections: [],
+  allergyMaterialSelections: [],
+  allergyMedicationSelections: [],
+  allergyNotes: '',
+  allergyReaction: '',
+  chiefConcern: '',
+  immunizations: '',
+  immunizationCoreSelections: [],
+  immunizationRoutineSelections: [],
+  immunizationTravelSelections: [],
+  immunizationUnknownSelections: [],
+  lastDose: '',
+  medicalConditions: '',
+  medicalInfoHydrated: false,
+  medications: '',
+  painLevel: '',
+  pastMedicalHistoryChronicConditions: [],
+  pastMedicalHistoryHydrated: false,
+  pastMedicalHistoryOtherMentalHealthCondition: '',
+  pastMedicalHistoryOtherRelevantHistory: [],
+  pastMedicalHistoryOtherSurgery: '',
+  pastMedicalHistorySurgicalHistory: [],
+  pharmacy: '',
+  symptomDuration: '',
+  symptomNotes: '',
+};
+
 const FIELD_LABELS: Record<string, string> = {
   allergies: 'allergies',
   chiefConcern: 'reason for your visit',
@@ -1169,6 +1199,7 @@ export function VoiceExperience({
 
     if (!state.intake.form.firstName && !state.intake.form.chiefConcern) {
       startNewIntake({
+        prefill: EMPTY_MEDICAL_AND_PMH_PREFILL,
         source: 'voice',
         step: janetStep,
       });
@@ -1184,6 +1215,7 @@ export function VoiceExperience({
       mode: 'intake',
       startStep: janetStep,
       launchSource: 'voice',
+      resetKey: `voice-inline-${janetStep}-${Date.now()}`,
     });
   }, [
     janetStep,
@@ -1494,6 +1526,7 @@ export function VoiceExperience({
     setVoiceListening(false);
     setVoiceSpellMode(false);
     startNewIntake({
+      prefill: EMPTY_MEDICAL_AND_PMH_PREFILL,
       source: 'voice',
       step: 'basicInfo',
     });

@@ -1,38 +1,79 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { Image, StyleSheet, Text, View } from 'react-native';
 
 import { InfoCard } from '../components/InfoCard';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { SecondaryButton } from '../components/SecondaryButton';
+import type {
+  PatientPortalSession,
+} from '../services/patientPortalStore';
 import type { PatientPortalSummary } from '../services/patientPortal';
 import { colors, spacing, typography } from '../theme';
 
 type Props = {
   busyAction?: string | null;
   message?: string | null;
-  portal: PatientPortalSummary;
   onContinueCheckIn: () => void;
   onEditProfile: () => void;
+  onOpenAppHome: () => void;
+  onOpenDocuments: () => void;
+  onOpenVisits: () => void;
   onUpdateMedicalHistory: () => void;
-  onUpdateProfilePicture: () => void;
   onSignOut: () => void;
+  portal: PatientPortalSummary;
+  session: PatientPortalSession;
 };
+
+function buildAvatarUri(uri: string, version: string | null) {
+  if (!uri) {
+    return null;
+  }
+  const suffix = version ? `${uri.includes('?') ? '&' : '?'}v=${version}` : '';
+  return `${uri}${suffix}`;
+}
 
 export function PatientPortalHomeScreen({
   busyAction,
   message,
-  portal,
   onContinueCheckIn,
   onEditProfile,
+  onOpenAppHome,
+  onOpenDocuments,
+  onOpenVisits,
   onUpdateMedicalHistory,
-  onUpdateProfilePicture,
   onSignOut,
+  portal,
+  session,
 }: Props) {
+  const avatarUri = buildAvatarUri(
+    portal.patient.profileImageUrl,
+    session.avatarVersion,
+  );
+
   return (
     <View style={styles.container}>
       <InfoCard
         subtitle="You are signed in with your patient account."
         title={portal.patient.fullName || 'Patient Portal'}
       >
+        <View style={styles.identityRow}>
+          {avatarUri ? (
+            <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
+          ) : (
+            <View style={styles.avatarFallback}>
+              <Text style={styles.avatarInitials}>
+                {portal.patient.avatarInitials || 'PT'}
+              </Text>
+            </View>
+          )}
+          <View style={styles.identityText}>
+            <Text style={styles.identityName}>
+              {portal.patient.fullName || 'Patient'}
+            </Text>
+            <Text style={styles.identityMeta}>
+              Patient ID {portal.patient.id || session.patientId}
+            </Text>
+          </View>
+        </View>
         <View style={styles.summaryList}>
           <View style={styles.summaryRow}>
             <Text style={styles.label}>Email</Text>
@@ -53,9 +94,9 @@ export function PatientPortalHomeScreen({
 
       <InfoCard style={styles.actionsCard} title="Patient Portal">
         <PrimaryButton
-          loading={busyAction === 'checkIn'}
+          loading={busyAction === 'refresh'}
           onPress={onContinueCheckIn}
-          title="Continue Check-In"
+          title="Start Today's Check-In"
         />
         <SecondaryButton
           onPress={onEditProfile}
@@ -68,9 +109,19 @@ export function PatientPortalHomeScreen({
           title="Update Medical History"
         />
         <SecondaryButton
-          onPress={onUpdateProfilePicture}
+          onPress={onOpenDocuments}
           style={styles.actionButton}
-          title="Add / Change Profile Picture"
+          title="Documents"
+        />
+        <SecondaryButton
+          onPress={onOpenVisits}
+          style={styles.actionButton}
+          title="Recent Visits"
+        />
+        <SecondaryButton
+          onPress={onOpenAppHome}
+          style={styles.actionButton}
+          title="Back to App Home"
         />
         <SecondaryButton
           onPress={onSignOut}
@@ -78,6 +129,34 @@ export function PatientPortalHomeScreen({
           title="Sign Out"
         />
         {message ? <Text style={styles.message}>{message}</Text> : null}
+      </InfoCard>
+
+      <InfoCard
+        subtitle="Your latest visit activity appears here."
+        title="Recent Visit"
+      >
+        {portal.activeVisit ? (
+          <View style={styles.summaryList}>
+            <View style={styles.summaryRow}>
+              <Text style={styles.label}>Status</Text>
+              <Text style={styles.value}>{portal.activeVisit.statusLabel}</Text>
+            </View>
+            <View style={styles.summaryRow}>
+              <Text style={styles.label}>Reason for visit</Text>
+              <Text style={styles.value}>
+                {portal.activeVisit.reasonForVisit || 'Not provided'}
+              </Text>
+            </View>
+            <View style={styles.summaryRow}>
+              <Text style={styles.label}>Last updated</Text>
+              <Text style={styles.value}>
+                {portal.activeVisit.updatedAt || 'Not provided'}
+              </Text>
+            </View>
+          </View>
+        ) : (
+          <Text style={styles.message}>No recent visits are available yet.</Text>
+        )}
       </InfoCard>
     </View>
   );
@@ -87,11 +166,47 @@ const styles = StyleSheet.create({
   container: {
     gap: spacing.lg,
   },
+  avatarFallback: {
+    alignItems: 'center',
+    backgroundColor: colors.primarySoft,
+    borderRadius: 32,
+    height: 64,
+    justifyContent: 'center',
+    width: 64,
+  },
+  avatarImage: {
+    borderRadius: 32,
+    height: 64,
+    width: 64,
+  },
+  avatarInitials: {
+    ...typography.headline,
+    color: colors.primary,
+    fontWeight: '700',
+  },
   actionsCard: {
     gap: spacing.sm,
   },
   actionButton: {
     marginTop: spacing.sm,
+  },
+  identityMeta: {
+    ...typography.caption,
+    color: colors.textSecondary,
+  },
+  identityName: {
+    ...typography.sectionTitle,
+    color: colors.textPrimary,
+  },
+  identityRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.md,
+    marginBottom: spacing.md,
+  },
+  identityText: {
+    flex: 1,
+    gap: spacing.xxs,
   },
   message: {
     ...typography.caption,

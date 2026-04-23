@@ -14,18 +14,12 @@ import {
   intakeFlowSteps,
   mapApiFieldErrorsToIntakeFields,
   mapApiFieldErrorsToReturningPatientFields,
-  usePatientPortal,
   type IntakeFieldErrors,
   getReviewReadiness,
   useDraftStore,
   validateIntakeStep,
   validateReturningPatientForm,
 } from '../services';
-import { PatientPortalCheckInScreen } from './PatientPortalCheckInScreen';
-import { PatientPortalHomeScreen } from './PatientPortalHomeScreen';
-import { PatientPortalLoginScreen } from './PatientPortalLoginScreen';
-import { PatientPortalMedicalHistoryScreen } from './PatientPortalMedicalHistoryScreen';
-import { PatientPortalProfileScreen } from './PatientPortalProfileScreen';
 import { ReturningPatientScreen } from './ReturningPatientScreen';
 import { BasicInfoScreen } from './intake/BasicInfoScreen';
 import { DocumentsScreen } from './intake/DocumentsScreen';
@@ -56,7 +50,6 @@ export function IntakeScreen() {
     updateIntakeField,
     updateReturningPatientField,
   } = useDraftStore();
-  const patientPortal = usePatientPortal();
   const fetchRemoteDraftRef = useRef(fetchRemoteDraft);
   const [showStepValidation, setShowStepValidation] = useState(false);
   const [showReturningValidation, setShowReturningValidation] = useState(false);
@@ -374,13 +367,8 @@ export function IntakeScreen() {
         ? 'warning'
         : 'info';
 
-  const isPortalActive = patientPortal.state.active;
-  const portalBusy = patientPortal.state.busyAction;
-  const portalSummary = patientPortal.state.portal;
   const shouldShowJanetVoiceMode =
-    !isPortalActive &&
-    state.activeFlowMode === 'intake' &&
-    state.janetMode.active;
+    state.activeFlowMode === 'intake' && state.janetMode.active;
 
   if (shouldShowJanetVoiceMode) {
     return (
@@ -393,108 +381,7 @@ export function IntakeScreen() {
 
   return (
     <ScreenContainer>
-      {isPortalActive ? (
-        <>
-          {patientPortal.state.view === 'login' ? (
-            <>
-              <SectionHeader
-                subtitle="Enter your email and date of birth to continue."
-                title="Continue Check-In"
-              />
-              <PatientPortalLoginScreen
-                busy={portalBusy === 'login'}
-                dateOfBirth={patientPortal.state.loginForm.dateOfBirth}
-                email={patientPortal.state.loginForm.email}
-                message={patientPortal.state.message}
-                onChangeDateOfBirth={(value) =>
-                  patientPortal.updateLoginField('dateOfBirth', value)
-                }
-                onChangeEmail={(value) =>
-                  patientPortal.updateLoginField('email', value)
-                }
-                onContinue={() => void patientPortal.login()}
-              />
-            </>
-          ) : patientPortal.state.view === 'profile' && portalSummary ? (
-            <>
-              <SectionHeader
-                subtitle="Update the patient profile used by the shared portal account."
-                title="Edit Profile"
-              />
-              <PatientPortalProfileScreen
-                busyAction={portalBusy}
-                message={patientPortal.state.message}
-                onBack={patientPortal.goToHome}
-                onSave={(payload) => void patientPortal.saveProfile(payload)}
-                onUploadPhoto={(asset) => void patientPortal.uploadProfilePhoto(asset)}
-                patient={portalSummary.patient}
-              />
-            </>
-          ) : patientPortal.state.view === 'medicalHistory' && portalSummary ? (
-            <>
-              <SectionHeader
-                subtitle="Keep the chart details current before today’s visit."
-                title="Update Medical History"
-              />
-              <PatientPortalMedicalHistoryScreen
-                busyAction={portalBusy}
-                history={portalSummary.medicalHistory}
-                message={patientPortal.state.message}
-                onBack={patientPortal.goToHome}
-                onSave={(payload) => void patientPortal.saveMedicalHistory(payload)}
-              />
-            </>
-          ) : patientPortal.state.view === 'checkIn' && portalSummary ? (
-            <>
-              <SectionHeader
-                subtitle="Complete the current patient portal visit."
-                title="Continue Check-In"
-              />
-              <PatientPortalCheckInScreen
-                busyAction={portalBusy}
-                message={patientPortal.state.message}
-                onBack={patientPortal.goToHome}
-                onSave={(payload) => void patientPortal.saveCheckIn(payload)}
-                visit={portalSummary.activeVisit}
-              />
-            </>
-          ) : portalSummary ? (
-            <>
-              <SectionHeader
-                subtitle="Continue check-in or update your portal details."
-                title="Patient Portal"
-              />
-              <PatientPortalHomeScreen
-                busyAction={portalBusy}
-                message={patientPortal.state.message}
-                onContinueCheckIn={() => void patientPortal.goToCheckIn()}
-                onEditProfile={patientPortal.goToProfile}
-                onSignOut={() => void patientPortal.signOut()}
-                onUpdateMedicalHistory={patientPortal.goToMedicalHistory}
-                onUpdateProfilePicture={patientPortal.goToProfile}
-                portal={portalSummary}
-              />
-            </>
-          ) : (
-            <>
-              <SectionHeader
-                subtitle="Reload your patient portal session."
-                title="Patient Portal"
-              />
-              <EmptyStateCard
-                icon="person-circle-outline"
-                message={patientPortal.state.message || 'Please sign in again to continue.'}
-                title="Portal session unavailable"
-              />
-              <SecondaryButton
-                onPress={patientPortal.openPortalLogin}
-                style={styles.resetButton}
-                title="Return to Login"
-              />
-            </>
-          )}
-        </>
-      ) : state.activeFlowMode === 'returning' ? (
+      {state.activeFlowMode === 'returning' ? (
         <>
           <DraftBanner
             badgeLabel="Saved"

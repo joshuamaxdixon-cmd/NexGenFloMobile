@@ -1,3 +1,5 @@
+import type { NavigatorScreenParams } from '@react-navigation/native';
+
 import type { DraftSource, IntakeLaunchMode, IntakeStepKey } from '../services';
 
 export type RootTabParamList = {
@@ -11,4 +13,14 @@ export type RootTabParamList = {
         launchSource?: DraftSource;
       }
     | undefined;
+};
+
+export type RootStackParamList = {
+  Tabs: NavigatorScreenParams<RootTabParamList> | undefined;
+  PortalLogin: undefined;
+  PortalHome: undefined;
+  PortalProfile: undefined;
+  PortalMedicalHistory: undefined;
+  PortalDocuments: undefined;
+  PortalVisits: undefined;
 };

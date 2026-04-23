@@ -14,6 +14,7 @@ import { ScreenContainer } from '../components/ScreenContainer';
 import { SecondaryButton } from '../components/SecondaryButton';
 import type { RootTabParamList } from '../navigation/types';
 import {
+  buildPortalIntakePrefill,
   type IntakeFormData,
   usePatientPortal,
   useDraftStore,
@@ -107,7 +108,7 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
     state,
     updateReturningPatientField,
   } = useDraftStore();
-  const { openPortalLogin } = usePatientPortal();
+  const patientPortal = usePatientPortal();
   const checkBackendHealthRef = useRef(checkBackendHealth);
   const [showDeveloperTools, setShowDeveloperTools] = useState(false);
 
@@ -123,42 +124,65 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
 
   const openCheckIn = () => {
     clearDraft('all');
+    const portalPrefill =
+      patientPortal.state.session && patientPortal.state.portal
+        ? buildPortalIntakePrefill(patientPortal.state.portal)
+        : null;
     startNewIntake({
-      prefill: createFreshIntakePrefill(),
+      prefill: portalPrefill
+        ? { ...createFreshIntakePrefill(), ...portalPrefill }
+        : createFreshIntakePrefill(),
       source: 'home',
-      step: 'basicInfo',
+      step: portalPrefill ? 'symptoms' : 'basicInfo',
     });
     navigation.navigate('Intake', {
       mode: 'intake',
-      resetKey: `home-basic-${Date.now()}`,
-      startStep: 'basicInfo',
+      resetKey: `home-intake-${Date.now()}`,
+      startStep: portalPrefill ? 'symptoms' : 'basicInfo',
     });
   };
 
   const openJanetAssistant = () => {
     clearDraft('all');
+    const portalPrefill =
+      patientPortal.state.session && patientPortal.state.portal
+        ? buildPortalIntakePrefill(patientPortal.state.portal)
+        : null;
     startNewIntake({
-      prefill: createFreshIntakePrefill(),
+      prefill: portalPrefill
+        ? { ...createFreshIntakePrefill(), ...portalPrefill }
+        : createFreshIntakePrefill(),
       source: 'voice',
-      step: 'basicInfo',
+      step: portalPrefill ? 'symptoms' : 'basicInfo',
     });
     openJanetMode({
-      step: 'basicInfo',
+      step: portalPrefill ? 'symptoms' : 'basicInfo',
     });
     navigation.navigate('Intake', {
       launchSource: 'voice',
       mode: 'intake',
-      resetKey: `voice-basic-${Date.now()}`,
-      startStep: 'basicInfo',
+      resetKey: `voice-intake-${Date.now()}`,
+      startStep: portalPrefill ? 'symptoms' : 'basicInfo',
     });
   };
 
   const openResumeCheckIn = () => {
-    openPortalLogin();
+    clearDraft('returning');
+    openReturningFlow(true);
     navigation.navigate('Intake', {
       launchSource: 'returning',
-      resetKey: `portal-${Date.now()}`,
+      mode: 'returning',
+      resetKey: `returning-${Date.now()}`,
     });
+  };
+
+  const openPatientPortal = () => {
+    patientPortal.openPortalLogin();
+    navigation
+      .getParent()
+      ?.navigate(
+        (patientPortal.state.session ? 'PortalHome' : 'PortalLogin') as never,
+      );
   };
 
   const openIntakePreview = (
@@ -242,6 +266,11 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
           />
           <Text style={styles.resumeHelper}>Returning patient access</Text>
         </View>
+        <SecondaryButton
+          onPress={openPatientPortal}
+          style={styles.secondaryAction}
+          title={patientPortal.state.session ? 'Open Patient Portal' : 'Patient Portal'}
+        />
       </View>
 
       {__DEV__ && showDeveloperTools ? (

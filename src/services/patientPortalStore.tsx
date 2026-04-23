@@ -14,71 +14,71 @@ import {
   fetchPatientPortalSession,
   logoutPatientPortal,
   patientPortalLogin,
-  startPatientPortalCheckIn,
-  updatePatientPortalCheckIn,
   updatePatientPortalMedicalHistory,
   updatePatientPortalProfile,
   uploadPatientPortalProfilePhoto,
-  type PatientPortalCheckInUpdate,
   type PatientPortalLoginForm,
   type PatientPortalMedicalHistory,
+  type PatientPortalPatient,
   type PatientPortalPhotoAsset,
+  type PatientPortalProfileUpdate,
   type PatientPortalSummary,
 } from './patientPortal';
 
-export type PatientPortalView =
-  | 'checkIn'
-  | 'home'
-  | 'login'
-  | 'medicalHistory'
-  | 'profile';
+export type PatientPortalSession = {
+  avatarVersion: string | null;
+  patientId: number;
+  profile: PatientPortalPatient;
+  token: string;
+};
 
 type PatientPortalState = {
-  active: boolean;
-  busyAction: null | 'checkIn' | 'login' | 'logout' | 'medicalHistory' | 'photo' | 'profile' | 'refresh';
+  busyAction:
+    | null
+    | 'login'
+    | 'logout'
+    | 'medicalHistory'
+    | 'photo'
+    | 'profile'
+    | 'refresh';
   hydrated: boolean;
   loginForm: PatientPortalLoginForm;
   message: string | null;
-  token: string | null;
   portal: PatientPortalSummary | null;
-  view: PatientPortalView;
+  session: PatientPortalSession | null;
 };
 
-type PersistedPatientPortalState = Omit<PatientPortalState, 'busyAction' | 'hydrated' | 'message'>;
+type PersistedPatientPortalState = Omit<
+  PatientPortalState,
+  'busyAction' | 'hydrated' | 'message'
+>;
 
 type Action =
   | { type: 'hydrate'; payload: PersistedPatientPortalState | null }
-  | { type: 'set_active'; payload: boolean }
   | { type: 'set_busy'; payload: PatientPortalState['busyAction'] }
-  | { type: 'set_message'; payload: string | null }
   | { type: 'set_login_form'; payload: Partial<PatientPortalLoginForm> }
-  | { type: 'set_portal'; payload: { portal: PatientPortalSummary; token?: string | null } }
-  | { type: 'set_view'; payload: PatientPortalView }
+  | { type: 'set_message'; payload: string | null }
+  | {
+      type: 'set_portal_session';
+      payload: {
+        portal: PatientPortalSummary;
+        token?: string;
+        touchAvatarVersion?: boolean;
+      };
+    }
   | { type: 'sign_out' };
 
 type ContextValue = {
+  clearMessage: () => void;
+  login: () => Promise<boolean>;
   openPortalLogin: () => void;
+  refreshSession: () => Promise<boolean>;
+  saveMedicalHistory: (payload: PatientPortalMedicalHistory) => Promise<boolean>;
+  saveProfile: (payload: PatientPortalProfileUpdate) => Promise<boolean>;
+  signOut: () => Promise<void>;
   state: PatientPortalState;
   updateLoginField: (field: keyof PatientPortalLoginForm, value: string) => void;
-  login: () => Promise<boolean>;
-  refreshSession: () => Promise<boolean>;
-  goToHome: () => void;
-  goToProfile: () => void;
-  goToMedicalHistory: () => void;
-  goToCheckIn: () => Promise<boolean>;
-  saveProfile: (payload: {
-    phone: string;
-    email: string;
-    addressLine1: string;
-    addressLine2: string;
-    city: string;
-    state: string;
-    zipCode: string;
-  }) => Promise<boolean>;
-  saveMedicalHistory: (payload: PatientPortalMedicalHistory) => Promise<boolean>;
   uploadProfilePhoto: (asset: PatientPortalPhotoAsset) => Promise<boolean>;
-  saveCheckIn: (payload: PatientPortalCheckInUpdate) => Promise<boolean>;
-  signOut: () => Promise<void>;
 };
 
 const PatientPortalContext = createContext<ContextValue | null>(null);
@@ -86,29 +86,44 @@ const PatientPortalContext = createContext<ContextValue | null>(null);
 const portalDirectory = new Directory(Paths.document, 'nexgen-flo');
 const portalFile = new File(portalDirectory, 'patient-portal.json');
 
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function createSession(
+  portal: PatientPortalSummary,
+  token: string,
+  existingAvatarVersion?: string | null,
+) {
+  return {
+    avatarVersion: existingAvatarVersion ?? nowIso(),
+    patientId: portal.patient.id,
+    profile: portal.patient,
+    token,
+  } satisfies PatientPortalSession;
+}
+
 function createInitialState(): PatientPortalState {
   return {
-    active: false,
     busyAction: null,
     hydrated: false,
     loginForm: {
-      email: '',
       dateOfBirth: '',
+      email: '',
     },
     message: null,
-    token: null,
     portal: null,
-    view: 'login',
+    session: null,
   };
 }
 
-function getPersistableState(state: PatientPortalState): PersistedPatientPortalState {
+function getPersistableState(
+  state: PatientPortalState,
+): PersistedPatientPortalState {
   return {
-    active: state.active,
     loginForm: state.loginForm,
-    token: state.token,
     portal: state.portal,
-    view: state.view,
+    session: state.session,
   };
 }
 
@@ -120,20 +135,10 @@ function reducer(state: PatientPortalState, action: Action): PatientPortalState 
         ...action.payload,
         hydrated: true,
       };
-    case 'set_active':
-      return {
-        ...state,
-        active: action.payload,
-      };
     case 'set_busy':
       return {
         ...state,
         busyAction: action.payload,
-      };
-    case 'set_message':
-      return {
-        ...state,
-        message: action.payload,
       };
     case 'set_login_form':
       return {
@@ -143,26 +148,32 @@ function reducer(state: PatientPortalState, action: Action): PatientPortalState 
           ...action.payload,
         },
       };
-    case 'set_portal':
+    case 'set_message':
       return {
         ...state,
-        active: true,
+        message: action.payload,
+      };
+    case 'set_portal_session': {
+      const token = action.payload.token ?? state.session?.token ?? '';
+      return {
+        ...state,
         message: null,
         portal: action.payload.portal,
-        token: action.payload.token ?? state.token,
-        view: 'home',
+        session: token
+          ? createSession(
+              action.payload.portal,
+              token,
+              action.payload.touchAvatarVersion
+                ? nowIso()
+                : state.session?.avatarVersion ?? null,
+            )
+          : state.session,
       };
-    case 'set_view':
-      return {
-        ...state,
-        active: true,
-        view: action.payload,
-      };
+    }
     case 'sign_out':
       return {
         ...createInitialState(),
         hydrated: state.hydrated,
-        active: true,
       };
     default:
       return state;
@@ -218,6 +229,7 @@ export function PatientPortalProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
+
     async function hydrate() {
       const persisted = await readPersistedState();
       if (!mounted) {
@@ -227,6 +239,7 @@ export function PatientPortalProvider({ children }: { children: ReactNode }) {
         dispatch({ type: 'hydrate', payload: persisted });
       });
     }
+
     void hydrate();
     return () => {
       mounted = false;
@@ -237,35 +250,25 @@ export function PatientPortalProvider({ children }: { children: ReactNode }) {
     if (!state.hydrated) {
       return;
     }
+
     const timeoutId = setTimeout(() => {
       writePersistedState(getPersistableState(state));
     }, 150);
+
     return () => clearTimeout(timeoutId);
   }, [state]);
 
-  useEffect(() => {
-    async function bootstrapSession() {
-      const current = stateRef.current;
-      if (!current.hydrated || !current.token) {
-        return;
-      }
-      await refreshSessionInternal(false);
-    }
-    void bootstrapSession();
-  }, [state.hydrated]);
-
-  const refreshSessionInternal = async (showBusy = true) => {
-    const token = stateRef.current.token;
+  const refreshSession = async () => {
+    const token = stateRef.current.session?.token;
     if (!token) {
       return false;
     }
-    if (showBusy) {
-      dispatch({ type: 'set_busy', payload: 'refresh' });
-    }
+
+    dispatch({ type: 'set_busy', payload: 'refresh' });
     try {
       const response = await fetchPatientPortalSession(token);
       dispatch({
-        type: 'set_portal',
+        type: 'set_portal_session',
         payload: {
           portal: response.portal,
         },
@@ -280,15 +283,19 @@ export function PatientPortalProvider({ children }: { children: ReactNode }) {
       });
       return false;
     } finally {
-      if (showBusy) {
-        dispatch({ type: 'set_busy', payload: null });
-      }
+      dispatch({ type: 'set_busy', payload: null });
     }
   };
 
+  useEffect(() => {
+    if (!state.hydrated || !state.session?.token) {
+      return;
+    }
+
+    void refreshSession();
+  }, [state.hydrated, state.session?.token]);
+
   const openPortalLogin = () => {
-    dispatch({ type: 'set_active', payload: true });
-    dispatch({ type: 'set_view', payload: 'login' });
     dispatch({ type: 'set_message', payload: null });
   };
 
@@ -296,7 +303,12 @@ export function PatientPortalProvider({ children }: { children: ReactNode }) {
     field: keyof PatientPortalLoginForm,
     value: string,
   ) => {
-    dispatch({ type: 'set_login_form', payload: { [field]: value } });
+    dispatch({
+      type: 'set_login_form',
+      payload: {
+        [field]: value,
+      },
+    });
   };
 
   const login = async () => {
@@ -304,10 +316,11 @@ export function PatientPortalProvider({ children }: { children: ReactNode }) {
     try {
       const response = await patientPortalLogin(stateRef.current.loginForm);
       dispatch({
-        type: 'set_portal',
+        type: 'set_portal_session',
         payload: {
           portal: response.portal,
           token: response.token,
+          touchAvatarVersion: true,
         },
       });
       dispatch({ type: 'set_message', payload: response.message });
@@ -331,52 +344,22 @@ export function PatientPortalProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const goToHome = () => dispatch({ type: 'set_view', payload: 'home' });
-  const goToProfile = () => dispatch({ type: 'set_view', payload: 'profile' });
-  const goToMedicalHistory = () =>
-    dispatch({ type: 'set_view', payload: 'medicalHistory' });
-
-  const goToCheckIn = async () => {
-    const token = stateRef.current.token;
+  const saveProfile = async (payload: PatientPortalProfileUpdate) => {
+    const token = stateRef.current.session?.token;
     if (!token) {
       return false;
     }
-    dispatch({ type: 'set_busy', payload: 'checkIn' });
+
+    dispatch({ type: 'set_busy', payload: 'profile' });
     try {
-      const response = await startPatientPortalCheckIn(token);
+      const response = await updatePatientPortalProfile(token, payload);
       dispatch({
-        type: 'set_portal',
+        type: 'set_portal_session',
         payload: {
           portal: response.portal,
         },
       });
       dispatch({ type: 'set_message', payload: response.message });
-      dispatch({ type: 'set_view', payload: 'checkIn' });
-      return true;
-    } catch (error) {
-      dispatch({
-        type: 'set_message',
-        payload: getErrorMessage(error, 'Portal check-in is unavailable right now.'),
-      });
-      return false;
-    } finally {
-      dispatch({ type: 'set_busy', payload: null });
-    }
-  };
-
-  const saveProfile = async (
-    payload: ContextValue extends { saveProfile: (payload: infer P) => Promise<boolean> } ? P : never,
-  ) => {
-    const token = stateRef.current.token;
-    if (!token) {
-      return false;
-    }
-    dispatch({ type: 'set_busy', payload: 'profile' });
-    try {
-      const response = await updatePatientPortalProfile(token, payload);
-      dispatch({ type: 'set_portal', payload: { portal: response.portal } });
-      dispatch({ type: 'set_message', payload: response.message });
-      dispatch({ type: 'set_view', payload: 'home' });
       return true;
     } catch (error) {
       dispatch({
@@ -390,16 +373,21 @@ export function PatientPortalProvider({ children }: { children: ReactNode }) {
   };
 
   const saveMedicalHistory = async (payload: PatientPortalMedicalHistory) => {
-    const token = stateRef.current.token;
+    const token = stateRef.current.session?.token;
     if (!token) {
       return false;
     }
+
     dispatch({ type: 'set_busy', payload: 'medicalHistory' });
     try {
       const response = await updatePatientPortalMedicalHistory(token, payload);
-      dispatch({ type: 'set_portal', payload: { portal: response.portal } });
+      dispatch({
+        type: 'set_portal_session',
+        payload: {
+          portal: response.portal,
+        },
+      });
       dispatch({ type: 'set_message', payload: response.message });
-      dispatch({ type: 'set_view', payload: 'home' });
       return true;
     } catch (error) {
       dispatch({
@@ -413,16 +401,22 @@ export function PatientPortalProvider({ children }: { children: ReactNode }) {
   };
 
   const uploadProfilePhoto = async (asset: PatientPortalPhotoAsset) => {
-    const token = stateRef.current.token;
+    const token = stateRef.current.session?.token;
     if (!token) {
       return false;
     }
+
     dispatch({ type: 'set_busy', payload: 'photo' });
     try {
       const response = await uploadPatientPortalProfilePhoto(token, asset);
-      dispatch({ type: 'set_portal', payload: { portal: response.portal } });
+      dispatch({
+        type: 'set_portal_session',
+        payload: {
+          portal: response.portal,
+          touchAvatarVersion: true,
+        },
+      });
       dispatch({ type: 'set_message', payload: response.message });
-      dispatch({ type: 'set_view', payload: 'profile' });
       return true;
     } catch (error) {
       dispatch({
@@ -435,35 +429,8 @@ export function PatientPortalProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const saveCheckIn = async (payload: PatientPortalCheckInUpdate) => {
-    const current = stateRef.current;
-    if (!current.token || !current.portal?.activeVisit) {
-      return false;
-    }
-    dispatch({ type: 'set_busy', payload: 'checkIn' });
-    try {
-      const response = await updatePatientPortalCheckIn(
-        current.token,
-        current.portal.activeVisit.id,
-        payload,
-      );
-      dispatch({ type: 'set_portal', payload: { portal: response.portal } });
-      dispatch({ type: 'set_message', payload: response.message });
-      dispatch({ type: 'set_view', payload: 'home' });
-      return true;
-    } catch (error) {
-      dispatch({
-        type: 'set_message',
-        payload: getErrorMessage(error, 'Check-in update failed.'),
-      });
-      return false;
-    } finally {
-      dispatch({ type: 'set_busy', payload: null });
-    }
-  };
-
   const signOut = async () => {
-    const token = stateRef.current.token;
+    const token = stateRef.current.session?.token;
     dispatch({ type: 'set_busy', payload: 'logout' });
     try {
       if (token) {
@@ -474,29 +441,28 @@ export function PatientPortalProvider({ children }: { children: ReactNode }) {
     } finally {
       dispatch({ type: 'sign_out' });
       dispatch({ type: 'set_busy', payload: null });
-      dispatch({ type: 'set_message', payload: 'Signed out of the patient portal.' });
+      dispatch({
+        type: 'set_message',
+        payload: 'Signed out of the patient portal.',
+      });
     }
   };
 
+  const value: ContextValue = {
+    clearMessage: () => dispatch({ type: 'set_message', payload: null }),
+    login,
+    openPortalLogin,
+    refreshSession,
+    saveMedicalHistory,
+    saveProfile,
+    signOut,
+    state,
+    updateLoginField,
+    uploadProfilePhoto,
+  };
+
   return (
-    <PatientPortalContext.Provider
-      value={{
-        openPortalLogin,
-        state,
-        updateLoginField,
-        login,
-        refreshSession: refreshSessionInternal,
-        goToHome,
-        goToProfile,
-        goToMedicalHistory,
-        goToCheckIn,
-        saveProfile,
-        saveMedicalHistory,
-        uploadProfilePhoto,
-        saveCheckIn,
-        signOut,
-      }}
-    >
+    <PatientPortalContext.Provider value={value}>
       {children}
     </PatientPortalContext.Provider>
   );

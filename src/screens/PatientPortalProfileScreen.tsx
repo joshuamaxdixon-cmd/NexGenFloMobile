@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Image, StyleSheet, Text, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 
 import { InfoCard } from '../components/InfoCard';
@@ -12,7 +12,6 @@ import { spacing, typography, colors } from '../theme';
 type Props = {
   busyAction?: string | null;
   message?: string | null;
-  patient: PatientPortalPatient;
   onBack: () => void;
   onSave: (payload: {
     phone: string;
@@ -24,15 +23,26 @@ type Props = {
     zipCode: string;
   }) => void;
   onUploadPhoto: (asset: { name: string; type: string; uri: string }) => void;
+  patient: PatientPortalPatient;
+  profileImageVersion?: string | null;
 };
+
+function buildAvatarUri(uri: string, version?: string | null) {
+  if (!uri) {
+    return null;
+  }
+  const suffix = version ? `${uri.includes('?') ? '&' : '?'}v=${version}` : '';
+  return `${uri}${suffix}`;
+}
 
 export function PatientPortalProfileScreen({
   busyAction,
   message,
-  patient,
   onBack,
   onSave,
   onUploadPhoto,
+  patient,
+  profileImageVersion,
 }: Props) {
   const [phone, setPhone] = useState(patient.phone);
   const [email, setEmail] = useState(patient.email);
@@ -41,6 +51,7 @@ export function PatientPortalProfileScreen({
   const [city, setCity] = useState(patient.city);
   const [stateValue, setStateValue] = useState(patient.state);
   const [zipCode, setZipCode] = useState(patient.zipCode);
+  const avatarUri = buildAvatarUri(patient.profileImageUrl, profileImageVersion);
 
   const pickPhoto = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -61,6 +72,23 @@ export function PatientPortalProfileScreen({
   return (
     <View style={styles.container}>
       <InfoCard subtitle="Update the contact details used for your patient portal." title="Edit Profile">
+        <View style={styles.identityRow}>
+          {avatarUri ? (
+            <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
+          ) : (
+            <View style={styles.avatarFallback}>
+              <Text style={styles.avatarInitials}>
+                {patient.avatarInitials || 'PT'}
+              </Text>
+            </View>
+          )}
+          <View style={styles.identityText}>
+            <Text style={styles.identityName}>{patient.fullName || 'Patient'}</Text>
+            <Text style={styles.identityMeta}>
+              Profile image changes are saved to your patient account.
+            </Text>
+          </View>
+        </View>
         <InputField label="Phone" onChangeText={setPhone} value={phone} />
         <InputField
           autoCapitalize="none"
@@ -108,8 +136,44 @@ export function PatientPortalProfileScreen({
 }
 
 const styles = StyleSheet.create({
+  avatarFallback: {
+    alignItems: 'center',
+    backgroundColor: colors.primarySoft,
+    borderRadius: 32,
+    height: 64,
+    justifyContent: 'center',
+    width: 64,
+  },
+  avatarImage: {
+    borderRadius: 32,
+    height: 64,
+    width: 64,
+  },
+  avatarInitials: {
+    ...typography.headline,
+    color: colors.primary,
+    fontWeight: '700',
+  },
   container: {
     gap: spacing.lg,
+  },
+  identityMeta: {
+    ...typography.caption,
+    color: colors.textSecondary,
+  },
+  identityName: {
+    ...typography.sectionTitle,
+    color: colors.textPrimary,
+  },
+  identityRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.md,
+    marginBottom: spacing.md,
+  },
+  identityText: {
+    flex: 1,
+    gap: spacing.xxs,
   },
   actions: {
     flexDirection: 'row',

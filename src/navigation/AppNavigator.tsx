@@ -1,17 +1,38 @@
+import { useEffect } from 'react';
 import type { ComponentProps } from 'react';
 import { Platform, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { EmptyStateCard } from '../components/EmptyStateCard';
+import { ScreenContainer } from '../components/ScreenContainer';
+import { SectionHeader } from '../components/SectionHeader';
 import { HomeScreen } from '../screens/HomeScreen';
 import { IntakeScreen } from '../screens/IntakeScreen';
+import { PatientPortalDocumentsScreen } from '../screens/PatientPortalDocumentsScreen';
+import { PatientPortalHomeScreen } from '../screens/PatientPortalHomeScreen';
+import { PatientPortalLoginScreen } from '../screens/PatientPortalLoginScreen';
+import { PatientPortalMedicalHistoryScreen } from '../screens/PatientPortalMedicalHistoryScreen';
+import { PatientPortalProfileScreen } from '../screens/PatientPortalProfileScreen';
+import { PatientPortalVisitsScreen } from '../screens/PatientPortalVisitsScreen';
+import {
+  buildPortalIntakePrefill,
+  useDraftStore,
+  usePatientPortal,
+  type PatientPortalMedicalHistory,
+  type PatientPortalPhotoAsset,
+  type PatientPortalProfileUpdate,
+} from '../services';
 import { colors, typography } from '../theme';
-import type { RootTabParamList } from './types';
+import type { RootStackParamList, RootTabParamList } from './types';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
+const Stack = createNativeStackNavigator<RootStackParamList>();
 const TAB_BAR_TOP_PADDING = 10;
 const TAB_BAR_CONTENT_HEIGHT = 56;
 
@@ -23,7 +44,7 @@ const tabIcons: Record<
   Intake: { active: 'clipboard', inactive: 'clipboard-outline' },
 };
 
-export function AppNavigator() {
+function MainTabsNavigator() {
   const insets = useSafeAreaInsets();
   const bottomPadding =
     Platform.OS === 'android'
@@ -73,6 +94,276 @@ export function AppNavigator() {
         }}
       />
     </Tab.Navigator>
+  );
+}
+
+function PortalLoginRoute() {
+  const navigation = useNavigation();
+  const patientPortal = usePatientPortal();
+
+  useEffect(() => {
+    if (patientPortal.state.hydrated && patientPortal.state.session) {
+      navigation.reset({
+        index: 1,
+        routes: [{ name: 'Tabs' as never }, { name: 'PortalHome' as never }],
+      });
+    }
+  }, [navigation, patientPortal.state.hydrated, patientPortal.state.session]);
+
+  if (!patientPortal.state.hydrated) {
+    return (
+      <ScreenContainer>
+        <SectionHeader
+          subtitle="Restoring your patient session."
+          title="Patient Portal"
+        />
+        <EmptyStateCard
+          icon="time-outline"
+          message="Checking for a saved patient portal session."
+          title="Loading"
+        />
+      </ScreenContainer>
+    );
+  }
+
+  return (
+    <ScreenContainer>
+      <SectionHeader
+        subtitle="Enter your email and date of birth to continue."
+        title="Continue Check-In"
+      />
+      <PatientPortalLoginScreen
+        busy={patientPortal.state.busyAction === 'login'}
+        dateOfBirth={patientPortal.state.loginForm.dateOfBirth}
+        email={patientPortal.state.loginForm.email}
+        message={patientPortal.state.message}
+        onChangeDateOfBirth={(value) =>
+          patientPortal.updateLoginField('dateOfBirth', value)
+        }
+        onChangeEmail={(value) => patientPortal.updateLoginField('email', value)}
+        onContinue={async () => {
+          const didLogin = await patientPortal.login();
+          if (didLogin) {
+            navigation.reset({
+              index: 1,
+              routes: [{ name: 'Tabs' as never }, { name: 'PortalHome' as never }],
+            });
+          }
+        }}
+      />
+    </ScreenContainer>
+  );
+}
+
+function useRequirePortalSession() {
+  const navigation = useNavigation();
+  const patientPortal = usePatientPortal();
+
+  useEffect(() => {
+    if (patientPortal.state.hydrated && !patientPortal.state.session) {
+      navigation.reset({
+        index: 1,
+        routes: [{ name: 'Tabs' as never }, { name: 'PortalLogin' as never }],
+      });
+    }
+  }, [navigation, patientPortal.state.hydrated, patientPortal.state.session]);
+
+  return patientPortal;
+}
+
+function PortalHomeRoute() {
+  const navigation = useNavigation();
+  const stackNavigation = navigation as unknown as {
+    navigate: (name: string, params?: object) => void;
+    reset: (state: { index: number; routes: { name: string }[] }) => void;
+  };
+  const patientPortal = useRequirePortalSession();
+  const { clearDraft, startNewIntake } = useDraftStore();
+  const portal = patientPortal.state.portal;
+
+  if (!portal || !patientPortal.state.session) {
+    return null;
+  }
+
+  return (
+    <ScreenContainer>
+      <SectionHeader
+        subtitle="Manage your patient account and today’s check-in."
+        title="Patient Portal"
+      />
+      <PatientPortalHomeScreen
+        busyAction={patientPortal.state.busyAction}
+        message={patientPortal.state.message}
+        onContinueCheckIn={() => {
+          clearDraft('all');
+          startNewIntake({
+            prefill: buildPortalIntakePrefill(portal),
+            source: 'resume',
+            step: 'symptoms',
+          });
+          stackNavigation.navigate('Tabs', {
+            screen: 'Intake',
+            params: {
+              launchSource: 'resume',
+              mode: 'intake',
+              resetKey: `portal-intake-${Date.now()}`,
+              startStep: 'symptoms',
+            },
+          } as never);
+        }}
+        onEditProfile={() => stackNavigation.navigate('PortalProfile')}
+        onOpenAppHome={() => stackNavigation.navigate('Tabs', { screen: 'Home' })}
+        onOpenDocuments={() => stackNavigation.navigate('PortalDocuments')}
+        onOpenVisits={() => stackNavigation.navigate('PortalVisits')}
+        onSignOut={async () => {
+          await patientPortal.signOut();
+          stackNavigation.reset({
+            index: 0,
+            routes: [{ name: 'Tabs' }],
+          });
+        }}
+        onUpdateMedicalHistory={() =>
+          stackNavigation.navigate('PortalMedicalHistory')
+        }
+        portal={portal}
+        session={patientPortal.state.session}
+      />
+    </ScreenContainer>
+  );
+}
+
+function PortalProfileRoute() {
+  const navigation = useNavigation();
+  const patientPortal = useRequirePortalSession();
+  const portal = patientPortal.state.portal;
+
+  if (!portal || !patientPortal.state.session) {
+    return null;
+  }
+
+  return (
+    <ScreenContainer>
+      <SectionHeader
+        subtitle="Update the patient profile used across the app."
+        title="Edit Profile"
+      />
+      <PatientPortalProfileScreen
+        busyAction={patientPortal.state.busyAction}
+        message={patientPortal.state.message}
+        onBack={() => navigation.goBack()}
+        onSave={(payload: PatientPortalProfileUpdate) =>
+          void patientPortal.saveProfile(payload)
+        }
+        onUploadPhoto={(asset: PatientPortalPhotoAsset) =>
+          void patientPortal.uploadProfilePhoto(asset)
+        }
+        patient={portal.patient}
+        profileImageVersion={patientPortal.state.session.avatarVersion}
+      />
+    </ScreenContainer>
+  );
+}
+
+function PortalMedicalHistoryRoute() {
+  const navigation = useNavigation();
+  const patientPortal = useRequirePortalSession();
+  const portal = patientPortal.state.portal;
+
+  if (!portal) {
+    return null;
+  }
+
+  return (
+    <ScreenContainer>
+      <SectionHeader
+        subtitle="Keep your chart details current."
+        title="Medical History"
+      />
+      <PatientPortalMedicalHistoryScreen
+        busyAction={patientPortal.state.busyAction}
+        history={portal.medicalHistory}
+        message={patientPortal.state.message}
+        onBack={() => navigation.goBack()}
+        onSave={(payload: PatientPortalMedicalHistory) =>
+          void patientPortal.saveMedicalHistory(payload)
+        }
+      />
+    </ScreenContainer>
+  );
+}
+
+function PortalDocumentsRoute() {
+  const navigation = useNavigation();
+  const patientPortal = useRequirePortalSession();
+  const portal = patientPortal.state.portal;
+
+  if (!portal || !patientPortal.state.session) {
+    return null;
+  }
+
+  return (
+    <ScreenContainer>
+      <SectionHeader
+        subtitle="Manage the documents tied to your patient account."
+        title="Documents"
+      />
+      <PatientPortalDocumentsScreen
+        busyAction={patientPortal.state.busyAction}
+        message={patientPortal.state.message}
+        onBack={() => navigation.goBack()}
+        onUploadPhoto={(asset: PatientPortalPhotoAsset) =>
+          void patientPortal.uploadProfilePhoto(asset)
+        }
+        patient={portal.patient}
+        profileImageVersion={patientPortal.state.session.avatarVersion}
+      />
+    </ScreenContainer>
+  );
+}
+
+function PortalVisitsRoute() {
+  const navigation = useNavigation();
+  const patientPortal = useRequirePortalSession();
+  const portal = patientPortal.state.portal;
+
+  if (!portal) {
+    return null;
+  }
+
+  return (
+    <ScreenContainer>
+      <SectionHeader
+        subtitle="Review recent patient visit activity."
+        title="Visits"
+      />
+      <PatientPortalVisitsScreen
+        onBack={() => navigation.goBack()}
+        portal={portal}
+      />
+    </ScreenContainer>
+  );
+}
+
+export function AppNavigator() {
+  return (
+    <Stack.Navigator
+      initialRouteName="Tabs"
+      screenOptions={{
+        headerShown: false,
+        contentStyle: styles.scene,
+      }}
+    >
+      <Stack.Screen component={MainTabsNavigator} name="Tabs" />
+      <Stack.Screen component={PortalLoginRoute} name="PortalLogin" />
+      <Stack.Screen component={PortalHomeRoute} name="PortalHome" />
+      <Stack.Screen component={PortalProfileRoute} name="PortalProfile" />
+      <Stack.Screen
+        component={PortalMedicalHistoryRoute}
+        name="PortalMedicalHistory"
+      />
+      <Stack.Screen component={PortalDocumentsRoute} name="PortalDocuments" />
+      <Stack.Screen component={PortalVisitsRoute} name="PortalVisits" />
+    </Stack.Navigator>
   );
 }
 

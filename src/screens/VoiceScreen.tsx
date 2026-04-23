@@ -27,6 +27,7 @@ import {
   getJanetFieldLabel,
   getJanetFieldTitle,
   getJanetRecognitionHints,
+  hydrateMedicalInfoFromLegacy,
   hydratePastMedicalHistoryFromLegacy,
   normalizeIntakeFormFields,
   reconcileStructuredIntakeForm,
@@ -590,6 +591,67 @@ function parseBasicInfoLocalCapture(
       [field]: normalizedValue,
     } as Partial<IntakeFormData>,
     value: normalizedValue,
+  };
+}
+
+const STRUCTURED_MEDICAL_INFO_FIELDS = [
+  'allergyMedicationSelections',
+  'allergyMaterialSelections',
+  'allergyFoodSelections',
+  'allergyEnvironmentalSelections',
+  'immunizationCoreSelections',
+  'immunizationRoutineSelections',
+  'immunizationTravelSelections',
+] as const;
+
+type StructuredMedicalInfoField = (typeof STRUCTURED_MEDICAL_INFO_FIELDS)[number];
+
+function isStructuredMedicalInfoField(
+  field: string | null,
+): field is StructuredMedicalInfoField {
+  return STRUCTURED_MEDICAL_INFO_FIELDS.includes(
+    field as StructuredMedicalInfoField,
+  );
+}
+
+function parseStructuredMedicalInfoCapture(
+  field: StructuredMedicalInfoField,
+  transcript: string,
+): { updates: Partial<IntakeFormData>; value: string } | null {
+  const normalizedTranscript = normalizeTranscriptText(transcript);
+
+  if (!normalizedTranscript) {
+    return null;
+  }
+
+  if (transcriptMeansNone(normalizedTranscript)) {
+    return {
+      updates: {
+        [field]: [],
+        medicalInfoHydrated: true,
+      } as Partial<IntakeFormData>,
+      value: 'none',
+    };
+  }
+
+  const hydrated =
+    field === 'immunizationCoreSelections' ||
+    field === 'immunizationRoutineSelections' ||
+    field === 'immunizationTravelSelections'
+      ? hydrateMedicalInfoFromLegacy('', normalizedTranscript)
+      : hydrateMedicalInfoFromLegacy(normalizedTranscript, '');
+  const selection = hydrated[field];
+
+  if (!Array.isArray(selection) || selection.length === 0) {
+    return null;
+  }
+
+  return {
+    updates: {
+      [field]: selection,
+      medicalInfoHydrated: true,
+    } as Partial<IntakeFormData>,
+    value: selection.join(', '),
   };
 }
 
@@ -2038,6 +2100,86 @@ export function VoiceExperience({
           transcript,
           transcriptConfidence: confidence,
         });
+
+        if (
+          janetStep === 'symptoms' &&
+          isStructuredMedicalInfoField(activeManagedField) &&
+          !result.confirmation.required
+        ) {
+          const localStructuredCapture = parseStructuredMedicalInfoCapture(
+            activeManagedField,
+            transcript,
+          );
+
+          if (localStructuredCapture) {
+            const mergedForm = reconcileStructuredIntakeForm(
+              normalizeIntakeFormFields({
+                ...state.intake.form,
+                ...(session?.draftPatch ?? {}),
+                ...localStructuredCapture.updates,
+              }) as IntakeFormData,
+            );
+            const nextField = resolveJanetVoiceFieldState({
+              form: mergedForm,
+              pastMedicalHistoryField,
+              proposedField: null,
+              step: 'symptoms',
+            }).activeField;
+            const nextPrompt = getCanonicalJanetPrompt({
+              field: nextField,
+              language: state.janetMode.language,
+              pastMedicalHistoryField: null,
+              step: 'symptoms',
+            });
+            const nextHandoff = buildJanetHandoffFromDraft({
+              existing: state.voice.handoff,
+              form: mergedForm,
+              interpretedAt: new Date().toISOString(),
+              transcript,
+            });
+
+            updateIntakeFields(localStructuredCapture.updates);
+            setVoiceHandoff(nextHandoff);
+            setWarnings([]);
+            setLowConfidence(false);
+            setConfirmation(EMPTY_CONFIRMATION);
+            setPartialTranscript('');
+            setFinalTranscript(localStructuredCapture.value);
+            setVoiceTranscript(localStructuredCapture.value);
+            setSession((currentSession) =>
+              currentSession
+                ? {
+                    ...currentSession,
+                    confirmation: EMPTY_CONFIRMATION,
+                    currentField: nextField,
+                    currentStep: 'symptoms',
+                    draftPatch: {
+                      ...currentSession.draftPatch,
+                      ...localStructuredCapture.updates,
+                    },
+                    firstPrompt: nextPrompt || currentSession.firstPrompt,
+                  }
+                : currentSession,
+            );
+            setReplyText(nextPrompt);
+            setJanetModeStep('symptoms');
+            void queueDraftAndHandoffSync({
+              formOverride: mergedForm,
+            });
+
+            if (!nextField) {
+              await queueStepTransitionPrompt('symptoms');
+              setIsProcessing(false);
+              return;
+            }
+
+            if (nextPrompt.trim()) {
+              await playPrompt(nextPrompt);
+            }
+            setIsProcessing(false);
+            return;
+          }
+        }
 
         const resolvedUpdatedStep = coerceJanetProgressStep(
           janetStep,

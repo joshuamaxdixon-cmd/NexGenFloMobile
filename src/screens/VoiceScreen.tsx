@@ -626,6 +626,8 @@ const STRUCTURED_ALLERGY_FIELDS = [
   'allergyEnvironmentalSelections',
 ] as const;
 type StructuredAllergyField = (typeof STRUCTURED_ALLERGY_FIELDS)[number];
+const LOCAL_SYMPTOM_TEXT_FIELDS = ['medications', 'lastDose'] as const;
+type LocalSymptomTextField = (typeof LOCAL_SYMPTOM_TEXT_FIELDS)[number];
 
 function isStructuredMedicalInfoField(
   field: string | null,
@@ -637,6 +639,12 @@ function isStructuredMedicalInfoField(
 
 function isStructuredAllergyField(field: string | null): field is StructuredAllergyField {
   return STRUCTURED_ALLERGY_FIELDS.includes(field as StructuredAllergyField);
+}
+
+function isLocalSymptomTextField(
+  field: string | null,
+): field is LocalSymptomTextField {
+  return LOCAL_SYMPTOM_TEXT_FIELDS.includes(field as LocalSymptomTextField);
 }
 
 function parseStructuredMedicalInfoCapture(
@@ -836,6 +844,67 @@ function parseAllergyFieldVoiceCapture(
     } as Partial<IntakeFormData>,
     value: displayValue,
   };
+}
+
+function formatSentenceCase(value: string) {
+  const normalized = normalizeTranscriptText(value);
+  if (!normalized) {
+    return '';
+  }
+
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function parseLocalSymptomTextCapture(
+  field: LocalSymptomTextField,
+  transcript: string,
+): {
+  acknowledgementMessage: string;
+  updates: Partial<IntakeFormData>;
+  value: string;
+} | null {
+  const normalizedTranscript = normalizeTranscriptText(transcript);
+
+  if (!normalizedTranscript) {
+    return null;
+  }
+
+  if (field === 'medications') {
+    const value = transcriptMeansNone(normalizedTranscript)
+      ? 'None'
+      : normalizedTranscript.replace(/[.,!?]+$/g, '');
+    if (!value) {
+      return null;
+    }
+
+    return {
+      acknowledgementMessage:
+        value.toLowerCase() === 'none'
+          ? "I heard none. I'll record no current medications."
+          : `I heard ${value}. I'll record that as your current medication.`,
+      updates: {
+        medications: value,
+      },
+      value,
+    };
+  }
+
+  if (field === 'lastDose') {
+    const value = formatSentenceCase(normalizedTranscript.replace(/[.,!?]+$/g, ''));
+    if (!value) {
+      return null;
+    }
+
+    return {
+      acknowledgementMessage: `I heard ${value}. I'll record that as your last dose timing.`,
+      updates: {
+        lastDose: value,
+      },
+      value,
+    };
+  }
+
+  return null;
 }
 
 
@@ -1230,8 +1299,9 @@ export function VoiceExperience({
     replyText,
     spellModeEnabled: state.voice.spellModeEnabled,
   });
-  const resolvedSpeechText =
-    !confirmation.required && canonicalVoicePrompt.trim().length > 0
+  const resolvedSpeechText = replyText.trim().length > 0
+    ? replyText
+    : !confirmation.required && canonicalVoicePrompt.trim().length > 0
       ? canonicalVoicePrompt
       : currentSpeechText;
   const previewRows = useMemo(
@@ -2353,6 +2423,88 @@ export function VoiceExperience({
           });
 
           await playPrompt(allergyFieldCapture.acknowledgementMessage, {
+            autoListenAfter: false,
+          });
+
+          if (!nextField) {
+            await queueStepTransitionPrompt('symptoms');
+            return;
+          }
+
+          if (nextPrompt.trim()) {
+            await queuePrompt(nextPrompt);
+          }
+          return;
+        }
+      }
+
+      if (
+        janetStep === 'symptoms' &&
+        isLocalSymptomTextField(activeManagedField) &&
+        interactionMode !== 'correction'
+      ) {
+        const symptomTextCapture = parseLocalSymptomTextCapture(
+          activeManagedField,
+          transcript,
+        );
+
+        if (symptomTextCapture) {
+          const mergedForm = reconcileStructuredIntakeForm(
+            normalizeIntakeFormFields({
+              ...state.intake.form,
+              ...(session?.draftPatch ?? {}),
+              ...symptomTextCapture.updates,
+            }) as IntakeFormData,
+          );
+          const nextField = resolveJanetVoiceFieldState({
+            form: mergedForm,
+            pastMedicalHistoryField,
+            proposedField: null,
+            step: 'symptoms',
+          }).activeField;
+          const nextPrompt = getCanonicalJanetPrompt({
+            field: nextField,
+            language: state.janetMode.language,
+            pastMedicalHistoryField: null,
+            step: 'symptoms',
+          });
+          const nextHandoff = buildJanetHandoffFromDraft({
+            existing: state.voice.handoff,
+            form: mergedForm,
+            interpretedAt: new Date().toISOString(),
+            transcript,
+          });
+
+          updateIntakeFields(symptomTextCapture.updates);
+          setVoiceHandoff(nextHandoff);
+          setWarnings([]);
+          setLowConfidence(false);
+          setConfirmation(EMPTY_CONFIRMATION);
+          setPartialTranscript('');
+          setFinalTranscript(symptomTextCapture.value);
+          setVoiceTranscript(symptomTextCapture.value);
+          setSession((currentSession) =>
+            currentSession
+              ? {
+                  ...currentSession,
+                  confirmation: EMPTY_CONFIRMATION,
+                  currentField: nextField,
+                  currentStep: 'symptoms',
+                  draftPatch: {
+                    ...currentSession.draftPatch,
+                    ...symptomTextCapture.updates,
+                  },
+                  firstPrompt: nextPrompt || currentSession.firstPrompt,
+                }
+              : currentSession,
+          );
+          setReplyText(symptomTextCapture.acknowledgementMessage);
+          setJanetModeStep('symptoms');
+          void queueDraftAndHandoffSync({
+            formOverride: mergedForm,
+          });
+
+          await playPrompt(symptomTextCapture.acknowledgementMessage, {
             autoListenAfter: false,
           });
 

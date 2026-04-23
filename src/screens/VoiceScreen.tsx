@@ -21,6 +21,7 @@ import {
   buildJanetSpeechText,
   buildMedicalInfoAllergyEntries,
   buildMedicalInfoImmunizationEntries,
+  coerceJanetProgressStep,
   configureJanetPlaybackAudioMode,
   configureJanetRecordingAudioMode,
   getJanetFieldLabel,
@@ -28,6 +29,7 @@ import {
   getJanetRecognitionHints,
   hydratePastMedicalHistoryFromLegacy,
   normalizeIntakeFormFields,
+  reconcileStructuredIntakeForm,
   formatJanetConfirmation,
   getJanetLiveSpeechAvailability,
   inferJanetConversationStep,
@@ -1082,10 +1084,12 @@ export function VoiceExperience({
           returningPatient: state.returningPatient.form,
           visitId: state.backend.draft.visitId,
         });
-        const mergedForm = {
-          ...(options?.formOverride ?? state.intake.form),
-          ...nextSession.draftPatch,
-        };
+        const mergedForm = reconcileStructuredIntakeForm(
+          normalizeIntakeFormFields({
+            ...(options?.formOverride ?? state.intake.form),
+            ...nextSession.draftPatch,
+          }) as IntakeFormData,
+        );
         const resolvedField = resolveJanetVoiceFieldState({
           form: mergedForm,
           pastMedicalHistoryField: null,
@@ -2035,10 +2039,16 @@ export function VoiceExperience({
           transcriptConfidence: confidence,
         });
 
-        const mergedForm = {
-          ...state.intake.form,
-          ...result.extraction.draftPatch,
-        };
+        const resolvedUpdatedStep = coerceJanetProgressStep(
+          janetStep,
+          result.extraction.updatedStep,
+        ) as JanetConversationStep;
+        const mergedForm = reconcileStructuredIntakeForm(
+          normalizeIntakeFormFields({
+            ...state.intake.form,
+            ...result.extraction.draftPatch,
+          }) as IntakeFormData,
+        );
 
         updateIntakeFields(result.extraction.draftPatch);
         const shouldKeepTranscriptVisible =
@@ -2058,10 +2068,10 @@ export function VoiceExperience({
           form: mergedForm,
           pastMedicalHistoryField,
           proposedField: result.extraction.currentField,
-          step: result.extraction.updatedStep,
+          step: resolvedUpdatedStep,
         });
         const resolvedField = resolvedFieldState.activeField;
-        const backendAdvancedStep = result.extraction.updatedStep !== janetStep;
+        const backendAdvancedStep = resolvedUpdatedStep !== janetStep;
         const shouldOfferStepTransition =
           janetStep !== 'review' &&
           !result.confirmation.required &&
@@ -2102,7 +2112,7 @@ export function VoiceExperience({
                 ...currentSession,
                 confirmation: result.confirmation,
                 currentField: resolvedField,
-                currentStep: result.extraction.updatedStep,
+                currentStep: resolvedUpdatedStep,
                 draftPatch: result.extraction.draftPatch,
                 firstPrompt:
                   !result.confirmation.required
@@ -2110,7 +2120,7 @@ export function VoiceExperience({
                         field: resolvedField,
                         language: state.janetMode.language,
                         pastMedicalHistoryField: null,
-                        step: result.extraction.updatedStep,
+                        step: resolvedUpdatedStep,
                       }) || currentSession.firstPrompt
                     : currentSession.firstPrompt,
                 missingFields: result.extraction.missingFields,
@@ -2123,7 +2133,7 @@ export function VoiceExperience({
             field: resolvedField,
             language: state.janetMode.language,
             pastMedicalHistoryField: null,
-            step: result.extraction.updatedStep,
+            step: resolvedUpdatedStep,
           });
 
           if (!result.confirmation.required && canonicalPrompt.trim().length > 0) {
@@ -2134,7 +2144,7 @@ export function VoiceExperience({
         });
         setWarnings(result.warnings);
         setLowConfidence(result.lowConfidence);
-        setJanetModeStep(result.extraction.updatedStep);
+        setJanetModeStep(resolvedUpdatedStep);
 
         void queueDraftAndHandoffSync();
 
@@ -2145,7 +2155,7 @@ export function VoiceExperience({
                   field: resolvedField,
                   language: state.janetMode.language,
                   pastMedicalHistoryField: null,
-                  step: result.extraction.updatedStep,
+                  step: resolvedUpdatedStep,
                 })
               : '';
           await wait(JANET_TIMING.postResponseDelayMs);

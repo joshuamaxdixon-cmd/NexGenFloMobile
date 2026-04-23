@@ -151,6 +151,28 @@ export function getNextVoiceStep(step: IntakeStepKey) {
   return index >= 0 ? flow[index + 1] ?? null : null;
 }
 
+export function coerceJanetProgressStep(
+  currentStep: IntakeStepKey,
+  proposedStep: IntakeStepKey,
+) {
+  const flow: IntakeStepKey[] = [
+    'basicInfo',
+    'symptoms',
+    'pastMedicalHistory',
+    'documents',
+    'review',
+  ];
+
+  const currentIndex = flow.indexOf(currentStep);
+  const proposedIndex = flow.indexOf(proposedStep);
+
+  if (currentIndex < 0 || proposedIndex < 0) {
+    return currentStep;
+  }
+
+  return proposedIndex < currentIndex ? currentStep : proposedStep;
+}
+
 export function getStepTransitionPrompt(
   currentStep: IntakeStepKey,
   language: 'en' | 'es',

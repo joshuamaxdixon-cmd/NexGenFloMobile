@@ -8,6 +8,7 @@ import type {
   IntakeStepKey,
   ReturningPatientFormData,
 } from './intake';
+import { normalizeIntakeFormFields } from './intake';
 
 export type JanetHandoff = {
   allergyNotes: string;
@@ -171,21 +172,54 @@ function readBoolean(value: unknown, fallback = false) {
   return typeof value === 'boolean' ? value : fallback;
 }
 
-function normalizeConversationStep(value: unknown): JanetConversationStep {
-  const normalized = readString(value)?.trim();
+function normalizeConversationStep(
+  value: unknown,
+  fallback: JanetConversationStep = 'basicInfo',
+): JanetConversationStep {
+  const normalized = readString(value)?.trim().toLowerCase();
+  const compact = normalized?.replace(/[\s_-]+/g, '');
 
-  if (normalized === 'documents' || normalized === 'review' || normalized === 'symptoms') {
-    return normalized;
+  if (!compact) {
+    return fallback;
   }
 
-  return 'basicInfo';
+  if (compact === 'documents' || compact === 'document') {
+    return 'documents';
+  }
+
+  if (compact === 'review' || compact === 'reviewconfirm' || compact === 'summary') {
+    return 'review';
+  }
+
+  if (
+    compact === 'symptoms' ||
+    compact === 'medicalinfo' ||
+    compact === 'medicalhistory' ||
+    compact === 'allergies' ||
+    compact === 'medications' ||
+    compact === 'insurance'
+  ) {
+    return 'symptoms';
+  }
+
+  if (
+    compact === 'basicinfo' ||
+    compact === 'patienttype' ||
+    compact === 'patientinformation' ||
+    compact === 'newpatient'
+  ) {
+    return 'basicInfo';
+  }
+
+  return fallback;
 }
 
 function normalizeDraftPatch(value: unknown): Partial<IntakeFormData> {
   const record = readRecord(value) ?? {};
   const patch: Partial<IntakeFormData> = {};
 
-  const allowedKeys = [
+  const stringKeys = [
+    'patientType',
     'firstName',
     'lastName',
     'dateOfBirth',
@@ -212,16 +246,54 @@ function normalizeDraftPatch(value: unknown): Partial<IntakeFormData> {
     'memberId',
     'groupNumber',
     'subscriberName',
+    'pastMedicalHistoryOtherMentalHealthCondition',
+    'pastMedicalHistoryOtherSurgery',
   ] as const satisfies readonly (keyof IntakeFormData)[];
 
-  for (const key of allowedKeys) {
+  const arrayKeys = [
+    'allergyMedicationSelections',
+    'allergyMaterialSelections',
+    'allergyFoodSelections',
+    'allergyEnvironmentalSelections',
+    'immunizationCoreSelections',
+    'immunizationRoutineSelections',
+    'immunizationTravelSelections',
+    'immunizationUnknownSelections',
+    'pastMedicalHistoryChronicConditions',
+    'pastMedicalHistorySurgicalHistory',
+    'pastMedicalHistoryOtherRelevantHistory',
+  ] as const satisfies readonly (keyof IntakeFormData)[];
+
+  const booleanKeys = [
+    'medicalInfoHydrated',
+    'pastMedicalHistoryHydrated',
+  ] as const satisfies readonly (keyof IntakeFormData)[];
+
+  for (const key of stringKeys) {
     const rawValue = record[key];
     if (typeof rawValue === 'string') {
       patch[key] = rawValue;
     }
   }
 
-  return patch;
+  for (const key of arrayKeys) {
+    const rawValue = record[key];
+    if (Array.isArray(rawValue)) {
+      patch[key] = rawValue.filter(
+        (entry): entry is string =>
+          typeof entry === 'string' && entry.trim().length > 0,
+      ) as IntakeFormData[typeof key];
+    }
+  }
+
+  for (const key of booleanKeys) {
+    const rawValue = record[key];
+    if (typeof rawValue === 'boolean') {
+      patch[key] = rawValue as IntakeFormData[typeof key];
+    }
+  }
+
+  return normalizeIntakeFormFields(patch);
 }
 
 function normalizeConfirmation(value: unknown): JanetConfirmationState {
@@ -437,6 +509,7 @@ export async function bootstrapJanetSession(
     currentField: readString(sessionRecord.current_field ?? sessionRecord.currentField),
     currentStep: normalizeConversationStep(
       sessionRecord.current_step ?? sessionRecord.currentStep,
+      inferJanetConversationStep(payload.currentStep),
     ),
     draftId: readString(sessionRecord.draft_id ?? sessionRecord.draftId),
     draftPatch: normalizeDraftPatch(
@@ -569,9 +642,11 @@ export async function requestJanetResponse(
         : [],
       nextStep: normalizeConversationStep(
         extractionRecord.next_step ?? extractionRecord.nextStep,
+        payload.currentStep,
       ),
       updatedStep: normalizeConversationStep(
         extractionRecord.updated_step ?? extractionRecord.updatedStep,
+        payload.currentStep,
       ),
     },
     janet: {

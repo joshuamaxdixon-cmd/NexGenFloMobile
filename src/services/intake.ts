@@ -203,7 +203,7 @@ const JANET_FIELD_METADATA = {
     title: 'Weight',
   },
   gender: {
-    hints: ['male', 'female', 'other', 'sex'],
+    hints: ['male', 'female', 'other', 'sex', 'man', 'woman', 'transgender', 'nonbinary'],
     label: 'gender',
     prompt: {
       en: 'What is your gender?',
@@ -251,8 +251,8 @@ const JANET_FIELD_METADATA = {
     hints: ['medication allergies', 'allergy medicine', 'penicillin', 'none'],
     label: 'medication allergies',
     prompt: {
-      en: 'Do you have any medication allergies? You can say none.',
-      es: '¿Tienes alguna alergia a medicamentos? Puedes decir ninguna.',
+      en: 'Do you have any medication allergies, like penicillin or sulfa? You can say none.',
+      es: '¿Tienes alguna alergia a medicamentos, como penicilina o sulfa? Puedes decir ninguna.',
     },
     title: 'Medication Allergies',
   },
@@ -260,8 +260,8 @@ const JANET_FIELD_METADATA = {
     hints: ['material allergies', 'contact allergies', 'latex', 'adhesive', 'none'],
     label: 'material or contact allergies',
     prompt: {
-      en: 'Do you have any material or contact allergies? You can say none.',
-      es: '¿Tienes alguna alergia a materiales o de contacto? Puedes decir ninguna.',
+      en: 'Do you have any material or contact allergies, like latex or adhesive? You can say none.',
+      es: '¿Tienes alguna alergia a materiales o de contacto, como látex o adhesivos? Puedes decir ninguna.',
     },
     title: 'Material / Contact Allergies',
   },
@@ -269,8 +269,8 @@ const JANET_FIELD_METADATA = {
     hints: ['food allergies', 'peanut', 'shellfish', 'dairy', 'none'],
     label: 'food allergies',
     prompt: {
-      en: 'Do you have any food allergies? You can say none.',
-      es: '¿Tienes alguna alergia alimentaria? Puedes decir ninguna.',
+      en: 'Do you have any food allergies, like peanuts or shellfish? You can say none.',
+      es: '¿Tienes alguna alergia alimentaria, como cacahuates o mariscos? Puedes decir ninguna.',
     },
     title: 'Food Allergies',
   },
@@ -278,8 +278,8 @@ const JANET_FIELD_METADATA = {
     hints: ['environmental allergies', 'pollen', 'dust', 'pet dander', 'none'],
     label: 'environmental allergies',
     prompt: {
-      en: 'Do you have any environmental allergies? You can say none.',
-      es: '¿Tienes alguna alergia ambiental? Puedes decir ninguna.',
+      en: 'Do you have any environmental allergies, like pollen or dust? You can say none.',
+      es: '¿Tienes alguna alergia ambiental, como polen o polvo? Puedes decir ninguna.',
     },
     title: 'Environmental Allergies',
   },
@@ -1680,10 +1680,19 @@ export function normalizeIntakeFormFields(
     const normalizedGender = nextValues.gender.trim().toLowerCase();
     nextValues.gender =
       normalizedGender === 'male' ||
-      normalizedGender === 'female' ||
-      normalizedGender === 'other'
-        ? normalizedGender
-        : '';
+      normalizedGender === 'man' ||
+      (normalizedGender.includes('male') && !normalizedGender.includes('female'))
+        ? 'male'
+        : normalizedGender === 'female' ||
+            normalizedGender === 'woman' ||
+            normalizedGender.includes('female')
+          ? 'female'
+          : normalizedGender === 'other' ||
+              normalizedGender.includes('trans') ||
+              normalizedGender.includes('nonbinary') ||
+              normalizedGender.includes('non-binary')
+            ? 'other'
+            : '';
   }
   if (typeof nextValues.heightFt === 'string') {
     nextValues.heightFt = normalizeDigitsOnly(nextValues.heightFt, 2);

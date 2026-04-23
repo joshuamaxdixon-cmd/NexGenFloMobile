@@ -178,19 +178,19 @@ const JANET_UI_COPY = {
 const SCAN_LOW_CONFIDENCE_THRESHOLD = 0.8;
 const JANET_TIMING = {
   // How long Janet waits after speaking before auto-listening starts again.
-  autoListenDelayMs: 420,
+  autoListenDelayMs: 120,
   // How much quiet audio must pass before an answer auto-stops.
   silenceDurationMs: 850,
   // Minimum capture duration before metering counts as real speech.
-  minimumSpeechDurationMs: 320,
+  minimumSpeechDurationMs: 180,
   // Metering level that marks the start of speech.
   speechStartThresholdDb: -40,
   // Metering level that marks a return to silence.
   silenceThresholdDb: -50,
   // Short pause before playback so Janet feels deliberate instead of abrupt.
-  preSpeakDelayMs: 120,
+  preSpeakDelayMs: 80,
   // Small post-processing pause before Janet replies.
-  postResponseDelayMs: 90,
+  postResponseDelayMs: 60,
 } as const;
 
 const EMPTY_CONFIRMATION: JanetConfirmationState = {
@@ -515,13 +515,30 @@ function normalizeLocalConfirmationValue(
 
   if (field === 'gender') {
     const normalizedGender = normalized.toLowerCase();
-    if (normalizedGender.includes('female')) {
+    if (
+      normalizedGender.includes('female') ||
+      normalizedGender.includes('woman') ||
+      normalizedGender.includes('girl')
+    ) {
       return 'female';
     }
-    if (normalizedGender.includes('male')) {
+    if (
+      normalizedGender === 'man' ||
+      (normalizedGender.includes('male') &&
+        !normalizedGender.includes('female')) ||
+      normalizedGender.includes("i'm a man") ||
+      normalizedGender.includes('i am a man') ||
+      normalizedGender.includes("i'm male") ||
+      normalizedGender.includes('i am male')
+    ) {
       return 'male';
     }
-    if (normalizedGender.includes('other')) {
+    if (
+      normalizedGender.includes('other') ||
+      normalizedGender.includes('trans') ||
+      normalizedGender.includes('nonbinary') ||
+      normalizedGender.includes('non-binary')
+    ) {
       return 'other';
     }
     return '';
@@ -549,6 +566,23 @@ function normalizeLocalConfirmationValue(
   }
 
   return normalized;
+}
+
+function buildNoSpeechRetryPrompt(options: {
+  fallbackPrompt: string;
+  language: 'en' | 'es';
+}) {
+  const trimmedPrompt = options.fallbackPrompt.trim();
+
+  if (!trimmedPrompt) {
+    return options.language === 'es'
+      ? 'No escuché una respuesta clara. Inténtalo otra vez.'
+      : 'I did not catch a clear answer. Please try again.';
+  }
+
+  return options.language === 'es'
+    ? `No escuché una respuesta clara. ${trimmedPrompt}`
+    : `I did not catch a clear answer. ${trimmedPrompt}`;
 }
 
 function parseSpokenDigits(value: string) {
@@ -1331,6 +1365,70 @@ export function VoiceExperience({
     [clearSilenceTimeout],
   );
 
+  const playPrompt = useCallback(
+    async (text: string, options?: { autoListenAfter?: boolean }) => {
+      const trimmedText = text.trim();
+      if (!trimmedText) {
+        return;
+      }
+
+      const shouldAutoListenAfter = options?.autoListenAfter ?? autoListenEnabled;
+      setMicError(null);
+      setSpeechState('processing');
+      lastSpokenTextRef.current = trimmedText;
+
+      try {
+        if (!voiceOutputEnabled) {
+          setSpeechState('replay');
+          if (shouldAutoListenAfter) {
+            setPendingAutoListenToken(
+              `${session?.sessionId ?? 'local'}:${Date.now()}:${trimmedText}`,
+            );
+          }
+          return;
+        }
+
+        await stopJanetReplyAudio(soundRef.current);
+        await configureJanetPlaybackAudioMode();
+        await wait(JANET_TIMING.preSpeakDelayMs);
+        soundRef.current = await playJanetReplyAudio({
+          cacheSafe: false,
+          fallbackToDeviceSpeech: true,
+          language: state.janetMode.language,
+          onComplete: () => {
+            setSpeechState('replay');
+            if (shouldAutoListenAfter) {
+              setPendingAutoListenToken(
+                `${session?.sessionId ?? 'local'}:${Date.now()}:${trimmedText}`,
+              );
+            }
+          },
+          onStart: () => {
+            setSpeechState('speaking');
+          },
+          sessionId: session?.sessionId ?? null,
+          text: trimmedText,
+        });
+      } catch (error) {
+        setMicError(
+          error instanceof Error && error.message
+            ? error.message
+            : 'Janet voice guidance is unavailable right now.',
+        );
+        setSpeechState(lastSpokenTextRef.current.trim() ? 'replay' : 'ready');
+      }
+    },
+    [autoListenEnabled, session?.sessionId, state.janetMode.language, voiceOutputEnabled],
+  );
+
+  const queuePrompt = useCallback(
+    async (prompt: string, options?: { autoListenAfter?: boolean }) => {
+      setReplyText(prompt);
+      await playPrompt(prompt, options);
+    },
+    [playPrompt],
+  );
+
   const resetLiveSpeechCapture = useCallback(() => {
     liveSpeechTranscriptRef.current = '';
     liveSpeechConfidenceRef.current = null;
@@ -1382,12 +1480,18 @@ export function VoiceExperience({
       }
 
       if (!isMeaningfulTranscript(transcript)) {
+        const retryPrompt = buildNoSpeechRetryPrompt({
+          fallbackPrompt: replyText.trim() || resolvedSpeechText.trim(),
+          language: state.janetMode.language,
+        });
         setWarnings((currentWarnings) =>
           currentWarnings.length > 0
             ? currentWarnings
             : ['Janet did not catch a clear answer.'],
         );
         setMicError('Janet did not catch a clear answer. Please try again.');
+        setReplyText(retryPrompt);
+        await queuePrompt(retryPrompt);
         return;
       }
 
@@ -1408,7 +1512,10 @@ export function VoiceExperience({
     }
   }, [
     backendJanetStep,
+    queuePrompt,
     resetLiveSpeechCapture,
+    replyText,
+    resolvedSpeechText,
     session?.sessionId,
     setVoiceListening,
     setVoiceTranscript,
@@ -1535,70 +1642,6 @@ export function VoiceExperience({
     state.returningPatient.form,
     stopPlayback,
   ]);
-
-  const playPrompt = useCallback(
-    async (text: string, options?: { autoListenAfter?: boolean }) => {
-      const trimmedText = text.trim();
-      if (!trimmedText) {
-        return;
-      }
-
-      const shouldAutoListenAfter = options?.autoListenAfter ?? autoListenEnabled;
-      setMicError(null);
-      setSpeechState('processing');
-      lastSpokenTextRef.current = trimmedText;
-
-      try {
-        if (!voiceOutputEnabled) {
-          setSpeechState('replay');
-          if (shouldAutoListenAfter) {
-            setPendingAutoListenToken(
-              `${session?.sessionId ?? 'local'}:${Date.now()}:${trimmedText}`,
-            );
-          }
-          return;
-        }
-
-        await stopJanetReplyAudio(soundRef.current);
-        await configureJanetPlaybackAudioMode();
-        await wait(JANET_TIMING.preSpeakDelayMs);
-        soundRef.current = await playJanetReplyAudio({
-          cacheSafe: false,
-          fallbackToDeviceSpeech: true,
-          language: state.janetMode.language,
-          onComplete: () => {
-            setSpeechState('replay');
-            if (shouldAutoListenAfter) {
-              setPendingAutoListenToken(
-                `${session?.sessionId ?? 'local'}:${Date.now()}:${trimmedText}`,
-              );
-            }
-          },
-          onStart: () => {
-            setSpeechState('speaking');
-          },
-          sessionId: session?.sessionId ?? null,
-          text: trimmedText,
-        });
-      } catch (error) {
-        setMicError(
-          error instanceof Error && error.message
-            ? error.message
-            : 'Janet voice guidance is unavailable right now.',
-        );
-        setSpeechState(lastSpokenTextRef.current.trim() ? 'replay' : 'ready');
-      }
-    },
-    [autoListenEnabled, session?.sessionId, state.janetMode.language, voiceOutputEnabled],
-  );
-
-  const queuePrompt = useCallback(
-    async (prompt: string, options?: { autoListenAfter?: boolean }) => {
-      setReplyText(prompt);
-      await playPrompt(prompt, options);
-    },
-    [playPrompt],
-  );
 
   const beginVoiceStep = useCallback(
     async (step: IntakeStepKey) => {
@@ -2340,12 +2383,18 @@ export function VoiceExperience({
       setWarnings(transcription.warnings);
 
       if (!isMeaningfulTranscript(normalizedTranscript)) {
+        const retryPrompt = buildNoSpeechRetryPrompt({
+          fallbackPrompt: replyText.trim() || resolvedSpeechText.trim(),
+          language: state.janetMode.language,
+        });
         setWarnings((currentWarnings) =>
           currentWarnings.length > 0
             ? currentWarnings
             : ['Janet did not catch a clear answer.'],
         );
         setMicError('Janet did not catch a clear answer. Please try again.');
+        setReplyText(retryPrompt);
+        await queuePrompt(retryPrompt);
         setIsProcessing(false);
         return;
       }
@@ -2367,6 +2416,9 @@ export function VoiceExperience({
   }, [
     handleJanetTurn,
     backendJanetStep,
+    queuePrompt,
+    replyText,
+    resolvedSpeechText,
     session?.sessionId,
     clearSilenceTimeout,
     setVoiceListening,

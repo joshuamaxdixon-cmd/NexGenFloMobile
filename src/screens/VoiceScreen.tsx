@@ -1479,17 +1479,17 @@ export function VoiceExperience({
     setPendingScanResult(null);
     const manualTargetStep = janetStep;
 
+    if (onSwitchToTyping) {
+      onSwitchToTyping();
+      return;
+    }
+
     if (!state.intake.form.firstName && !state.intake.form.chiefConcern) {
       startNewIntake({
         prefill: EMPTY_MEDICAL_AND_PMH_PREFILL,
         source: 'voice',
         step: manualTargetStep,
       });
-    }
-
-    if (onSwitchToTyping) {
-      onSwitchToTyping();
-      return;
     }
 
     navigation.navigate('Intake', {

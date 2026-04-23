@@ -6,6 +6,7 @@ import { Feather, Ionicons } from '@expo/vector-icons';
 import { DevPreviewPanel } from '../components/DevPreviewPanel';
 import { DevQaPanel } from '../components/DevQaPanel';
 import { JanetAvatar } from '../components/JanetAvatar';
+import { NexGenLogo } from '../components/NexGenLogo';
 import { ScreenContainer } from '../components/ScreenContainer';
 import type { RootTabParamList } from '../navigation/types';
 import {
@@ -233,22 +234,7 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
         style={styles.homeShell}
       >
         <View style={styles.topRow}>
-          <View style={styles.brandRow}>
-            <View style={styles.logoMark}>
-              <View style={styles.logoCrossVertical} />
-              <View style={styles.logoCrossHorizontal} />
-            </View>
-            <Text style={styles.brandText}>NexGEN</Text>
-          </View>
-
-          <View style={styles.bellShell}>
-            <Ionicons
-              color={colors.textPrimary}
-              name="notifications-outline"
-              size={22}
-            />
-            <View style={styles.bellDot} />
-          </View>
+          <NexGenLogo containerStyle={styles.brandRow} size={34} />
         </View>
 
         <View style={styles.heroBlock}>
@@ -377,64 +363,10 @@ const styles = StyleSheet.create({
   topRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
   },
   brandRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  logoMark: {
-    alignItems: 'center',
-    height: 38,
-    justifyContent: 'center',
-    position: 'relative',
-    width: 38,
-  },
-  logoCrossVertical: {
-    backgroundColor: colors.primary,
-    borderRadius: 999,
-    height: 38,
-    position: 'absolute',
-    width: 14,
-  },
-  logoCrossHorizontal: {
-    backgroundColor: colors.primaryDeep,
-    borderRadius: 999,
-    height: 14,
-    position: 'absolute',
-    width: 38,
-  },
-  brandText: {
-    ...typography.title,
-    color: colors.textPrimary,
-    fontWeight: '800',
-  },
-  bellShell: {
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderColor: colors.divider,
-    borderRadius: 22,
-    borderWidth: 1,
-    height: 46,
-    justifyContent: 'center',
-    shadowColor: colors.shadow,
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    width: 46,
-  },
-  bellDot: {
-    backgroundColor: '#F45D5D',
-    borderRadius: 5,
-    height: 9,
-    position: 'absolute',
-    right: 8,
-    top: 8,
-    width: 9,
+    minHeight: 34,
   },
   heroBlock: {
     gap: spacing.xs,

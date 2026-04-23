@@ -7,7 +7,6 @@ import * as Haptics from 'expo-haptics';
 import { Audio } from 'expo-av';
 
 import { DraftBanner } from '../components/DraftBanner';
-import { EmptyStateCard } from '../components/EmptyStateCard';
 import { JanetAvatar } from '../components/JanetAvatar';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
@@ -268,18 +267,6 @@ function buildScanPreviewRows(
         value: value.trim(),
       };
     });
-}
-
-function hasIntakeProgressValue(value: IntakeFormData[keyof IntakeFormData]) {
-  if (typeof value === 'string') {
-    return value.trim().length > 0;
-  }
-
-  if (Array.isArray(value)) {
-    return value.length > 0;
-  }
-
-  return value === true;
 }
 
 function normalizeTranscriptText(value: string) {
@@ -973,10 +960,6 @@ export function VoiceExperience({
   >(null);
   const [pastMedicalHistoryField, setPastMedicalHistoryField] =
     useState<PastMedicalHistoryVoiceField | null>(null);
-  const hasDraftProgress = useMemo(
-    () => Object.values(state.intake.form).some((value) => hasIntakeProgressValue(value)),
-    [state.intake.form],
-  );
   const liveSpeechAvailability = useMemo(
     () => getJanetLiveSpeechAvailability(),
     [],
@@ -2726,50 +2709,6 @@ export function VoiceExperience({
     styles.meterBar5,
   ];
 
-  const startFreshVoiceCheckIn = useCallback(() => {
-    void stopPlayback();
-    clearSilenceTimeout();
-    bootstrapKeyRef.current = '';
-    autoPlayedSessionRef.current = '';
-    autoListenRef.current = '';
-    lastSpokenTextRef.current = '';
-    setPendingAutoListenToken(null);
-    setPendingScanResult(null);
-    setScanningDocumentType(null);
-    setSession(null);
-    setReplyText('');
-    setLocalConfirmation(null);
-    setJanetFlowMode('field_question');
-    setPendingNextStep(null);
-    setAwaitingReviewSectionChoice(false);
-    setConfirmation(EMPTY_CONFIRMATION);
-    setWarnings([]);
-    setLowConfidence(false);
-    setMicError(null);
-    setSpeechState('ready');
-    setPartialTranscript('');
-    setFinalTranscript('');
-    setVoiceTranscript('');
-    setVoiceHandoff(null);
-    setVoiceListening(false);
-    setVoiceSpellMode(false);
-    setJanetModeStep('basicInfo');
-    startNewIntake({
-      prefill: EMPTY_MEDICAL_AND_PMH_PREFILL,
-      source: 'voice',
-      step: 'basicInfo',
-    });
-  }, [
-    clearSilenceTimeout,
-    setJanetModeStep,
-    setVoiceHandoff,
-    setVoiceListening,
-    setVoiceSpellMode,
-    setVoiceTranscript,
-    startNewIntake,
-    stopPlayback,
-  ]);
-
   useEffect(() => {
     if (janetStep === 'review' && janetFlowMode === 'field_question') {
       void beginVoiceStep('review');
@@ -2929,14 +2868,6 @@ export function VoiceExperience({
           style={styles.banner}
           title="Low confidence capture"
           tone="warning"
-        />
-      ) : null}
-
-      {hasDraftProgress && !isRecording && !isProcessing && !embedded ? (
-        <SecondaryButton
-          onPress={startFreshVoiceCheckIn}
-          style={styles.freshStartButton}
-          title="Start new check-in"
         />
       ) : null}
 
@@ -3214,15 +3145,7 @@ export function VoiceExperience({
         </View>
       ) : null}
 
-      {!shouldShowConfirmationActions && !embedded && !state.voice.transcriptDraft && !state.voice.handoff ? (
-        <View style={styles.emptyWrap}>
-          <EmptyStateCard
-            icon="mic-circle-outline"
-            message="Janet uses the same intake draft as typed intake, so you can switch to manual entry without losing progress."
-            title="One shared intake draft"
-          />
-        </View>
-      ) : !shouldShowConfirmationActions && state.voice.handoff ? (
+      {!shouldShowConfirmationActions && state.voice.handoff ? (
         <View style={styles.previewCard}>
           <Text style={styles.previewCardTitle}>Structured intake preview</Text>
           <Text style={styles.previewCardSubtitle}>

@@ -539,10 +539,21 @@ function transcriptIsAffirmative(value: string, language: 'en' | 'es') {
   }
 
   if (language === 'es') {
-    return ['si', 'sí', 'correcto', 'correcta'].includes(normalized);
+    return ['si', 'sí', 'correcto', 'correcta', 'claro', 'seguro'].some(
+      (intent) => normalized === intent || normalized.includes(intent),
+    );
   }
 
-  return ['yes', 'yeah', 'yep', 'correct', 'that is right'].includes(normalized);
+  return [
+    'yes',
+    'yeah',
+    'yep',
+    'correct',
+    'right',
+    'sure',
+    'that is right',
+    "that's right",
+  ].some((intent) => normalized === intent || normalized.includes(intent));
 }
 
 function transcriptIsNegative(value: string, language: 'en' | 'es') {
@@ -552,10 +563,14 @@ function transcriptIsNegative(value: string, language: 'en' | 'es') {
   }
 
   if (language === 'es') {
-    return ['no', 'incorrecto', 'incorrecta'].includes(normalized);
+    return ['no', 'incorrecto', 'incorrecta'].some(
+      (intent) => normalized === intent || normalized.includes(intent),
+    );
   }
 
-  return ['no', 'nope', 'incorrect', 'not right'].includes(normalized);
+  return ['no', 'nope', 'incorrect', 'not right', 'wrong'].some(
+    (intent) => normalized === intent || normalized.includes(intent),
+  );
 }
 
 function transcriptMatchesIntent(value: string, intents: readonly string[]) {
@@ -1533,7 +1548,7 @@ export function VoiceExperience({
         prompt,
         required: true,
       });
-      await queuePrompt(prompt, { autoListenAfter: false });
+      await queuePrompt(prompt);
     },
     [queuePrompt, state.janetMode.language],
   );
@@ -1556,7 +1571,7 @@ export function VoiceExperience({
           const prompt = getStepTransitionDeclinedPrompt(state.janetMode.language);
           setAwaitingReviewSectionChoice(false);
           setConfirmation(EMPTY_CONFIRMATION);
-          await queuePrompt(prompt, { autoListenAfter: false });
+          await queuePrompt(prompt);
           return;
         }
 
@@ -1618,7 +1633,7 @@ export function VoiceExperience({
           }
 
           await queuePrompt(getReviewSectionChoicePrompt(state.janetMode.language), {
-            autoListenAfter: false,
+            autoListenAfter: true,
           });
           return;
         }
@@ -1632,7 +1647,7 @@ export function VoiceExperience({
             prompt,
             required: true,
           });
-          await queuePrompt(prompt, { autoListenAfter: false });
+          await queuePrompt(prompt);
           return;
         }
 
@@ -1640,7 +1655,7 @@ export function VoiceExperience({
           const prompt = getReviewSectionChoicePrompt(state.janetMode.language);
           setAwaitingReviewSectionChoice(true);
           setConfirmation(EMPTY_CONFIRMATION);
-          await queuePrompt(prompt, { autoListenAfter: false });
+          await queuePrompt(prompt);
           return;
         }
       }
@@ -1814,7 +1829,6 @@ export function VoiceExperience({
             language: state.janetMode.language,
             value: normalizedValue,
           }),
-          { autoListenAfter: false },
         );
         return;
       }

@@ -29,8 +29,13 @@ type SearchableCheckboxAccordionSectionProps = {
   onChangeSearch: (value: string) => void;
   onToggleOpen: () => void;
   onToggleValue: (value: string) => void;
+  onAddCustomValue?: (value: string) => void;
   renderOptionFooter?: (value: string) => ReactNode;
 };
+
+function normalizeSelectionValue(value: string) {
+  return value.trim().replace(/\s+/g, ' ').toLowerCase();
+}
 
 function buildSummaryLabel(selectedCount: number) {
   if (selectedCount <= 0) {
@@ -49,19 +54,30 @@ export function SearchableCheckboxAccordionSection({
   onChangeSearch,
   onToggleOpen,
   onToggleValue,
+  onAddCustomValue,
   renderOptionFooter,
 }: SearchableCheckboxAccordionSectionProps) {
   useEffect(() => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
   }, [isOpen, selectedValues.length]);
 
-  const normalizedQuery = searchValue.trim().toLowerCase();
+  const normalizedQuery = normalizeSelectionValue(searchValue);
   const orderedOptions = useMemo(() => {
     const selected = new Set(selectedValues);
-    const filtered = options.filter((option) =>
+    const baseOptions = [
+      ...options,
+      ...selectedValues.filter(
+        (value) =>
+          !options.some(
+            (option) =>
+              normalizeSelectionValue(option) === normalizeSelectionValue(value),
+          ),
+      ),
+    ];
+    const filtered = baseOptions.filter((option) =>
       normalizedQuery.length === 0
         ? true
-        : option.toLowerCase().includes(normalizedQuery),
+        : normalizeSelectionValue(option).includes(normalizedQuery),
     );
 
     return [...filtered].sort((left, right) => {
@@ -69,12 +85,20 @@ export function SearchableCheckboxAccordionSection({
       const rightSelected = selected.has(right);
 
       if (leftSelected === rightSelected) {
-        return options.indexOf(left) - options.indexOf(right);
+        return baseOptions.indexOf(left) - baseOptions.indexOf(right);
       }
 
       return leftSelected ? -1 : 1;
     });
   }, [normalizedQuery, options, selectedValues]);
+  const customCandidate = searchValue.trim().replace(/\s+/g, ' ');
+  const shouldShowCustomAdd =
+    Boolean(onAddCustomValue) &&
+    customCandidate.length > 0 &&
+    ![...options, ...selectedValues].some(
+      (option) =>
+        normalizeSelectionValue(option) === normalizeSelectionValue(customCandidate),
+    );
 
   return (
     <View style={styles.section}>
@@ -159,6 +183,20 @@ export function SearchableCheckboxAccordionSection({
           ) : (
             <Text style={styles.emptyState}>No matches found</Text>
           )}
+
+          {shouldShowCustomAdd ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => onAddCustomValue?.(customCandidate)}
+              style={({ pressed }) => [
+                styles.addRow,
+                pressed ? styles.optionRowPressed : null,
+              ]}
+            >
+              <Ionicons color={colors.primaryDeep} name="add-circle-outline" size={20} />
+              <Text style={styles.addLabel}>{`Add "${customCandidate}"`}</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
     </View>
@@ -250,6 +288,24 @@ const styles = StyleSheet.create({
   },
   optionFooter: {
     paddingLeft: spacing.sm,
+  },
+  addLabel: {
+    ...typography.body,
+    color: colors.primaryDeep,
+    flex: 1,
+  },
+  addRow: {
+    alignItems: 'center',
+    backgroundColor: colors.surfaceSoft,
+    borderColor: colors.primary,
+    borderRadius: 18,
+    borderStyle: 'dashed',
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    minHeight: 52,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
   },
   emptyState: {
     ...typography.caption,

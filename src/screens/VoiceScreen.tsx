@@ -2652,11 +2652,22 @@ export function VoiceExperience({
       return;
     }
 
+    if (
+      isBackendManagedJanetStep(janetStep) &&
+      janetStep !== 'review' &&
+      resolvedVoiceStepState.isStepComplete
+    ) {
+      void queueStepTransitionPrompt(janetStep);
+      return;
+    }
+
     void bootstrapSession({ force: true });
   }, [
     bootstrapSession,
     isBootstrapping,
     janetFlowMode,
+    queueStepTransitionPrompt,
+    resolvedVoiceStepState.isStepComplete,
     state.backend.draft.draftId,
     state.backend.draft.patientId,
     state.backend.draft.visitId,

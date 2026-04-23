@@ -18,6 +18,14 @@ type PastMedicalHistorySectionKey =
   | 'otherRelevantHistory'
   | 'surgicalHistory';
 
+function normalizeSelectionLabel(value: string) {
+  return value.trim().replace(/\s+/g, ' ');
+}
+
+function normalizeSelectionKey(value: string) {
+  return normalizeSelectionLabel(value).toLowerCase();
+}
+
 function hasStructuredPastMedicalHistory(
   form: IntakeStepComponentProps['form'],
 ) {
@@ -142,11 +150,96 @@ export function PastMedicalHistoryScreen({
     }));
   };
 
+  const addCustomChronicCondition = (rawValue: string) => {
+    const normalizedValue = normalizeSelectionLabel(rawValue);
+    if (!normalizedValue) {
+      return;
+    }
+
+    const canonicalValue =
+      pastMedicalHistoryOptions.chronicConditions.find(
+        (option) => normalizeSelectionKey(option) === normalizeSelectionKey(normalizedValue),
+      ) ?? normalizedValue;
+
+    if (
+      form.pastMedicalHistoryChronicConditions.some(
+        (entry) => normalizeSelectionKey(entry) === normalizeSelectionKey(canonicalValue),
+      )
+    ) {
+      setSectionSearch('chronicConditions', '');
+      return;
+    }
+
+    onChange('pastMedicalHistoryChronicConditions', [
+      ...form.pastMedicalHistoryChronicConditions,
+      canonicalValue,
+    ]);
+    setSectionSearch('chronicConditions', '');
+  };
+
+  const addCustomSurgicalHistory = (rawValue: string) => {
+    const normalizedValue = normalizeSelectionLabel(rawValue);
+    if (!normalizedValue) {
+      return;
+    }
+
+    const canonicalValue =
+      pastMedicalHistoryOptions.surgicalHistory.find(
+        (option) => normalizeSelectionKey(option) === normalizeSelectionKey(normalizedValue),
+      ) ?? normalizedValue;
+
+    if (
+      form.pastMedicalHistorySurgicalHistory.some(
+        (entry) => normalizeSelectionKey(entry) === normalizeSelectionKey(canonicalValue),
+      )
+    ) {
+      setSectionSearch('surgicalHistory', '');
+      return;
+    }
+
+    onChange('pastMedicalHistorySurgicalHistory', [
+      ...form.pastMedicalHistorySurgicalHistory,
+      canonicalValue,
+    ]);
+    setSectionSearch('surgicalHistory', '');
+  };
+
+  const addCustomOtherRelevantHistory = (rawValue: string) => {
+    const normalizedValue = normalizeSelectionLabel(rawValue);
+    if (!normalizedValue) {
+      return;
+    }
+
+    const canonicalValue =
+      pastMedicalHistoryOptions.otherRelevantHistory.find(
+        (option) => normalizeSelectionKey(option) === normalizeSelectionKey(normalizedValue),
+      ) ?? normalizedValue;
+    const currentValues = form.pastMedicalHistoryOtherRelevantHistory.filter(
+      (entry) => entry !== PAST_MEDICAL_HISTORY_NONE_OF_ABOVE,
+    );
+
+    if (
+      currentValues.some(
+        (entry) => normalizeSelectionKey(entry) === normalizeSelectionKey(canonicalValue),
+      )
+    ) {
+      setSectionSearch('otherRelevantHistory', '');
+      return;
+    }
+
+    onChange('pastMedicalHistoryOtherRelevantHistory', [
+      ...currentValues,
+      canonicalValue,
+    ]);
+    setSectionSearch('otherRelevantHistory', '');
+  };
+
   return (
     <View>
       <InfoCard>
         <SearchableCheckboxAccordionSection
           isOpen={openSection === 'chronicConditions'}
+          onAddCustomValue={addCustomChronicCondition}
           onChangeSearch={(value) => setSectionSearch('chronicConditions', value)}
           onToggleOpen={() => toggleSection('chronicConditions')}
           onToggleValue={toggleChronicCondition}
@@ -170,6 +263,7 @@ export function PastMedicalHistoryScreen({
 
         <SearchableCheckboxAccordionSection
           isOpen={openSection === 'surgicalHistory'}
+          onAddCustomValue={addCustomSurgicalHistory}
           onChangeSearch={(value) => setSectionSearch('surgicalHistory', value)}
           onToggleOpen={() => toggleSection('surgicalHistory')}
           onToggleValue={toggleSurgicalHistory}
@@ -193,6 +287,7 @@ export function PastMedicalHistoryScreen({
 
         <SearchableCheckboxAccordionSection
           isOpen={openSection === 'otherRelevantHistory'}
+          onAddCustomValue={addCustomOtherRelevantHistory}
           onChangeSearch={(value) => setSectionSearch('otherRelevantHistory', value)}
           onToggleOpen={() => toggleSection('otherRelevantHistory')}
           onToggleValue={toggleOtherRelevantHistory}

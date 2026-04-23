@@ -79,6 +79,14 @@ const editorTitles: Record<MedicalInfoEditorKey, string> = {
   symptomNotes: 'Symptom Notes',
 };
 
+function normalizeSelectionLabel(value: string) {
+  return value.trim().replace(/\s+/g, ' ');
+}
+
+function normalizeSelectionKey(value: string) {
+  return normalizeSelectionLabel(value).toLowerCase();
+}
+
 function arraysEqual(left: string[], right: string[]) {
   return (
     left.length === right.length &&
@@ -290,6 +298,60 @@ export function SymptomsScreen({
     }));
   };
 
+  const addCustomSelection = (field: CheckboxEditorKey, rawValue: string) => {
+    const normalizedValue = normalizeSelectionLabel(rawValue);
+    if (!normalizedValue) {
+      return;
+    }
+
+    const optionKey = field.replace(
+      'Selections',
+      '',
+    ) as keyof typeof medicalInfoCategoryOptions;
+    const options = medicalInfoCategoryOptions[optionKey];
+    const canonicalValue =
+      options.find(
+        (option) => normalizeSelectionKey(option) === normalizeSelectionKey(normalizedValue),
+      ) ?? normalizedValue;
+    const currentSelections = form[field];
+
+    if (
+      currentSelections.some(
+        (entry) => normalizeSelectionKey(entry) === normalizeSelectionKey(canonicalValue),
+      )
+    ) {
+      updateSearch(field, '');
+      return;
+    }
+
+    const nextSelections = [...currentSelections, canonicalValue];
+
+    if (field.startsWith('allergy')) {
+      updateAllergySelections(
+        field as Extract<
+          CheckboxEditorKey,
+          | 'allergyEnvironmentalSelections'
+          | 'allergyFoodSelections'
+          | 'allergyMaterialSelections'
+          | 'allergyMedicationSelections'
+        >,
+        nextSelections,
+      );
+    } else {
+      updateImmunizationSelections(
+        field as Extract<
+          CheckboxEditorKey,
+          | 'immunizationCoreSelections'
+          | 'immunizationRoutineSelections'
+          | 'immunizationTravelSelections'
+        >,
+        nextSelections,
+      );
+    }
+
+    updateSearch(field, '');
+  };
+
   const renderTextEditor = (
     field: TextEditorKey,
     options?: {
@@ -350,6 +412,7 @@ export function SymptomsScreen({
           visible
         >
           <SearchableCheckboxPicker
+            onAddCustomValue={(value) => addCustomSelection(checkboxField, value)}
             onChangeSearch={(value) => updateSearch(checkboxField, value)}
             onToggleValue={(value) => toggleSelection(checkboxField, value)}
             options={options}

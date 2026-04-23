@@ -806,12 +806,36 @@ function normalizePastMedicalHistorySelection(
     return [] as string[];
   }
 
-  const normalized = value.filter(
-    (entry): entry is string =>
-      typeof entry === 'string' && allowedValues.includes(entry),
-  );
+  const results: string[] = [];
+  const seen = new Set<string>();
 
-  return Array.from(new Set(normalized));
+  for (const entry of value) {
+    if (typeof entry !== 'string') {
+      continue;
+    }
+
+    const trimmedEntry = entry.trim().split(/\s+/).join(' ');
+    if (!trimmedEntry) {
+      continue;
+    }
+
+    const canonicalEntry =
+      allowedValues.find(
+        (option) =>
+          normalizePastMedicalHistoryText(option) ===
+          normalizePastMedicalHistoryText(trimmedEntry),
+      ) ?? trimmedEntry;
+    const dedupeKey = normalizePastMedicalHistoryText(canonicalEntry);
+
+    if (!dedupeKey || seen.has(dedupeKey)) {
+      continue;
+    }
+
+    seen.add(dedupeKey);
+    results.push(canonicalEntry);
+  }
+
+  return results;
 }
 
 function normalizePastMedicalHistoryOtherRelevantHistory(value: unknown) {
@@ -1295,12 +1319,35 @@ function normalizeMedicalInfoSelection(
     return [] as string[];
   }
 
-  const normalized = value.filter(
-    (entry): entry is string =>
-      typeof entry === 'string' && allowedValues.includes(entry),
-  );
+  const results: string[] = [];
+  const seen = new Set<string>();
 
-  return Array.from(new Set(normalized));
+  for (const entry of value) {
+    if (typeof entry !== 'string') {
+      continue;
+    }
+
+    const trimmedEntry = entry.trim().split(/\s+/).join(' ');
+    if (!trimmedEntry) {
+      continue;
+    }
+
+    const canonicalEntry =
+      allowedValues.find(
+        (option) =>
+          normalizeMedicalInfoText(option) === normalizeMedicalInfoText(trimmedEntry),
+      ) ?? trimmedEntry;
+    const dedupeKey = normalizeMedicalInfoText(canonicalEntry);
+
+    if (!dedupeKey || seen.has(dedupeKey)) {
+      continue;
+    }
+
+    seen.add(dedupeKey);
+    results.push(canonicalEntry);
+  }
+
+  return results;
 }
 
 function normalizeMedicalInfoText(value: string) {

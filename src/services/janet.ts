@@ -186,7 +186,6 @@ function normalizeDraftPatch(value: unknown): Partial<IntakeFormData> {
   const patch: Partial<IntakeFormData> = {};
 
   const allowedKeys = [
-    'patientType',
     'firstName',
     'lastName',
     'dateOfBirth',

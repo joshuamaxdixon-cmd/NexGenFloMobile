@@ -100,6 +100,403 @@ export const intakeFlowSteps = [
   subtitle: string;
 }[];
 
+export const janetStepFieldOrder = {
+  basicInfo: [
+    'firstName',
+    'lastName',
+    'dateOfBirth',
+    'heightFt',
+    'heightIn',
+    'weightLb',
+    'gender',
+    'phoneNumber',
+    'email',
+    'emergencyContactName',
+    'emergencyContactPhone',
+  ],
+  symptoms: [
+    'allergies',
+    'medications',
+    'pharmacy',
+    'lastDose',
+    'immunizations',
+    'chiefConcern',
+    'symptomDuration',
+    'painLevel',
+    'symptomNotes',
+  ],
+  pastMedicalHistory: [
+    'pastMedicalHistoryChronicConditions',
+    'pastMedicalHistorySurgicalHistory',
+    'pastMedicalHistoryOtherRelevantHistory',
+  ],
+  documents: [
+    'insuranceProvider',
+    'memberId',
+    'groupNumber',
+    'subscriberName',
+  ],
+  review: [],
+} as const satisfies Record<
+  (typeof intakeFlowSteps)[number]['key'],
+  readonly (keyof IntakeFormData)[]
+>;
+
+export type JanetActiveFieldKey =
+  (typeof janetStepFieldOrder)[keyof typeof janetStepFieldOrder][number];
+type JanetConfigStepKey = keyof typeof janetStepFieldOrder;
+
+const JANET_FIELD_METADATA = {
+  firstName: {
+    hints: ['first name', 'given name'],
+    label: 'first name',
+    prompt: {
+      en: 'What is your first name?',
+      es: '¿Cuál es tu nombre?',
+    },
+    title: 'First Name',
+  },
+  lastName: {
+    hints: ['last name', 'family name'],
+    label: 'last name',
+    prompt: {
+      en: 'What is your last name?',
+      es: '¿Cuál es tu apellido?',
+    },
+    title: 'Last Name',
+  },
+  dateOfBirth: {
+    hints: ['date of birth', 'birthday', 'month day year'],
+    label: 'date of birth',
+    prompt: {
+      en: 'What is your date of birth?',
+      es: '¿Cuál es tu fecha de nacimiento?',
+    },
+    title: 'Date of Birth',
+  },
+  heightFt: {
+    hints: ['height', 'feet tall', 'how tall'],
+    label: 'height in feet',
+    prompt: {
+      en: 'How tall are you in feet?',
+      es: '¿Cuánto mides en pies?',
+    },
+    title: 'Height (ft)',
+  },
+  heightIn: {
+    hints: ['height inches', 'remaining inches'],
+    label: 'height in inches',
+    prompt: {
+      en: 'How many additional inches should I add?',
+      es: '¿Cuántas pulgadas adicionales debo agregar?',
+    },
+    title: 'Height (in)',
+  },
+  weightLb: {
+    hints: ['weight', 'pounds'],
+    label: 'weight',
+    prompt: {
+      en: 'What is your weight in pounds?',
+      es: '¿Cuál es tu peso en libras?',
+    },
+    title: 'Weight',
+  },
+  gender: {
+    hints: ['male', 'female', 'other', 'sex'],
+    label: 'sex',
+    prompt: {
+      en: 'What sex should I record: male, female, or other?',
+      es: '¿Qué sexo debo registrar: masculino, femenino u otro?',
+    },
+    title: 'Sex',
+  },
+  phoneNumber: {
+    hints: ['phone number', 'cell phone', 'area code'],
+    label: 'phone number',
+    prompt: {
+      en: 'What is your phone number?',
+      es: '¿Cuál es tu número de teléfono?',
+    },
+    title: 'Phone Number',
+  },
+  email: {
+    hints: ['email', 'email address'],
+    label: 'email address',
+    prompt: {
+      en: 'What is your email address?',
+      es: '¿Cuál es tu correo electrónico?',
+    },
+    title: 'Email',
+  },
+  emergencyContactName: {
+    hints: ['emergency contact', 'contact name', 'spouse', 'parent', 'friend'],
+    label: 'emergency contact name',
+    prompt: {
+      en: 'Who should we list as your emergency contact?',
+      es: '¿A quién debemos poner como contacto de emergencia?',
+    },
+    title: 'Emergency Contact',
+  },
+  emergencyContactPhone: {
+    hints: ['emergency contact phone', 'phone number', 'cell phone'],
+    label: 'emergency contact phone',
+    prompt: {
+      en: 'What is your emergency contact’s phone number?',
+      es: '¿Cuál es el número de teléfono de tu contacto de emergencia?',
+    },
+    title: 'Emergency Contact Phone',
+  },
+  allergies: {
+    hints: ['allergies', 'medication allergies', 'food allergies', 'latex', 'unknown'],
+    label: 'allergies',
+    prompt: {
+      en: 'Tell me about any allergies that matter for today. You can say none.',
+      es: 'Dime cualquier alergia importante para hoy. También puedes decir ninguna.',
+    },
+    title: 'Allergies',
+  },
+  medications: {
+    hints: ['medications', 'medicine', 'prescriptions'],
+    label: 'medications',
+    prompt: {
+      en: 'What medications are you taking right now?',
+      es: '¿Qué medicamentos estás tomando ahora mismo?',
+    },
+    title: 'Medications',
+  },
+  pharmacy: {
+    hints: ['pharmacy', 'drugstore'],
+    label: 'preferred pharmacy',
+    prompt: {
+      en: 'What is your preferred pharmacy?',
+      es: '¿Cuál es tu farmacia preferida?',
+    },
+    title: 'Preferred Pharmacy',
+  },
+  lastDose: {
+    hints: ['last dose', 'last time taken', 'today', 'yesterday'],
+    label: 'last dose',
+    prompt: {
+      en: 'When was your last dose?',
+      es: '¿Cuándo fue tu última dosis?',
+    },
+    title: 'Last Dose',
+  },
+  immunizations: {
+    hints: ['vaccines', 'immunizations', 'flu shot', 'covid vaccine', 'unknown'],
+    label: 'immunizations',
+    prompt: {
+      en: 'Tell me about any vaccines or immunizations you want noted today. You can say unsure.',
+      es: 'Dime qué vacunas o inmunizaciones quieres registrar hoy. También puedes decir no estoy seguro.',
+    },
+    title: 'Immunizations',
+  },
+  chiefConcern: {
+    hints: ['reason for visit', 'chief concern', 'symptoms'],
+    label: 'reason for your visit',
+    prompt: {
+      en: 'What is the reason for your visit today?',
+      es: '¿Cuál es el motivo de tu visita hoy?',
+    },
+    title: 'Reason for Visit',
+  },
+  symptomDuration: {
+    hints: ['today', 'days', 'weeks', 'months', 'duration'],
+    label: 'how long this has been going on',
+    prompt: {
+      en: 'How long has this been going on?',
+      es: '¿Cuánto tiempo ha estado pasando esto?',
+    },
+    title: 'Duration',
+  },
+  painLevel: {
+    hints: ['severity', 'pain level', 'one to ten'],
+    label: 'severity',
+    prompt: {
+      en: 'How severe is it right now?',
+      es: '¿Qué tan severo es ahora mismo?',
+    },
+    title: 'Severity',
+  },
+  symptomNotes: {
+    hints: ['symptom notes', 'extra details', 'anything else'],
+    label: 'symptom notes',
+    prompt: {
+      en: 'Anything else you want staff to know about your symptoms?',
+      es: '¿Hay algo más que quieras que el personal sepa sobre tus síntomas?',
+    },
+    title: 'Symptom Notes',
+  },
+  pastMedicalHistoryChronicConditions: {
+    hints: ['chronic conditions', 'asthma', 'diabetes', 'anxiety'],
+    label: 'chronic conditions',
+    prompt: {
+      en: 'Tell me any chronic conditions or mental health history that apply. You can also say none.',
+      es: 'Dime cualquier condición crónica o antecedente de salud mental que aplique. También puedes decir ninguna.',
+    },
+    title: 'Chronic Conditions',
+  },
+  pastMedicalHistorySurgicalHistory: {
+    hints: ['surgical history', 'appendectomy', 'heart surgery'],
+    label: 'surgical history',
+    prompt: {
+      en: 'Tell me any surgical history that applies. You can also say none.',
+      es: 'Dime cualquier cirugía previa que aplique. También puedes decir ninguna.',
+    },
+    title: 'Surgical History',
+  },
+  pastMedicalHistoryOtherRelevantHistory: {
+    hints: ['smoker', 'pregnant', 'breastfeeding', 'other relevant history'],
+    label: 'other relevant history',
+    prompt: {
+      en: 'Tell me any other relevant history, like smoking or pregnancy. You can also say none.',
+      es: 'Dime cualquier otro antecedente relevante, como fumar o embarazo. También puedes decir ninguna.',
+    },
+    title: 'Other Relevant History',
+  },
+  insuranceProvider: {
+    hints: ['insurance provider', 'aetna', 'blue cross'],
+    label: 'insurance provider',
+    prompt: {
+      en: 'What is your insurance provider?',
+      es: '¿Cuál es tu proveedor de seguro?',
+    },
+    title: 'Insurance Provider',
+  },
+  memberId: {
+    hints: ['member id', 'insurance number'],
+    label: 'insurance member ID',
+    prompt: {
+      en: 'What is your insurance member ID?',
+      es: '¿Cuál es tu número de miembro del seguro?',
+    },
+    title: 'Member ID',
+  },
+  groupNumber: {
+    hints: ['group number', 'insurance group'],
+    label: 'insurance group number',
+    prompt: {
+      en: 'What is your insurance group number?',
+      es: '¿Cuál es tu número de grupo del seguro?',
+    },
+    title: 'Group Number',
+  },
+  subscriberName: {
+    hints: ['subscriber name', 'policy holder'],
+    label: 'insurance subscriber',
+    prompt: {
+      en: 'What is the subscriber name on the insurance card?',
+      es: '¿Cuál es el nombre del suscriptor en la tarjeta del seguro?',
+    },
+    title: 'Subscriber Name',
+  },
+} as const satisfies Record<
+  JanetActiveFieldKey,
+  {
+    hints: readonly string[];
+    label: string;
+    prompt: Record<'en' | 'es', string>;
+    title: string;
+  }
+>;
+
+export function getJanetFieldsForStep(step: IntakeStepKey) {
+  if (!(step in janetStepFieldOrder)) {
+    return [] as readonly JanetActiveFieldKey[];
+  }
+
+  return janetStepFieldOrder[step as JanetConfigStepKey];
+}
+
+export function isJanetFieldActiveForStep(
+  step: IntakeStepKey,
+  field: string | null | undefined,
+): field is JanetActiveFieldKey {
+  if (!field) {
+    return false;
+  }
+
+  return getJanetFieldsForStep(step).includes(field as JanetActiveFieldKey);
+}
+
+export function getJanetFieldLabel(field: string | null | undefined) {
+  if (!field) {
+    return 'the next intake detail';
+  }
+
+  return JANET_FIELD_METADATA[field as JanetActiveFieldKey]?.label ?? field;
+}
+
+export function getJanetFieldTitle(field: string | null | undefined) {
+  if (!field) {
+    return 'Review';
+  }
+
+  return JANET_FIELD_METADATA[field as JanetActiveFieldKey]?.title ?? 'Review';
+}
+
+export function getJanetFieldPrompt(
+  field: JanetActiveFieldKey,
+  language: 'en' | 'es',
+) {
+  return JANET_FIELD_METADATA[field].prompt[language];
+}
+
+export function getJanetRecognitionHints(
+  field: string | null | undefined,
+  form: IntakeFormData,
+) {
+  const hints = field
+    ? JANET_FIELD_METADATA[field as JanetActiveFieldKey]?.hints ?? []
+    : [];
+
+  return [
+    ...hints,
+    form.firstName,
+    form.lastName,
+    form.emergencyContactName,
+  ].filter((value): value is string => Boolean(value && value.trim()));
+}
+
+function janetFieldHasValue(
+  field: JanetActiveFieldKey,
+  form: IntakeFormData,
+) {
+  const value = form[field];
+
+  if (typeof value === 'string') {
+    return value.trim().length > 0;
+  }
+
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+
+  return value === true;
+}
+
+export function getFirstIncompleteJanetField(
+  step: IntakeStepKey,
+  form: IntakeFormData,
+) {
+  return (
+    getJanetFieldsForStep(step).find((field) => !janetFieldHasValue(field, form)) ??
+    null
+  );
+}
+
+export function resolveJanetFieldForStep(
+  step: IntakeStepKey,
+  form: IntakeFormData,
+  proposedField: string | null | undefined,
+) {
+  if (isJanetFieldActiveForStep(step, proposedField)) {
+    return proposedField;
+  }
+
+  return getFirstIncompleteJanetField(step, form);
+}
+
 export const pastMedicalHistoryOptions = {
   chronicConditions: [
     'Hypertension',

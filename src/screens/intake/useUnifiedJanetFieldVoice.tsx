@@ -65,8 +65,6 @@ function isMeaningfulTranscript(value: string) {
 
 function buildFieldPrompt(field: keyof IntakeFormData) {
   switch (field) {
-    case 'patientType':
-      return 'Who is this visit for?';
     case 'firstName':
       return "What is the patient's first name?";
     case 'lastName':
@@ -116,8 +114,6 @@ function buildFieldPrompt(field: keyof IntakeFormData) {
 
 function buildRecognitionContext(field: keyof IntakeFormData) {
   switch (field) {
-    case 'patientType':
-      return ['new patient', 'returning patient', 'family member'];
     case 'gender':
       return ['male', 'female', 'other'];
     case 'dateOfBirth':

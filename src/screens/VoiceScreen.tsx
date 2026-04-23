@@ -20,19 +20,27 @@ import {
   buildPastMedicalHistoryEntries,
   buildJanetHandoffFromDraft,
   buildJanetSpeechText,
+  buildMedicalInfoAllergyEntries,
+  buildMedicalInfoImmunizationEntries,
   configureJanetPlaybackAudioMode,
   configureJanetRecordingAudioMode,
+  getJanetFieldLabel,
+  getJanetFieldPrompt,
+  getJanetFieldTitle,
+  getJanetRecognitionHints,
   hydratePastMedicalHistoryFromLegacy,
   normalizeIntakeFormFields,
   formatJanetConfirmation,
   getJanetLiveSpeechAvailability,
   inferJanetConversationStep,
+  isJanetFieldActiveForStep,
   intakeFlowSteps,
   janetAssistant,
   pickDocumentFromSource,
   requestJanetLiveSpeechPermissions,
   playJanetReplyAudio,
   requestJanetResponse,
+  resolveJanetFieldForStep,
   scanDocumentWithTextract,
   startJanetLiveSpeech,
   stopJanetLiveSpeech,
@@ -166,43 +174,6 @@ const EMPTY_MEDICAL_AND_PMH_PREFILL: Partial<IntakeFormData> = {
   symptomNotes: '',
 };
 
-const FIELD_LABELS: Record<string, string> = {
-  allergies: 'allergies',
-  chiefConcern: 'reason for your visit',
-  dateOfBirth: 'date of birth',
-  email: 'email address',
-  emergencyContactName: 'emergency contact name',
-  emergencyContactPhone: 'emergency contact phone',
-  firstName: 'first name',
-  gender: 'sex',
-  groupNumber: 'insurance group number',
-  heightFt: 'height',
-  heightIn: 'height',
-  insuranceProvider: 'insurance provider',
-  lastName: 'last name',
-  medicalConditions: 'additional history notes',
-  medications: 'medications',
-  memberId: 'insurance member ID',
-  painLevel: 'pain level',
-  pastMedicalHistoryChronicConditions: 'chronic conditions',
-  pastMedicalHistoryOtherRelevantHistory: 'other relevant history',
-  pastMedicalHistorySurgicalHistory: 'surgical history',
-  patientType: 'visit type',
-  phoneNumber: 'phone number',
-  subscriberName: 'insurance subscriber',
-  symptomDuration: 'how long this has been going on',
-  symptomNotes: 'extra symptom details',
-  weightLb: 'weight',
-};
-
-function getCurrentFieldLabel(field: string | null) {
-  if (!field) {
-    return 'the next intake detail';
-  }
-
-  return FIELD_LABELS[field] ?? field;
-}
-
 function getDocumentTypeLabel(documentType: DocumentScanResult['documentType']) {
   return documentType === 'insurance' ? 'insurance card' : 'ID';
 }
@@ -255,7 +226,7 @@ function buildScanPreviewRows(
         isLowConfidence:
           typeof fieldConfidence === 'number' &&
           fieldConfidence < SCAN_LOW_CONFIDENCE_THRESHOLD,
-        label: FIELD_LABELS[fieldName] ?? fieldName,
+        label: getJanetFieldLabel(fieldName),
         value: value.trim(),
       };
     });
@@ -271,47 +242,6 @@ function hasIntakeProgressValue(value: IntakeFormData[keyof IntakeFormData]) {
   }
 
   return value === true;
-}
-
-function getStepTitle(field: string | null) {
-  switch (field) {
-    case 'patientType':
-      return 'Visit Type';
-    case 'firstName':
-      return 'First Name';
-    case 'lastName':
-      return 'Last Name';
-    case 'dateOfBirth':
-      return 'Date of Birth';
-    case 'phoneNumber':
-      return 'Phone Number';
-    case 'gender':
-      return 'Sex';
-    case 'emergencyContactName':
-      return 'Emergency Contact';
-    case 'emergencyContactPhone':
-      return 'Emergency Contact Phone';
-    case 'chiefConcern':
-      return 'Reason for Visit';
-    case 'symptomDuration':
-      return 'Symptom Duration';
-    case 'painLevel':
-      return 'Pain Level';
-    case 'heightFt':
-      return 'Height';
-    case 'weightLb':
-      return 'Weight';
-    case 'insuranceProvider':
-      return 'Insurance Provider';
-    case 'memberId':
-      return 'Member ID';
-    case 'groupNumber':
-      return 'Group Number';
-    case 'subscriberName':
-      return 'Subscriber';
-    default:
-      return 'Review';
-  }
 }
 
 function normalizeTranscriptText(value: string) {
@@ -362,31 +292,31 @@ function buildPreviewRows(
     return [
       ['Name', [form.firstName, form.lastName].filter(Boolean).join(' ').trim()],
       ['Date of birth', form.dateOfBirth],
+      [
+        'Height',
+        form.heightFt || form.heightIn
+          ? `${form.heightFt || '0'} ft ${form.heightIn || '0'} in`
+          : '',
+      ],
+      ['Weight', form.weightLb ? `${form.weightLb} lb` : ''],
+      ['Sex', form.gender],
       ['Phone', form.phoneNumber],
       ['Email', form.email],
       ['Emergency contact', [form.emergencyContactName, form.emergencyContactPhone].filter(Boolean).join(' · ').trim()],
-      ['Sex', form.gender],
     ] as const;
   }
 
   if (step === 'symptoms') {
-    const height =
-      form.heightFt || form.heightIn
-        ? `${form.heightFt || '0'} ft ${form.heightIn || '0'} in`
-        : '';
-
     return [
-      ['Chief concern', form.chiefConcern],
-      ['Duration', form.symptomDuration],
+      ['Allergies', buildMedicalInfoAllergyEntries(form).join(', ')],
       ['Medications', form.medications],
-      ['Allergies', form.allergies],
-      ['Reaction details', form.allergyReaction],
-      ['Safety notes', form.allergyNotes],
       ['Preferred pharmacy', form.pharmacy],
       ['Last dose', form.lastDose],
-      ['Height', height],
-      ['Weight', form.weightLb ? `${form.weightLb} lb` : ''],
+      ['Immunizations', buildMedicalInfoImmunizationEntries(form).join(', ')],
+      ['Chief concern', form.chiefConcern],
+      ['Duration', form.symptomDuration],
       ['Severity', form.painLevel],
+      ['Symptom notes', form.symptomNotes],
     ] as const;
   }
 
@@ -505,48 +435,14 @@ function getJanetStepTitle(step: IntakeStepKey, field: string | null) {
     return 'Past Medical History';
   }
 
-  return getStepTitle(field);
+  return getJanetFieldTitle(field);
 }
 
 function buildRecognitionContext(
   field: string | null,
   form: ReturnType<typeof useDraftStore>['state']['intake']['form'],
 ) {
-  const defaults = [
-    'new patient',
-    'returning patient',
-    'family member',
-    'male',
-    'female',
-    'date of birth',
-    'emergency contact',
-    'phone number',
-  ];
-
-  switch (field) {
-    case 'patientType':
-      return ['new patient', 'returning patient', 'family member'];
-    case 'gender':
-      return ['male', 'female', 'other'];
-    case 'dateOfBirth':
-      return ['date of birth', 'month', 'day', 'year'];
-    case 'phoneNumber':
-    case 'emergencyContactPhone':
-      return ['phone number', 'area code', 'cell phone'];
-    case 'emergencyContactName':
-      return ['emergency contact', 'mother', 'father', 'spouse', 'friend'];
-    case 'chiefConcern':
-      return ['chest pain', 'checkup', 'cough', 'fever', 'headache'];
-    case 'symptomDuration':
-      return ['today', '2 days', '3 weeks', '1 month'];
-    default:
-      return [
-        ...defaults,
-        form.firstName,
-        form.lastName,
-        form.emergencyContactName,
-      ].filter((value): value is string => Boolean(value && value.trim()));
-  }
+  return getJanetRecognitionHints(field, form);
 }
 
 export function VoiceExperience({
@@ -638,12 +534,20 @@ export function VoiceExperience({
   const backendJanetStep = isBackendManagedJanetStep(janetStep)
     ? inferJanetConversationStep(janetStep)
     : 'symptoms';
+  const activeManagedField =
+    janetStep === 'pastMedicalHistory'
+      ? pastMedicalHistoryField
+      : resolveJanetFieldForStep(
+          janetStep,
+          state.intake.form,
+          session?.currentField ?? null,
+        );
   const currentFieldLabel = janetStep === 'pastMedicalHistory'
-    ? getCurrentFieldLabel(pastMedicalHistoryField)
-    : getCurrentFieldLabel(session?.currentField ?? null);
+    ? getJanetFieldLabel(pastMedicalHistoryField)
+    : getJanetFieldLabel(activeManagedField);
   const currentStepTitle = getJanetStepTitle(
     janetStep,
-    janetStep === 'pastMedicalHistory' ? pastMedicalHistoryField : session?.currentField ?? null,
+    janetStep === 'pastMedicalHistory' ? pastMedicalHistoryField : activeManagedField,
   );
   const currentSpeechText = buildJanetSpeechText({
     confirmation,
@@ -758,10 +662,29 @@ export function VoiceExperience({
           returningPatient: state.returningPatient.form,
           visitId: state.backend.draft.visitId,
         });
+        const mergedForm = {
+          ...(options?.formOverride ?? state.intake.form),
+          ...nextSession.draftPatch,
+        };
+        const resolvedField = resolveJanetFieldForStep(
+          nextSession.currentStep,
+          mergedForm,
+          nextSession.currentField,
+        );
+        const useFallbackPrompt =
+          !isJanetFieldActiveForStep(nextSession.currentStep, nextSession.currentField) &&
+          Boolean(resolvedField);
 
-        setSession(nextSession);
+        setSession({
+          ...nextSession,
+          currentField: resolvedField,
+        });
         setConfirmation(nextSession.confirmation);
-        setReplyText(nextSession.firstPrompt);
+        setReplyText(
+          useFallbackPrompt && resolvedField
+            ? getJanetFieldPrompt(resolvedField, state.janetMode.language)
+            : nextSession.firstPrompt,
+        );
 
         if (Object.keys(nextSession.draftPatch).length > 0) {
           updateIntakeFields(nextSession.draftPatch);
@@ -981,7 +904,7 @@ export function VoiceExperience({
 
         startJanetLiveSpeech({
           contextualStrings: buildRecognitionContext(
-            session?.currentField ?? null,
+            activeManagedField,
             state.intake.form,
           ),
           language: state.janetMode.language === 'es' ? 'es-US' : 'en-US',
@@ -1027,6 +950,7 @@ export function VoiceExperience({
       setVoiceListening(false);
     }
   }, [
+    activeManagedField,
     bootstrapSession,
     clearSilenceTimeout,
     handleRecordingStatusUpdate,
@@ -1034,7 +958,6 @@ export function VoiceExperience({
     liveSpeechAvailability.moduleAvailable,
     liveSpeechAvailability.recognitionAvailable,
     session?.sessionId,
-    session?.currentField,
     setVoiceEditing,
     setVoiceListening,
     setVoiceTranscript,
@@ -1236,7 +1159,7 @@ export function VoiceExperience({
               interactionMode === 'normal' && state.voice.spellModeEnabled
                 ? 'spell'
                 : interactionMode,
-            targetField: session.currentField,
+            targetField: activeManagedField,
           },
           returningPatient: state.returningPatient.form,
           sessionId: session.sessionId,
@@ -1269,7 +1192,11 @@ export function VoiceExperience({
             ? {
                 ...currentSession,
                 confirmation: result.confirmation,
-                currentField: result.extraction.currentField,
+                currentField: resolveJanetFieldForStep(
+                  result.extraction.updatedStep,
+                  mergedForm,
+                  result.extraction.currentField,
+                ),
                 currentStep: result.extraction.updatedStep,
                 draftPatch: result.extraction.draftPatch,
                 missingFields: result.extraction.missingFields,
@@ -1277,7 +1204,26 @@ export function VoiceExperience({
             : currentSession,
         );
         setConfirmation(result.confirmation);
-        setReplyText(result.janet.text);
+        setReplyText(() => {
+          const resolvedField = resolveJanetFieldForStep(
+            result.extraction.updatedStep,
+            mergedForm,
+            result.extraction.currentField,
+          );
+
+          if (
+            !result.confirmation.required &&
+            resolvedField &&
+            !isJanetFieldActiveForStep(
+              result.extraction.updatedStep,
+              result.extraction.currentField,
+            )
+          ) {
+            return getJanetFieldPrompt(resolvedField, state.janetMode.language);
+          }
+
+          return result.janet.text;
+        });
         setWarnings(result.warnings);
         setLowConfidence(result.lowConfidence);
         setJanetModeStep(result.extraction.updatedStep);
@@ -1303,6 +1249,7 @@ export function VoiceExperience({
     },
     [
       backendJanetStep,
+      activeManagedField,
       janetStep,
       pastMedicalHistoryField,
       playPrompt,
@@ -1820,7 +1767,7 @@ export function VoiceExperience({
     !shouldShowScanConfirmation &&
     (janetStep === 'documents' ||
       ['insuranceProvider', 'memberId', 'groupNumber', 'subscriberName'].includes(
-        session?.currentField ?? '',
+        activeManagedField ?? '',
       )) &&
     !showListeningState &&
     !isProcessing &&
@@ -2430,7 +2377,7 @@ export function VoiceExperience({
               title={state.voice.spellModeEnabled ? 'Spell Mode On' : 'Spell Mode'}
             />
             <SecondaryButton
-              disabled={isProcessing || isBootstrapping || isScanning || !session?.currentField}
+              disabled={isProcessing || isBootstrapping || isScanning || !activeManagedField}
               onPress={() => {
                 void handleJanetTurn('skip', 1, 'normal');
               }}

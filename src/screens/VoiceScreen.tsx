@@ -1734,8 +1734,12 @@ export function VoiceExperience({
         const updates = normalizeIntakeFormFields({
           [localConfirmation.field]: confirmedValue,
         } as Partial<IntakeFormData>);
-        const mergedForm = {
+        const baseForm = normalizeIntakeFormFields({
           ...state.intake.form,
+          ...(session?.draftPatch ?? {}),
+        }) as IntakeFormData;
+        const mergedForm = {
+          ...baseForm,
           ...updates,
         };
         updateIntakeFields(updates);

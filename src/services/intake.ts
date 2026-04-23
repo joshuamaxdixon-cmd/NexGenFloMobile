@@ -5,13 +5,9 @@ import type { UploadDocumentType } from './uploads';
 export type IntakeLaunchMode = 'intake' | 'returning';
 
 export type IntakeStepKey =
-  | 'patientType'
   | 'basicInfo'
   | 'symptoms'
   | 'pastMedicalHistory'
-  | 'medications'
-  | 'allergies'
-  | 'insurance'
   | 'documents'
   | 'review';
 
@@ -1541,37 +1537,6 @@ export function reconcileMedicalInfoForm(form: IntakeFormData): IntakeFormData {
 export function reconcileStructuredIntakeForm(form: IntakeFormData): IntakeFormData {
   return reconcilePastMedicalHistoryForm(reconcileMedicalInfoForm(form));
 }
-
-export const patientTypeOptions = [
-  {
-    value: 'myself',
-    label: 'Myself',
-    description: 'I am checking in for my own visit today.',
-  },
-  {
-    value: 'someone_else',
-    label: 'Someone else',
-    description: 'I am helping a child or family member with their visit.',
-  },
-] as const;
-
-export const patientHistoryOptions = [
-  {
-    value: 'new',
-    label: 'This is my first visit',
-    description: 'Use the full guided intake for a new patient visit.',
-  },
-  {
-    value: 'returning',
-    label: 'I have been here before',
-    description: 'Mark this as a returning patient visit.',
-  },
-  {
-    value: 'self_pay',
-    label: 'I am paying without insurance',
-    description: 'Keep the visit moving even if this will be self-pay.',
-  },
-] as const;
 
 function normalizeDigitsOnly(value: string, maxLength: number) {
   return value.replace(/\D/g, '').slice(0, maxLength);

@@ -2,14 +2,10 @@ import type { ApiFieldErrors } from './api';
 import type {
   IntakeFormData,
   IntakeStepKey,
-  ReturningPatientFormData,
 } from './intake';
 import { buildPastMedicalHistoryEntries } from './intake';
 
 export type IntakeFieldErrors = Partial<Record<keyof IntakeFormData, string>>;
-export type ReturningPatientFieldErrors = Partial<
-  Record<keyof ReturningPatientFormData, string>
->;
 
 export type ReviewReadiness = {
   blockers: string[];
@@ -22,15 +18,6 @@ export type ReviewReadiness = {
 
 function hasText(value: string) {
   return value.trim().length > 0;
-}
-
-function hasCompletePatientType(value: string) {
-  return [
-    'New patient',
-    'Returning patient',
-    'Dependent / family member',
-    'Self pay',
-  ].includes(value.trim());
 }
 
 function looksLikeDate(value: string) {
@@ -85,41 +72,11 @@ function firstFieldError(
   return undefined;
 }
 
-export function validateReturningPatientForm(
-  form: ReturningPatientFormData,
-): ReturningPatientFieldErrors {
-  const errors: ReturningPatientFieldErrors = {};
-
-  if (!hasText(form.firstName)) {
-    errors.firstName = 'First name is required.';
-  }
-  if (!hasText(form.lastName)) {
-    errors.lastName = 'Last name is required.';
-  }
-  if (!hasText(form.dateOfBirth)) {
-    errors.dateOfBirth = 'Date of birth is required.';
-  } else if (!looksLikeDate(form.dateOfBirth)) {
-    errors.dateOfBirth = 'Use MM/DD/YYYY or YYYY-MM-DD.';
-  }
-  if (hasText(form.phoneNumber) && !looksLikePhone(form.phoneNumber)) {
-    errors.phoneNumber = 'Enter a valid phone number.';
-  }
-
-  return errors;
-}
-
 export function validateIntakeStep(
   step: IntakeStepKey,
   form: IntakeFormData,
 ): IntakeFieldErrors {
   const errors: IntakeFieldErrors = {};
-
-  if (
-    (step === 'patientType' || step === 'basicInfo' || step === 'review') &&
-    !hasCompletePatientType(form.patientType)
-  ) {
-    errors.patientType = 'Choose who this visit is for and how they are checking in.';
-  }
 
   if (step === 'basicInfo' || step === 'review') {
     if (!hasText(form.firstName)) {
@@ -173,31 +130,10 @@ export function validateIntakeStep(
   return errors;
 }
 
-export function mapApiFieldErrorsToReturningPatientFields(
-  fieldErrors: ApiFieldErrors | null,
-): ReturningPatientFieldErrors {
-  return {
-    firstName: firstFieldError(fieldErrors, 'first_name', 'firstName'),
-    lastName: firstFieldError(fieldErrors, 'last_name', 'lastName'),
-    dateOfBirth: firstFieldError(
-      fieldErrors,
-      'date_of_birth',
-      'dateOfBirth',
-    ),
-    phoneNumber: firstFieldError(
-      fieldErrors,
-      'phone_number',
-      'phoneNumber',
-      'phone',
-    ),
-  };
-}
-
 export function mapApiFieldErrorsToIntakeFields(
   fieldErrors: ApiFieldErrors | null,
 ): IntakeFieldErrors {
   return {
-    patientType: firstFieldError(fieldErrors, 'patient_type', 'patientType'),
     firstName: firstFieldError(fieldErrors, 'first_name', 'firstName'),
     lastName: firstFieldError(fieldErrors, 'last_name', 'lastName'),
     dateOfBirth: firstFieldError(

@@ -10,7 +10,6 @@ type DevPreviewPanelProps = {
   onOpenMedicalInfo: () => void;
   onOpenPastMedicalHistory: () => void;
   onOpenReset: () => void;
-  onOpenReturningPatient: () => void;
   onOpenReview: () => void;
 };
 
@@ -20,7 +19,6 @@ export function DevPreviewPanel({
   onOpenMedicalInfo,
   onOpenPastMedicalHistory,
   onOpenReset,
-  onOpenReturningPatient,
   onOpenReview,
 }: DevPreviewPanelProps) {
   return (
@@ -59,15 +57,9 @@ export function DevPreviewPanel({
           />
         </View>
       </View>
-
       <View style={styles.group}>
-        <Text style={styles.groupTitle}>Other Screens</Text>
+        <Text style={styles.groupTitle}>Other Tools</Text>
         <View style={styles.actions}>
-          <SecondaryButton
-            onPress={onOpenReturningPatient}
-            style={styles.button}
-            title="Open Returning Patient"
-          />
           <SecondaryButton
             onPress={onOpenReset}
             style={styles.button}

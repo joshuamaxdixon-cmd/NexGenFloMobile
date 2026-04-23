@@ -1,26 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { Alert, StyleSheet } from 'react-native';
 
-import { DraftBanner } from '../components/DraftBanner';
 import { EmptyStateCard } from '../components/EmptyStateCard';
 import { IntakeActionBar } from '../components/IntakeActionBar';
 import { JanetAssistantEntry } from '../components/JanetAssistantEntry';
 import { ProgressBar } from '../components/ProgressBar';
 import { ScreenContainer } from '../components/ScreenContainer';
-import { SecondaryButton } from '../components/SecondaryButton';
 import { SectionHeader } from '../components/SectionHeader';
 import {
-  formatLastSaved,
   intakeFlowSteps,
   mapApiFieldErrorsToIntakeFields,
-  mapApiFieldErrorsToReturningPatientFields,
   type IntakeFieldErrors,
   getReviewReadiness,
   useDraftStore,
   validateIntakeStep,
-  validateReturningPatientForm,
 } from '../services';
-import { ReturningPatientScreen } from './ReturningPatientScreen';
 import { BasicInfoScreen } from './intake/BasicInfoScreen';
 import { DocumentsScreen } from './intake/DocumentsScreen';
 import { PastMedicalHistoryScreen } from './intake/PastMedicalHistoryScreen';
@@ -37,10 +31,8 @@ function hasFieldErrors(fieldErrors: IntakeFieldErrors) {
 
 export function IntakeScreen() {
   const {
-    clearDraft,
     closeJanetMode,
     fetchRemoteDraft,
-    lookupReturningPatient,
     openJanetMode,
     setUploadAsset,
     setIntakeStep,
@@ -48,11 +40,9 @@ export function IntakeScreen() {
     submitCurrentIntake,
     syncCurrentDraft,
     updateIntakeField,
-    updateReturningPatientField,
   } = useDraftStore();
   const fetchRemoteDraftRef = useRef(fetchRemoteDraft);
   const [showStepValidation, setShowStepValidation] = useState(false);
-  const [showReturningValidation, setShowReturningValidation] = useState(false);
   const [reviewConfirmed, setReviewConfirmed] = useState(false);
   const [returnToReviewStep, setReturnToReviewStep] = useState<
     (typeof intakeFlowSteps)[number]['key'] | null
@@ -79,14 +69,6 @@ export function IntakeScreen() {
   useEffect(() => {
     setShowStepValidation(false);
   }, [state.intake.currentStep]);
-
-  useEffect(() => {
-    if (state.activeFlowMode === 'returning') {
-      setShowStepValidation(false);
-    } else {
-      setShowReturningValidation(false);
-    }
-  }, [state.activeFlowMode]);
 
   useEffect(() => {
     if (state.intake.currentStep !== 'review' && reviewConfirmed) {
@@ -138,14 +120,6 @@ export function IntakeScreen() {
           ...backendStepErrors,
         }
       : backendStepErrors;
-  const returningFieldErrors = {
-    ...(showReturningValidation
-      ? validateReturningPatientForm(state.returningPatient.form)
-      : {}),
-    ...mapApiFieldErrorsToReturningPatientFields(
-      state.backend.lookup.fieldErrors,
-    ),
-  };
   const reviewReadiness = getReviewReadiness({
     backendDraftStatus: state.backend.draft.status,
     form: state.intake.form,
@@ -162,7 +136,6 @@ export function IntakeScreen() {
     if (currentConfig.key === 'review' && !reviewReadiness.isReady) {
       if (hasFieldErrors(localStepErrors)) {
         if (
-          localStepErrors.patientType ||
           localStepErrors.firstName ||
           localStepErrors.lastName ||
           localStepErrors.dateOfBirth ||
@@ -310,21 +283,6 @@ export function IntakeScreen() {
     }
   };
 
-  const handleReturningContinue = async () => {
-    const localErrors = validateReturningPatientForm(state.returningPatient.form);
-    setShowReturningValidation(true);
-
-    if (Object.keys(localErrors).length > 0) {
-      return;
-    }
-
-    const didMatch = await lookupReturningPatient();
-
-    if (!didMatch) {
-      return;
-    }
-  };
-
   const isSaving = state.backend.draft.status === 'syncing';
   const isSubmitting = state.backend.submit.status === 'submitting';
   const isSubmitted = state.backend.submit.status === 'submitted';
@@ -359,16 +317,7 @@ export function IntakeScreen() {
         ? true
         : !hasFieldErrors(localStepErrors));
   const showBackAction = currentStepIndex > 0 || isEditingFromReview;
-  const lookupStatusTone =
-    state.backend.lookup.status === 'matched'
-      ? 'success'
-      : state.backend.lookup.status === 'ambiguous' ||
-          state.backend.lookup.status === 'error'
-        ? 'warning'
-        : 'info';
-
-  const shouldShowJanetVoiceMode =
-    state.activeFlowMode === 'intake' && state.janetMode.active;
+  const shouldShowJanetVoiceMode = state.janetMode.active;
 
   if (shouldShowJanetVoiceMode) {
     return (
@@ -381,93 +330,49 @@ export function IntakeScreen() {
 
   return (
     <ScreenContainer>
-      {state.activeFlowMode === 'returning' ? (
-        <>
-          <DraftBanner
-            badgeLabel="Saved"
-            message={formatLastSaved(state.returningPatient.lastUpdatedAt)}
-            style={styles.banner}
-            title="Returning patient lookup draft"
-          />
-          <SectionHeader
-            eyebrow="Returning Patient"
-            subtitle="Use a clean recognition screen to locate an existing patient before moving into the symptom step."
-            title="Find an existing patient"
-          />
-          <ReturningPatientScreen
-            busy={state.backend.lookup.status === 'loading'}
-            buttonTitle={
-              state.backend.lookup.status === 'error'
-                ? 'Retry Lookup'
-                : state.backend.lookup.status === 'ambiguous'
-                  ? 'Retry Lookup'
-                  : 'Continue'
-            }
-            data={state.returningPatient.form}
-            fieldErrors={returningFieldErrors}
-            onChange={updateReturningPatientField}
-            onContinue={() => void handleReturningContinue()}
-            statusMessage={state.backend.lookup.message}
-            statusTone={lookupStatusTone}
-          />
-          <SecondaryButton
-            disabled={state.backend.lookup.status === 'loading'}
-            onPress={() => clearDraft('all')}
-            style={styles.resetButton}
-            title="Reset Draft"
-          />
-        </>
-      ) : (
-        <>
-          <ProgressBar
-            currentStep={currentStepIndex + 1}
-            totalSteps={intakeFlowSteps.length}
-          />
-          <SectionHeader
-            subtitle={currentConfig.subtitle}
-            title={currentConfig.title}
-          />
-          <JanetAssistantEntry
-            onPress={() => {
-              openJanetMode({
-                step: state.intake.currentStep,
-              });
-            }}
-            style={styles.janetEntry}
-          />
-          {renderCurrentStep()}
-          <IntakeActionBar
-            backDisabled={isSubmitting || isSaving}
-            onBackPress={showBackAction ? handleBack : undefined}
-            onPrimaryPress={() => void handleNext()}
-            onTertiaryPress={
-              isDocumentsStep
-                ? () => {
-                    void handleSkipDocumentsForNow();
-                  }
-                : undefined
-            }
-            primaryDisabled={!canAdvance}
-            primaryLoading={isSubmitting || (!isLastStep && isSaving)}
-            primaryTitle={nextButtonTitle}
-            tertiaryDisabled={isSubmitting || isSaving}
-            tertiaryTitle={isDocumentsStep ? 'Skip and finish' : undefined}
-          />
-        </>
-      )}
+      <>
+        <ProgressBar
+          currentStep={currentStepIndex + 1}
+          totalSteps={intakeFlowSteps.length}
+        />
+        <SectionHeader
+          subtitle={currentConfig.subtitle}
+          title={currentConfig.title}
+        />
+        <JanetAssistantEntry
+          onPress={() => {
+            openJanetMode({
+              step: state.intake.currentStep,
+            });
+          }}
+          style={styles.janetEntry}
+        />
+        {renderCurrentStep()}
+        <IntakeActionBar
+          backDisabled={isSubmitting || isSaving}
+          onBackPress={showBackAction ? handleBack : undefined}
+          onPrimaryPress={() => void handleNext()}
+          onTertiaryPress={
+            isDocumentsStep
+              ? () => {
+                  void handleSkipDocumentsForNow();
+                }
+              : undefined
+          }
+          primaryDisabled={!canAdvance}
+          primaryLoading={isSubmitting || (!isLastStep && isSaving)}
+          primaryTitle={nextButtonTitle}
+          tertiaryDisabled={isSubmitting || isSaving}
+          tertiaryTitle={isDocumentsStep ? 'Skip and finish' : undefined}
+        />
+      </>
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  banner: {
-    marginBottom: spacing.md,
-  },
   janetEntry: {
     marginTop: spacing.sm,
     marginBottom: spacing.md,
-  },
-  resetButton: {
-    marginTop: spacing.md,
   },
 });

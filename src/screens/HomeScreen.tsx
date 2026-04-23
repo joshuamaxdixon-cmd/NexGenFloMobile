@@ -57,9 +57,7 @@ function createFreshIntakePrefill(): Partial<IntakeFormData> {
 }
 
 function createDevPreviewBasicPrefill(): Partial<IntakeFormData> {
-  return {
-    patientType: 'New patient',
-  };
+  return {};
 }
 
 function createDevPreviewFullPrefill(): Partial<IntakeFormData> {
@@ -88,7 +86,6 @@ function createDevPreviewFullPrefill(): Partial<IntakeFormData> {
     pastMedicalHistoryHydrated: true,
     pastMedicalHistoryOtherRelevantHistory: ['Former smoker'],
     pastMedicalHistorySurgicalHistory: ['Appendectomy'],
-    patientType: 'New patient',
     pharmacy: 'CVS Main Street',
     phoneNumber: '5558675309',
     subscriberName: 'Jordan Miles',
@@ -104,10 +101,8 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
     clearBackendDebugState,
     clearDraft,
     openJanetMode,
-    openReturningFlow,
     startNewIntake,
     state,
-    updateReturningPatientField,
   } = useDraftStore();
   const patientPortal = usePatientPortal();
   const checkBackendHealthRef = useRef(checkBackendHealth);
@@ -201,20 +196,6 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
     });
   };
 
-  const openReturningPreview = () => {
-    clearDraft('all');
-    openReturningFlow(true);
-    updateReturningPatientField('firstName', 'Jordan');
-    updateReturningPatientField('lastName', 'Miles');
-    updateReturningPatientField('dateOfBirth', '02/14/1989');
-    updateReturningPatientField('phoneNumber', '5558675309');
-    navigation.navigate('Intake', {
-      launchSource: 'manual',
-      mode: 'returning',
-      resetKey: `dev-returning-${Date.now()}`,
-    });
-  };
-
   return (
     <ScreenContainer contentContainerStyle={styles.content}>
       <Pressable
@@ -272,7 +253,6 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
             onOpenMedicalInfo={() => openIntakePreview('symptoms')}
             onOpenPastMedicalHistory={() => openIntakePreview('pastMedicalHistory')}
             onOpenReset={() => clearDraft('all')}
-            onOpenReturningPatient={openReturningPreview}
             onOpenReview={() => openIntakePreview('review')}
           />
           <View style={styles.devActions}>

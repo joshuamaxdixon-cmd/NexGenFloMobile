@@ -746,18 +746,21 @@ function mergePersistedState(
   }
 
   const normalizedPersistedStep = (() => {
-    const currentStep = payload.intake?.currentStep;
+    const currentStep = String(payload.intake?.currentStep ?? '');
 
-    switch (currentStep) {
-      case 'patientType':
-        return 'basicInfo';
-      case 'medications':
-      case 'allergies':
-      case 'insurance':
-        return 'symptoms';
-      default:
-        return currentStep;
+    if (currentStep === 'patientType') {
+      return 'basicInfo';
     }
+
+    if (
+      currentStep === 'medications' ||
+      currentStep === 'allergies' ||
+      currentStep === 'insurance'
+    ) {
+      return 'symptoms';
+    }
+
+    return payload.intake?.currentStep;
   })();
 
   return {
@@ -1185,7 +1188,6 @@ function reducer(
           form: reconcileStructuredIntakeForm(
             normalizeIntakeFormFields({
               ...state.intake.form,
-              patientType: 'Returning patient',
               firstName: state.returningPatient.form.firstName,
               lastName: state.returningPatient.form.lastName,
               dateOfBirth: state.returningPatient.form.dateOfBirth,
@@ -1278,7 +1280,6 @@ function reducer(
           form: reconcileStructuredIntakeForm(
             normalizeIntakeFormFields({
               ...state.intake.form,
-              patientType: state.intake.form.patientType || 'New patient',
               chiefConcern: state.voice.handoff.symptomSummary,
               symptomDuration: state.voice.handoff.duration,
               medications:
@@ -2662,8 +2663,7 @@ export function hasResumeableDraft(state: DraftStoreState) {
   return (
     intakeHasData ||
     returningHasData ||
-    (state.intake.currentStep !== 'basicInfo' &&
-      state.intake.currentStep !== 'patientType') ||
+    state.intake.currentStep !== 'basicInfo' ||
     state.activeFlowMode === 'returning'
   );
 }
@@ -2676,8 +2676,7 @@ export function hasResumableIntakeDraft(state: DraftStoreState) {
   return (
     intakeHasData ||
     Boolean(state.backend.draft.draftId) ||
-    (state.intake.currentStep !== 'basicInfo' &&
-      state.intake.currentStep !== 'patientType')
+    state.intake.currentStep !== 'basicInfo'
   );
 }
 

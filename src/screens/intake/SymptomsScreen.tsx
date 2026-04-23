@@ -61,6 +61,7 @@ const checkboxEditorOrder: CheckboxEditorKey[] = [
 ];
 
 const searchEnabledEditors = new Set<CheckboxEditorKey>(checkboxEditorOrder);
+const immunizationStatusValues = ['None known', 'Unsure'] as const;
 
 const editorTitles: Record<MedicalInfoEditorKey, string> = {
   allergyEnvironmentalSelections: 'Environmental Allergies',
@@ -288,9 +289,25 @@ export function SymptomsScreen({
     >,
     nextSelections: string[],
   ) => {
+    const normalizedSelections = nextSelections.some((value) =>
+      immunizationStatusValues.includes(
+        value as (typeof immunizationStatusValues)[number],
+      ),
+    )
+      ? nextSelections.filter((value) =>
+          immunizationStatusValues.includes(
+            value as (typeof immunizationStatusValues)[number],
+          ),
+        )
+      : nextSelections.filter(
+          (value) =>
+            !immunizationStatusValues.includes(
+              value as (typeof immunizationStatusValues)[number],
+            ),
+        );
     const nextForm: IntakeFormData = {
       ...form,
-      [field]: nextSelections,
+      [field]: normalizedSelections,
     };
 
     applyUpdates({

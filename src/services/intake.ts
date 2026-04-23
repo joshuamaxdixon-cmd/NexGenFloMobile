@@ -606,6 +606,52 @@ export function getNextJanetFieldAfter(
   return fieldOrder[currentIndex + 1] ?? null;
 }
 
+export function matchMedicalInfoSelectionsForField(
+  field:
+    | 'allergyMedicationSelections'
+    | 'allergyMaterialSelections'
+    | 'allergyFoodSelections'
+    | 'allergyEnvironmentalSelections'
+    | 'immunizationCoreSelections'
+    | 'immunizationRoutineSelections'
+    | 'immunizationTravelSelections',
+  transcript: string,
+) {
+  const optionKey =
+    field === 'allergyMedicationSelections'
+      ? 'allergyMedication'
+      : field === 'allergyMaterialSelections'
+        ? 'allergyMaterial'
+        : field === 'allergyFoodSelections'
+          ? 'allergyFood'
+          : field === 'allergyEnvironmentalSelections'
+            ? 'allergyEnvironmental'
+            : field === 'immunizationCoreSelections'
+              ? 'immunizationCore'
+              : field === 'immunizationRoutineSelections'
+                ? 'immunizationRoutine'
+                : 'immunizationTravel';
+  const options = medicalInfoCategoryOptions[optionKey];
+  const aliasesByOption =
+    optionKey.startsWith('allergy')
+      ? MEDICAL_INFO_ALLERGY_ALIASES
+      : MEDICAL_INFO_IMMUNIZATION_ALIASES;
+  const entries = [transcript, ...splitMedicalInfoEntries(transcript)];
+  const matches = new Set<string>();
+
+  for (const option of options) {
+    if (
+      entries.some((entry) =>
+        matchesMedicalInfoAlias(entry, option, aliasesByOption[option] ?? []),
+      )
+    ) {
+      matches.add(option);
+    }
+  }
+
+  return Array.from(matches);
+}
+
 export function resolveJanetFieldForStep(
   step: IntakeStepKey,
   form: IntakeFormData,
@@ -759,7 +805,7 @@ export const medicalInfoCategoryOptions = {
   allergyMaterial: MEDICAL_INFO_ALLERGY_OPTIONS.material,
   allergyMedication: MEDICAL_INFO_ALLERGY_OPTIONS.medication,
   immunizationCore: [
-    'None',
+    'None known',
     'Influenza (yearly)',
     'COVID-19 vaccine',
     'Tetanus / Tdap (within 10 years)',
@@ -771,23 +817,23 @@ export const medicalInfoCategoryOptions = {
     'HPV (Gardasil)',
     'Meningococcal ACWY (MenACWY)',
     'Meningococcal B (MenB)',
-    'Unknown / Unsure',
+    'Unsure',
   ],
   immunizationRoutine: [
-    'None',
+    'None known',
     'Pneumococcal',
     'Shingles',
     'Shingrix - age 50+',
-    'Unknown / Unsure',
+    'Unsure',
   ],
   immunizationTravel: [
-    'None',
+    'None known',
     'Typhoid',
     'Yellow Fever',
     'Japanese Encephalitis',
     'Rabies (pre-exposure)',
     'Other travel vaccines',
-    'Unknown / Unsure',
+    'Unsure',
   ],
   immunizationUnknown: [
     'Unsure of immunization history',
@@ -796,7 +842,7 @@ export const medicalInfoCategoryOptions = {
 } as const;
 
 const MEDICAL_INFO_IMMUNIZATION_ALIASES: Record<string, string[]> = {
-  None: ['none', 'no', 'none known'],
+  'None known': ['none', 'no', 'none known', 'none of them'],
   'Tetanus / Tdap (within 10 years)': ['tetanus', 'tdap', 'tetanus tdap'],
   'MMR (Measles, Mumps, Rubella)': ['mmr', 'measles mumps rubella'],
   'Varicella (Chickenpox)': ['varicella', 'chickenpox', 'chicken pox'],
@@ -816,13 +862,14 @@ const MEDICAL_INFO_IMMUNIZATION_ALIASES: Record<string, string[]> = {
   'Japanese Encephalitis': ['japanese encephalitis'],
   'Rabies (pre-exposure)': ['rabies', 'rabies pre exposure'],
   'Other travel vaccines': ['other travel vaccine', 'travel vaccine other'],
-  'Unknown / Unsure': [
+  Unsure: [
     'unsure',
     'not sure',
     'unknown',
     "i don't know",
     'dont know',
     'do not know',
+    'unknown / unsure',
   ],
   'Unsure of immunization history': ['unsure', 'not sure', 'unknown history'],
   'No records available': ['no records', 'no vaccine records'],
@@ -1421,10 +1468,7 @@ function normalizeMedicalInfoSelection(
     }
 
     const canonicalEntry =
-      allowedValues.find(
-        (option) =>
-          normalizeMedicalInfoText(option) === normalizeMedicalInfoText(trimmedEntry),
-      ) ?? trimmedEntry;
+      findCanonicalMedicalInfoOption(trimmedEntry, allowedValues) ?? trimmedEntry;
     const dedupeKey = normalizeMedicalInfoText(canonicalEntry);
 
     if (!dedupeKey || seen.has(dedupeKey)) {
@@ -1436,6 +1480,27 @@ function normalizeMedicalInfoSelection(
   }
 
   return results;
+}
+
+function findCanonicalMedicalInfoOption(
+  rawEntry: string,
+  allowedValues: readonly string[],
+) {
+  const directMatch = allowedValues.find(
+    (option) => normalizeMedicalInfoText(option) === normalizeMedicalInfoText(rawEntry),
+  );
+
+  if (directMatch) {
+    return directMatch;
+  }
+
+  return allowedValues.find((option) =>
+    matchesMedicalInfoAlias(
+      rawEntry,
+      option,
+      MEDICAL_INFO_ALLERGY_ALIASES[option] ?? MEDICAL_INFO_IMMUNIZATION_ALIASES[option] ?? [],
+    ),
+  );
 }
 
 function normalizeMedicalInfoText(value: string) {

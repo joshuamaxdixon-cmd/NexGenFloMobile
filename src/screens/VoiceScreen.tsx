@@ -29,6 +29,7 @@ import {
   getJanetRecognitionHints,
   hydrateMedicalInfoFromLegacy,
   hydratePastMedicalHistoryFromLegacy,
+  matchMedicalInfoSelectionsForField,
   normalizeIntakeFormFields,
   reconcileStructuredIntakeForm,
   formatJanetConfirmation,
@@ -721,72 +722,47 @@ function parseStructuredMedicalInfoCapture(
       acknowledgementMessage: `I heard I don't know. I'll mark ${fieldLabel} as unsure.`,
       currentFieldAnswered: true,
       updates: {
-        [field]: ['Unknown / Unsure'],
+        [field]: ['Unsure'],
         medicalInfoHydrated: true,
       } as Partial<IntakeFormData>,
-      value: 'Unknown / Unsure',
+      value: 'Unsure',
     };
   }
 
   if (transcriptMeansNone(normalizedTranscript)) {
     return {
-      acknowledgementMessage: `I heard none. I'll mark ${fieldLabel} as none.`,
+      acknowledgementMessage: `I heard none. I'll mark ${fieldLabel} as none known.`,
       currentFieldAnswered: true,
       updates: {
-        [field]: isImmunizationField ? ['None'] : [],
+        [field]: isImmunizationField ? ['None known'] : [],
         medicalInfoHydrated: true,
       } as Partial<IntakeFormData>,
-      value: 'none',
+      value: 'None known',
     };
   }
 
-  const hydrated = isImmunizationField
-    ? hydrateMedicalInfoFromLegacy('', normalizedTranscript)
-    : hydrateMedicalInfoFromLegacy(normalizedTranscript, '');
-  const selection = hydrated[field];
-
   if (isImmunizationField) {
-    const combinedSelections = [
-      ...(hydrated.immunizationCoreSelections ?? []),
-      ...(hydrated.immunizationRoutineSelections ?? []),
-      ...(hydrated.immunizationTravelSelections ?? []),
-      ...(hydrated.immunizationUnknownSelections ?? []),
-    ];
-
-    if (combinedSelections.length === 0) {
+    const selections = matchMedicalInfoSelectionsForField(field, normalizedTranscript);
+    if (selections.length === 0) {
       return null;
     }
 
-    const displayValue = combinedSelections.join(', ');
-    const currentFieldAnswered = Array.isArray(selection) && selection.length > 0;
-    const matchedFieldLabel =
-      hydrated.immunizationRoutineSelections.length > 0 &&
-      field !== 'immunizationRoutineSelections'
-        ? 'routine adult vaccines'
-        : hydrated.immunizationTravelSelections.length > 0 &&
-            field !== 'immunizationTravelSelections'
-          ? 'travel or risk-based vaccines'
-          : hydrated.immunizationCoreSelections.length > 0 &&
-              field !== 'immunizationCoreSelections'
-            ? 'core vaccines'
-            : fieldLabel;
-
     return {
       acknowledgementMessage:
-        combinedSelections.length === 1
-          ? `I heard ${displayValue}. I'll record that under ${matchedFieldLabel}.`
-          : `I heard ${displayValue}. I'll record those under ${matchedFieldLabel}.`,
-      currentFieldAnswered,
+        selections.length === 1
+          ? `I heard ${selections[0]}. I'll record that under ${fieldLabel}.`
+          : `I heard ${selections.join(', ')}. I'll record those under ${fieldLabel}.`,
+      currentFieldAnswered: true,
       updates: {
-        immunizationCoreSelections: hydrated.immunizationCoreSelections,
-        immunizationRoutineSelections: hydrated.immunizationRoutineSelections,
-        immunizationTravelSelections: hydrated.immunizationTravelSelections,
-        immunizationUnknownSelections: hydrated.immunizationUnknownSelections,
+        [field]: selections,
         medicalInfoHydrated: true,
-      },
-      value: displayValue,
+      } as Partial<IntakeFormData>,
+      value: selections.join(', '),
     };
   }
+
+  const hydrated = hydrateMedicalInfoFromLegacy(normalizedTranscript, '');
+  const selection = hydrated[field];
 
   if (!Array.isArray(selection) || selection.length === 0) {
     return null;

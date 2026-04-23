@@ -267,22 +267,12 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
             <Text style={styles.janetTitle}>Janet&apos;s Assistant</Text>
             <Text style={styles.janetSubtitle}>Voice-guided check-in</Text>
             <View style={styles.janetDivider} />
-            <Text style={styles.janetBody}>
-              Speak with Janet to move through check-in without losing your place.
-            </Text>
+            <Text style={styles.janetBody}>Let Janet guide your check-in.</Text>
+            <Text style={styles.janetStatus}>Ready</Text>
             <View style={styles.janetFooter}>
               <View style={styles.startTalkingButton}>
                 <Ionicons color={colors.surface} name="mic" size={18} />
                 <Text style={styles.startTalkingText}>Open Janet</Text>
-              </View>
-              <View style={styles.micHalo}>
-                <View style={styles.micHaloInner}>
-                  <Ionicons
-                    color={colors.primaryDeep}
-                    name="mic-outline"
-                    size={24}
-                  />
-                </View>
               </View>
             </View>
           </View>
@@ -399,9 +389,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.sm,
     overflow: 'hidden',
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.sm,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 10,
     position: 'relative',
     shadowColor: colors.shadow,
     shadowOffset: {
@@ -436,9 +426,9 @@ const styles = StyleSheet.create({
   },
   janetCardContent: {
     flex: 1,
-    gap: spacing.xs,
-    paddingBottom: spacing.xs,
-    paddingTop: spacing.sm,
+    gap: 6,
+    paddingBottom: spacing.xxs,
+    paddingTop: 10,
   },
   badgeRow: {
     alignItems: 'flex-start',
@@ -451,11 +441,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: 'row',
     gap: spacing.xxs,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
   },
   voiceBadgeText: {
-    ...typography.caption,
+    fontSize: 11,
+    lineHeight: 14,
     color: colors.primaryDeep,
     fontWeight: '700',
     letterSpacing: 0.4,
@@ -476,55 +467,42 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     borderRadius: 999,
     height: 3,
-    marginVertical: spacing.xxs,
+    marginVertical: 2,
     width: 42,
   },
   janetBody: {
     ...typography.body,
     color: colors.textPrimary,
-    lineHeight: 21,
+    lineHeight: 20,
     maxWidth: '94%',
+  },
+  janetStatus: {
+    ...typography.label,
+    color: colors.success,
+    fontWeight: '600',
+    marginTop: 2,
   },
   janetFooter: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: spacing.sm,
-    marginTop: spacing.sm,
+    marginTop: spacing.xs,
   },
   startTalkingButton: {
     alignItems: 'center',
     backgroundColor: colors.primaryDeep,
     borderRadius: 18,
-    flex: 1,
     flexDirection: 'row',
     gap: spacing.xs,
     justifyContent: 'center',
-    minHeight: 46,
+    minHeight: 42,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingVertical: 9,
   },
   startTalkingText: {
     ...typography.button,
     color: colors.surface,
     fontWeight: '700',
-  },
-  micHalo: {
-    alignItems: 'center',
-    backgroundColor: '#ECE0D1',
-    borderRadius: 27,
-    height: 54,
-    justifyContent: 'center',
-    width: 54,
-  },
-  micHaloInner: {
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderColor: colors.divider,
-    borderRadius: 20,
-    borderWidth: 1,
-    height: 40,
-    justifyContent: 'center',
-    width: 40,
   },
   actionsSection: {
     gap: spacing.sm,
@@ -537,8 +515,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: 'row',
     gap: spacing.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 15,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
     shadowColor: colors.shadow,
     shadowOffset: {
       width: 0,

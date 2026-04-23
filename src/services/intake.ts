@@ -569,6 +569,25 @@ export function getFirstIncompleteJanetField(
   );
 }
 
+export function getNextIncompleteJanetFieldAfter(
+  step: IntakeStepKey,
+  currentField: JanetActiveFieldKey | string | null | undefined,
+  form: IntakeFormData,
+) {
+  if (!currentField) {
+    return getFirstIncompleteJanetField(step, form);
+  }
+
+  const fieldOrder = getJanetFieldsForStep(step);
+  const currentIndex = fieldOrder.findIndex((field) => field === currentField);
+
+  if (currentIndex < 0) {
+    return getFirstIncompleteJanetField(step, form);
+  }
+
+  return fieldOrder.slice(currentIndex + 1).find((field) => !janetFieldHasValue(field, form)) ?? null;
+}
+
 export function resolveJanetFieldForStep(
   step: IntakeStepKey,
   form: IntakeFormData,

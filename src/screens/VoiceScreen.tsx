@@ -54,6 +54,7 @@ import {
   buildPastMedicalHistoryPrompt,
   formatMedicationAllergySummary,
   getCanonicalJanetPrompt,
+  getNextIncompleteJanetFieldAfter,
   getNextPastMedicalHistoryField,
   getPastMedicalHistoryFieldAfter,
   getStepTransitionDeclinedPrompt,
@@ -613,7 +614,7 @@ function parseBasicInfoLocalCapture(
       .replace(/\s+/g, ' ')
       .trim();
     const numberGroups = normalizedWeightTranscript.match(/\d+/g) ?? [];
-    const hasDecimalPoint = normalizedWeightTranscript.includes('.');
+    const hasDecimalPoint = /\d\.\d/.test(normalizedWeightTranscript);
     const weightSource = hasDecimalPoint
       ? normalizedWeightTranscript.match(/\d+(?:\.\d+)?/)?.[0] ?? normalized
       : numberGroups.length > 0
@@ -689,6 +690,8 @@ function parseStructuredMedicalInfoCapture(
   transcript: string,
 ): {
   acknowledgementMessage: string;
+  currentFieldAnswered: boolean;
+  followUpPrompt?: string;
   updates: Partial<IntakeFormData>;
   value: string;
 } | null {
@@ -708,6 +711,7 @@ function parseStructuredMedicalInfoCapture(
   if (transcriptMeansNone(normalizedTranscript)) {
     return {
       acknowledgementMessage: `I heard none. I'll mark no known ${fieldLabel}.`,
+      currentFieldAnswered: true,
       updates: {
         [field]: [],
         medicalInfoHydrated: true,
@@ -716,13 +720,57 @@ function parseStructuredMedicalInfoCapture(
     };
   }
 
-  const hydrated =
+  const isImmunizationField =
     field === 'immunizationCoreSelections' ||
     field === 'immunizationRoutineSelections' ||
-    field === 'immunizationTravelSelections'
-      ? hydrateMedicalInfoFromLegacy('', normalizedTranscript)
-      : hydrateMedicalInfoFromLegacy(normalizedTranscript, '');
+    field === 'immunizationTravelSelections';
+  const hydrated = isImmunizationField
+    ? hydrateMedicalInfoFromLegacy('', normalizedTranscript)
+    : hydrateMedicalInfoFromLegacy(normalizedTranscript, '');
   const selection = hydrated[field];
+
+  if (isImmunizationField) {
+    const combinedSelections = [
+      ...(hydrated.immunizationCoreSelections ?? []),
+      ...(hydrated.immunizationRoutineSelections ?? []),
+      ...(hydrated.immunizationTravelSelections ?? []),
+      ...(hydrated.immunizationUnknownSelections ?? []),
+    ];
+
+    if (combinedSelections.length === 0) {
+      return null;
+    }
+
+    const displayValue = combinedSelections.join(', ');
+    const currentFieldAnswered = Array.isArray(selection) && selection.length > 0;
+    const matchedFieldLabel =
+      hydrated.immunizationRoutineSelections.length > 0 &&
+      field !== 'immunizationRoutineSelections'
+        ? 'routine adult vaccines'
+        : hydrated.immunizationTravelSelections.length > 0 &&
+            field !== 'immunizationTravelSelections'
+          ? 'travel or risk-based vaccines'
+          : hydrated.immunizationCoreSelections.length > 0 &&
+              field !== 'immunizationCoreSelections'
+            ? 'core vaccines'
+            : fieldLabel;
+
+    return {
+      acknowledgementMessage:
+        combinedSelections.length === 1
+          ? `I heard ${displayValue}. I'll record that under ${matchedFieldLabel}.`
+          : `I heard ${displayValue}. I'll record those under ${matchedFieldLabel}.`,
+      currentFieldAnswered,
+      updates: {
+        immunizationCoreSelections: hydrated.immunizationCoreSelections,
+        immunizationRoutineSelections: hydrated.immunizationRoutineSelections,
+        immunizationTravelSelections: hydrated.immunizationTravelSelections,
+        immunizationUnknownSelections: hydrated.immunizationUnknownSelections,
+        medicalInfoHydrated: true,
+      },
+      value: displayValue,
+    };
+  }
 
   if (!Array.isArray(selection) || selection.length === 0) {
     return null;
@@ -733,6 +781,7 @@ function parseStructuredMedicalInfoCapture(
       selection.length === 1
         ? `I heard ${selection[0]}. I'll record that under ${fieldLabel}.`
         : `I heard ${selection.join(', ')}. I'll record those under ${fieldLabel}.`,
+    currentFieldAnswered: true,
     updates: {
       [field]: selection,
       medicalInfoHydrated: true,
@@ -764,6 +813,7 @@ function parseMedicationAllergyVoiceCapture(
   transcript: string,
 ): {
   acknowledgementMessage: string;
+  currentFieldAnswered: boolean;
   updates: Partial<IntakeFormData>;
   value: string;
 } | null {
@@ -777,6 +827,7 @@ function parseMedicationAllergyVoiceCapture(
     return {
       acknowledgementMessage:
         "I heard I don't know. I'll mark medication allergies as unsure.",
+      currentFieldAnswered: true,
       updates: {
         allergies: 'Unsure',
         allergyMedicationSelections: [],
@@ -791,6 +842,7 @@ function parseMedicationAllergyVoiceCapture(
     return {
       acknowledgementMessage:
         "I heard none. I'll mark no known medication allergies.",
+      currentFieldAnswered: true,
       updates: {
         allergies: 'None known',
         allergyMedicationSelections: [],
@@ -814,6 +866,7 @@ function parseMedicationAllergyVoiceCapture(
       normalizedSelection.length === 1
         ? `I heard ${displayValue}. I'll record that as a medication allergy.`
         : `I heard ${displayValue}. I'll record those as medication allergies.`,
+    currentFieldAnswered: true,
     updates: {
       allergyMedicationSelections: normalizedSelection,
       allergyMedicationStatus: 'has_allergies',
@@ -841,6 +894,7 @@ function parseAllergyFieldVoiceCapture(
   transcript: string,
 ): {
   acknowledgementMessage: string;
+  currentFieldAnswered: boolean;
   updates: Partial<IntakeFormData>;
   value: string;
 } | null {
@@ -859,6 +913,7 @@ function parseAllergyFieldVoiceCapture(
   if (transcriptMeansUnsure(normalizedTranscript)) {
     return {
       acknowledgementMessage: `I heard I don't know. I'll mark ${fieldLabel} as unsure.`,
+      currentFieldAnswered: true,
       updates: {
         [field]: ['Unknown / Unsure'],
         medicalInfoHydrated: true,
@@ -870,6 +925,7 @@ function parseAllergyFieldVoiceCapture(
   if (transcriptMeansNone(normalizedTranscript)) {
     return {
       acknowledgementMessage: `I heard none. I'll mark no known ${fieldLabel}.`,
+      currentFieldAnswered: true,
       updates: {
         [field]: [],
         medicalInfoHydrated: true,
@@ -891,6 +947,7 @@ function parseAllergyFieldVoiceCapture(
       normalizedSelection.length === 1
         ? `I heard ${displayValue}. I'll record that under ${fieldLabel}.`
         : `I heard ${displayValue}. I'll record those under ${fieldLabel}.`,
+    currentFieldAnswered: true,
     updates: {
       [field]: normalizedSelection,
       medicalInfoHydrated: true,
@@ -1927,6 +1984,7 @@ export function VoiceExperience({
       autoListenRef.current = '';
       setPendingNextStep(null);
       setAwaitingReviewSectionChoice(false);
+      setReplyText('');
       setJanetFlowMode(step === 'review' ? 'review_summary' : 'field_question');
       setConfirmation(EMPTY_CONFIRMATION);
       setLocalConfirmation(null);
@@ -2482,12 +2540,13 @@ export function VoiceExperience({
                 : {}),
             }) as IntakeFormData,
           );
-          const nextField = resolveJanetVoiceFieldState({
-            form: mergedForm,
-            pastMedicalHistoryField,
-            proposedField: null,
-            step: 'symptoms',
-          }).activeField;
+          const nextField = medicalInfoCapture.currentFieldAnswered
+            ? getNextIncompleteJanetFieldAfter(
+                'symptoms',
+                activeManagedField,
+                mergedForm,
+              )
+            : activeManagedField;
           const nextPrompt = getCanonicalJanetPrompt({
             field: nextField,
             language: state.janetMode.language,
@@ -2534,7 +2593,11 @@ export function VoiceExperience({
                 }
               : currentSession,
           );
-          setReplyText(nextPrompt || medicalInfoCapture.acknowledgementMessage);
+          setReplyText(
+            medicalInfoCapture.currentFieldAnswered
+              ? nextPrompt || medicalInfoCapture.acknowledgementMessage
+              : nextPrompt || medicalInfoCapture.acknowledgementMessage,
+          );
           setJanetModeStep('symptoms');
           void queueDraftAndHandoffSync({
             formOverride: mergedForm,
@@ -2549,8 +2612,13 @@ export function VoiceExperience({
             return;
           }
 
-          if (nextPrompt.trim()) {
-            await queuePrompt(nextPrompt);
+          const promptToAsk =
+            medicalInfoCapture.currentFieldAnswered
+              ? nextPrompt
+              : nextPrompt;
+
+          if (promptToAsk.trim()) {
+            await queuePrompt(promptToAsk);
           }
           return;
         }
@@ -2574,12 +2642,11 @@ export function VoiceExperience({
               ...symptomTextCapture.updates,
             }) as IntakeFormData,
           );
-          const nextField = resolveJanetVoiceFieldState({
-            form: mergedForm,
-            pastMedicalHistoryField,
-            proposedField: null,
-            step: 'symptoms',
-          }).activeField;
+          const nextField = getNextIncompleteJanetFieldAfter(
+            'symptoms',
+            activeManagedField,
+            mergedForm,
+          );
           const nextPrompt = getCanonicalJanetPrompt({
             field: nextField,
             language: state.janetMode.language,

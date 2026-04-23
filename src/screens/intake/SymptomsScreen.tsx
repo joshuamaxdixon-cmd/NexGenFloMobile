@@ -18,8 +18,10 @@ import { InputField } from '../../components/InputField';
 import { SearchableCheckboxPicker } from '../../components/SearchableCheckboxPicker';
 import {
   buildMedicalInfoAllergyEntries,
+  buildMedicalInfoLegacyAllergyText,
   buildMedicalInfoImmunizationEntries,
   formatCompactSelectionSummary,
+  formatMedicationAllergySummary,
   formatCompactTextSummary,
   medicalInfoCategoryOptions,
   type IntakeFormData,
@@ -246,17 +248,33 @@ export function SymptomsScreen({
     >,
     nextSelections: string[],
   ) => {
+    const normalizedMedicationSelections =
+      field === 'allergyMedicationSelections'
+        ? nextSelections.filter((value) => value !== 'Unknown / Unsure')
+        : form.allergyMedicationSelections;
+    const medicationAllergyStatus =
+      field === 'allergyMedicationSelections'
+        ? nextSelections.includes('Unknown / Unsure') &&
+          normalizedMedicationSelections.length === 0
+          ? 'unsure'
+          : normalizedMedicationSelections.length > 0
+            ? 'has_allergies'
+            : ''
+        : form.allergyMedicationStatus;
     const nextForm: IntakeFormData = {
       ...form,
+      allergyMedicationStatus: medicationAllergyStatus,
       [field]: nextSelections,
     };
+    nextForm.allergyMedicationSelections = normalizedMedicationSelections;
 
     applyUpdates({
       allergyEnvironmentalSelections: nextForm.allergyEnvironmentalSelections,
       allergyFoodSelections: nextForm.allergyFoodSelections,
       allergyMaterialSelections: nextForm.allergyMaterialSelections,
       allergyMedicationSelections: nextForm.allergyMedicationSelections,
-      allergies: buildMedicalInfoAllergyEntries(nextForm).join(', '),
+      allergyMedicationStatus: nextForm.allergyMedicationStatus,
+      allergies: buildMedicalInfoLegacyAllergyText(nextForm),
       allergyNotes: nextForm.allergyNotes,
       allergyReaction: nextForm.allergyReaction,
       medicalInfoHydrated: true,
@@ -291,7 +309,10 @@ export function SymptomsScreen({
     field: CheckboxEditorKey,
     value: string,
   ) => {
-    const currentSelections = form[field];
+    const currentSelections =
+      field === 'allergyMedicationSelections' && form.allergyMedicationStatus === 'unsure'
+        ? ['Unknown / Unsure']
+        : form[field];
     const nextSelections = currentSelections.includes(value)
       ? currentSelections.filter((entry) => entry !== value)
       : [...currentSelections, value];
@@ -424,7 +445,11 @@ export function SymptomsScreen({
 
     if (searchEnabledEditors.has(activeEditor as CheckboxEditorKey)) {
       const checkboxField = activeEditor as CheckboxEditorKey;
-      const selectedValues = form[checkboxField];
+      const selectedValues =
+        checkboxField === 'allergyMedicationSelections' &&
+        form.allergyMedicationStatus === 'unsure'
+          ? ['Unknown / Unsure']
+          : form[checkboxField];
       const options = medicalInfoCategoryOptions[
         checkboxField.replace('Selections', '') as keyof typeof medicalInfoCategoryOptions
       ];
@@ -580,9 +605,7 @@ export function SymptomsScreen({
           <CompactSummaryRow
             errorText={fieldErrors?.allergies}
             onPress={() => setActiveEditor('allergyMedicationSelections')}
-            summary={formatCompactSelectionSummary(
-              form.allergyMedicationSelections,
-            )}
+            summary={formatMedicationAllergySummary(form)}
             title="Medication Allergies"
           />
           <CompactSummaryRow

@@ -5,6 +5,7 @@ import { InfoCard } from '../../components/InfoCard';
 import { SecondaryButton } from '../../components/SecondaryButton';
 import {
   buildPastMedicalHistoryEntries,
+  formatMedicationAllergySummary,
   getReviewReadiness,
   type IntakeFormData,
 } from '../../services';
@@ -112,7 +113,7 @@ export function ReviewScreen({
       items: [
         [
           'Medication Allergies',
-          formatSelectionList(form.allergyMedicationSelections),
+          formatMedicationAllergySummary(form, 'Not provided yet'),
         ],
         [
           'Material / Contact Allergies',

@@ -48,9 +48,11 @@ import {
   transcribeJanetAudio,
   useDraftStore,
   buildLocalConfirmationPrompt,
+  buildMedicalInfoLegacyAllergyText,
   buildLocalRetryPrompt,
   buildNoSpeechRetryPrompt,
   buildPastMedicalHistoryPrompt,
+  formatMedicationAllergySummary,
   getCanonicalJanetPrompt,
   getNextPastMedicalHistoryField,
   getPastMedicalHistoryFieldAfter,
@@ -207,6 +209,7 @@ const EMPTY_MEDICAL_AND_PMH_PREFILL: Partial<IntakeFormData> = {
   allergyEnvironmentalSelections: [],
   allergyFoodSelections: [],
   allergyMaterialSelections: [],
+  allergyMedicationStatus: '',
   allergyMedicationSelections: [],
   allergyNotes: '',
   allergyReaction: '',
@@ -655,6 +658,86 @@ function parseStructuredMedicalInfoCapture(
   };
 }
 
+function transcriptMeansUnsure(value: string) {
+  const normalized = normalizeTranscriptText(value).toLowerCase();
+
+  if (!normalized) {
+    return false;
+  }
+
+  return [
+    "i don't know",
+    'dont know',
+    'do not know',
+    'not sure',
+    "i'm not sure",
+    'im not sure',
+    'unsure',
+    'unknown',
+  ].some((phrase) => normalized === phrase || normalized.includes(phrase));
+}
+
+function parseMedicationAllergyVoiceCapture(
+  transcript: string,
+): {
+  confirmationMessage: string;
+  updates: Partial<IntakeFormData>;
+  value: string;
+} | null {
+  const normalizedTranscript = normalizeTranscriptText(transcript);
+
+  if (!normalizedTranscript) {
+    return null;
+  }
+
+  if (transcriptMeansUnsure(normalizedTranscript)) {
+    return {
+      confirmationMessage: "Okay, I'll mark medication allergies as unsure.",
+      updates: {
+        allergies: 'Unsure',
+        allergyMedicationSelections: [],
+        allergyMedicationStatus: 'unsure',
+        medicalInfoHydrated: true,
+      },
+      value: 'Unsure',
+    };
+  }
+
+  if (transcriptMeansNone(normalizedTranscript)) {
+    return {
+      confirmationMessage: "Okay, I'll mark no known medication allergies.",
+      updates: {
+        allergies: 'None known',
+        allergyMedicationSelections: [],
+        allergyMedicationStatus: 'none_known',
+        medicalInfoHydrated: true,
+      },
+      value: 'None known',
+    };
+  }
+
+  const hydrated = hydrateMedicalInfoFromLegacy(normalizedTranscript, '');
+  const selections = hydrated.allergyMedicationSelections;
+  const normalizedSelection =
+    Array.isArray(selections) && selections.length > 0
+      ? selections
+      : [normalizedTranscript];
+  const displayValue = normalizedSelection.join(', ');
+
+  return {
+    confirmationMessage:
+      normalizedSelection.length === 1
+        ? `Okay, I'll record ${displayValue} as a medication allergy.`
+        : `Okay, I'll record these medication allergies: ${displayValue}.`,
+    updates: {
+      allergyMedicationSelections: normalizedSelection,
+      allergyMedicationStatus: 'has_allergies',
+      medicalInfoHydrated: true,
+    },
+    value: displayValue,
+  };
+}
+
 
 function transcriptIsAffirmative(value: string, language: 'en' | 'es') {
   const normalized = normalizeTranscriptText(value).toLowerCase();
@@ -754,6 +837,7 @@ function buildReviewSummaryPrompt(options: {
     ? `${form.heightFt || '0'} foot ${form.heightIn || '0'}`
     : '';
   const allergies = formatVoiceList(buildMedicalInfoAllergyEntries(form));
+  const medicationAllergySummary = formatMedicationAllergySummary(form, '');
   const immunizations = formatVoiceList(buildMedicalInfoImmunizationEntries(form));
   const pmh = buildPastMedicalHistoryEntries(form);
   const pmhValues = formatVoiceList([
@@ -774,7 +858,15 @@ function buildReviewSummaryPrompt(options: {
       form.chiefConcern
         ? `La razón de la visita es ${form.chiefConcern}${form.symptomDuration ? ` por ${form.symptomDuration}` : ''}${form.painLevel ? `, severidad ${form.painLevel}` : ''}.`
         : 'No se registró un motivo de visita.',
-      allergies ? `Las alergias registradas son ${allergies}.` : '',
+      medicationAllergySummary
+        ? medicationAllergySummary === 'Unsure'
+          ? 'Las alergias a medicamentos están marcadas como inciertas.'
+          : medicationAllergySummary === 'None known'
+            ? 'Las alergias a medicamentos están marcadas como ninguna conocida.'
+            : `Las alergias a medicamentos registradas son ${medicationAllergySummary}.`
+        : allergies
+          ? `Las alergias registradas son ${allergies}.`
+          : '',
       form.medications ? `Los medicamentos son ${form.medications}.` : '',
       immunizations ? `Las inmunizaciones registradas son ${immunizations}.` : '',
       pmhValues
@@ -798,7 +890,15 @@ function buildReviewSummaryPrompt(options: {
     form.chiefConcern
       ? `Your reason for visit is ${form.chiefConcern}${form.symptomDuration ? ` for ${form.symptomDuration}` : ''}${form.painLevel ? `, severity ${form.painLevel}` : ''}.`
       : 'No reason for visit was provided.',
-    allergies ? `Your allergies are ${allergies}.` : '',
+    medicationAllergySummary
+      ? medicationAllergySummary === 'Unsure'
+        ? 'Your medication allergies are marked as unsure.'
+        : medicationAllergySummary === 'None known'
+          ? 'Your medication allergies are marked as none known.'
+          : `Your medication allergies are ${medicationAllergySummary}.`
+      : allergies
+        ? `Your allergies are ${allergies}.`
+        : '',
     form.medications ? `Your medications are ${form.medications}.` : '',
     immunizations ? `Your immunizations are ${immunizations}.` : '',
     pmhValues
@@ -2075,6 +2175,95 @@ export function VoiceExperience({
           setIsProcessing(false);
         }
         return;
+      }
+
+      if (
+        janetStep === 'symptoms' &&
+        activeManagedField === 'allergyMedicationSelections' &&
+        interactionMode !== 'correction'
+      ) {
+        const medicationAllergyCapture =
+          parseMedicationAllergyVoiceCapture(transcript);
+
+        if (medicationAllergyCapture) {
+          const mergedForm = reconcileStructuredIntakeForm(
+            normalizeIntakeFormFields({
+              ...state.intake.form,
+              ...(session?.draftPatch ?? {}),
+              ...medicationAllergyCapture.updates,
+              allergies: buildMedicalInfoLegacyAllergyText({
+                ...state.intake.form,
+                ...(session?.draftPatch ?? {}),
+                ...medicationAllergyCapture.updates,
+              } as IntakeFormData),
+            }) as IntakeFormData,
+          );
+          const nextField = resolveJanetVoiceFieldState({
+            form: mergedForm,
+            pastMedicalHistoryField,
+            proposedField: null,
+            step: 'symptoms',
+          }).activeField;
+          const nextPrompt = getCanonicalJanetPrompt({
+            field: nextField,
+            language: state.janetMode.language,
+            pastMedicalHistoryField: null,
+            step: 'symptoms',
+          });
+          const nextHandoff = buildJanetHandoffFromDraft({
+            existing: state.voice.handoff,
+            form: mergedForm,
+            interpretedAt: new Date().toISOString(),
+            transcript,
+          });
+
+          updateIntakeFields({
+            ...medicationAllergyCapture.updates,
+            allergies: mergedForm.allergies,
+          });
+          setVoiceHandoff(nextHandoff);
+          setWarnings([]);
+          setLowConfidence(false);
+          setConfirmation(EMPTY_CONFIRMATION);
+          setPartialTranscript('');
+          setFinalTranscript(medicationAllergyCapture.value);
+          setVoiceTranscript(medicationAllergyCapture.value);
+          setSession((currentSession) =>
+            currentSession
+              ? {
+                  ...currentSession,
+                  confirmation: EMPTY_CONFIRMATION,
+                  currentField: nextField,
+                  currentStep: 'symptoms',
+                  draftPatch: {
+                    ...currentSession.draftPatch,
+                    ...medicationAllergyCapture.updates,
+                    allergies: mergedForm.allergies,
+                  },
+                  firstPrompt: nextPrompt || currentSession.firstPrompt,
+                }
+              : currentSession,
+          );
+          setReplyText(nextPrompt || medicationAllergyCapture.confirmationMessage);
+          setJanetModeStep('symptoms');
+          void queueDraftAndHandoffSync({
+            formOverride: mergedForm,
+          });
+
+          await playPrompt(medicationAllergyCapture.confirmationMessage, {
+            autoListenAfter: false,
+          });
+
+          if (!nextField) {
+            await queueStepTransitionPrompt('symptoms');
+            return;
+          }
+
+          if (nextPrompt.trim()) {
+            await queuePrompt(nextPrompt);
+          }
+          return;
+        }
       }
 
       if (!session?.sessionId) {

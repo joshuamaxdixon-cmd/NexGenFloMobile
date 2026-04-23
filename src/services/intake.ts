@@ -34,6 +34,7 @@ export type IntakeFormData = {
   medicalConditions: string;
   immunizations: string;
   medicalInfoHydrated: boolean;
+  allergyMedicationStatus: string;
   allergyMedicationSelections: string[];
   allergyMaterialSelections: string[];
   allergyFoodSelections: string[];
@@ -248,11 +249,20 @@ const JANET_FIELD_METADATA = {
     title: 'Emergency Contact Phone',
   },
   allergyMedicationSelections: {
-    hints: ['medication allergies', 'allergy medicine', 'penicillin', 'none'],
+    hints: [
+      'medication allergies',
+      'allergy medicine',
+      'penicillin',
+      'none',
+      "don't know",
+      'not sure',
+      'unsure',
+      'unknown',
+    ],
     label: 'medication allergies',
     prompt: {
-      en: 'Do you have any medication allergies, like penicillin or sulfa? You can say none.',
-      es: '¿Tienes alguna alergia a medicamentos, como penicilina o sulfa? Puedes decir ninguna.',
+      en: "Do you have any medication allergies, like penicillin or sulfa? You can say the allergy name, say none, or say I don't know.",
+      es: '¿Tienes alguna alergia a medicamentos, como penicilina o sulfa? Puedes decir el nombre de la alergia, decir ninguna, o decir no lo sé.',
     },
     title: 'Medication Allergies',
   },
@@ -508,6 +518,14 @@ function janetFieldHasValue(
   field: JanetActiveFieldKey,
   form: IntakeFormData,
 ) {
+  if (field === 'allergyMedicationSelections') {
+    return (
+      form.allergyMedicationSelections.length > 0 ||
+      form.allergyMedicationStatus === 'none_known' ||
+      form.allergyMedicationStatus === 'unsure'
+    );
+  }
+
   const value = form[field];
 
   if (typeof value === 'string') {
@@ -760,6 +778,7 @@ type PastMedicalHistoryForm = Pick<
 type MedicalInfoForm = Pick<
   IntakeFormData,
   | 'allergies'
+  | 'allergyMedicationStatus'
   | 'allergyEnvironmentalSelections'
   | 'allergyFoodSelections'
   | 'allergyMaterialSelections'
@@ -1224,7 +1243,7 @@ export function serializeIntakeForm(form: IntakeFormData): IntakeFormData {
 
   const normalizedForm: IntakeFormData = {
     ...medicallyReconciledForm,
-    allergies: buildMedicalInfoAllergyEntries(medicallyReconciledForm).join(', '),
+    allergies: buildMedicalInfoLegacyAllergyText(medicallyReconciledForm),
     immunizations:
       buildMedicalInfoImmunizationEntries(medicallyReconciledForm).join(', '),
     medicalConditions: typeof medicallyReconciledForm.medicalConditions === 'string'
@@ -1354,6 +1373,7 @@ function normalizeMedicalInfoText(value: string) {
   return value
     .toLowerCase()
     .replace(/[()]/g, ' ')
+    .replace(/[.,!?'"`]/g, ' ')
     .replace(/[/:]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -1424,6 +1444,41 @@ function hasStructuredMedicalInfoSelections(values: Partial<IntakeFormData>) {
   );
 }
 
+export function getMedicationAllergyStatusLabel(status: string) {
+  const normalized = status.trim().toLowerCase();
+
+  if (normalized === 'none_known') {
+    return 'None known';
+  }
+
+  if (normalized === 'unsure') {
+    return 'Unsure';
+  }
+
+  return '';
+}
+
+export function formatMedicationAllergySummary(
+  form: Pick<IntakeFormData, 'allergyMedicationSelections' | 'allergyMedicationStatus'>,
+  emptyLabel = 'No selections yet',
+) {
+  if (form.allergyMedicationSelections.length > 0) {
+    return formatCompactSelectionSummary(form.allergyMedicationSelections, emptyLabel);
+  }
+
+  return getMedicationAllergyStatusLabel(form.allergyMedicationStatus) || emptyLabel;
+}
+
+export function buildMedicalInfoLegacyAllergyText(form: MedicalInfoForm) {
+  const allergyEntries = buildMedicalInfoAllergyEntries(form);
+
+  if (allergyEntries.length > 0) {
+    return allergyEntries.join(', ');
+  }
+
+  return getMedicationAllergyStatusLabel(form.allergyMedicationStatus);
+}
+
 export function buildMedicalInfoAllergyEntries(form: MedicalInfoForm) {
   return uniqueMedicalInfoItems([
     ...form.allergyMedicationSelections,
@@ -1483,13 +1538,18 @@ export function hydrateMedicalInfoFromLegacy(allergies: string, immunizations: s
   const immunizationRoutineSelections = new Set<string>();
   const immunizationTravelSelections = new Set<string>();
   const immunizationUnknownSelections = new Set<string>();
+  let allergyMedicationStatus: IntakeFormData['allergyMedicationStatus'] = '';
 
   for (const entry of splitMedicalInfoEntries(allergies)) {
     const medicationMatch = medicalInfoCategoryOptions.allergyMedication.find((option) =>
       matchesMedicalInfoAlias(entry, option, MEDICAL_INFO_ALLERGY_ALIASES[option]),
     );
     if (medicationMatch) {
-      allergyMedicationSelections.add(medicationMatch);
+      if (medicationMatch === 'Unknown / Unsure') {
+        allergyMedicationStatus = 'unsure';
+      } else {
+        allergyMedicationSelections.add(medicationMatch);
+      }
       continue;
     }
 
@@ -1554,6 +1614,8 @@ export function hydrateMedicalInfoFromLegacy(allergies: string, immunizations: s
     allergyEnvironmentalSelections: Array.from(allergyEnvironmentalSelections),
     allergyFoodSelections: Array.from(allergyFoodSelections),
     allergyMaterialSelections: Array.from(allergyMaterialSelections),
+    allergyMedicationStatus:
+      allergyMedicationSelections.size > 0 ? 'has_allergies' : allergyMedicationStatus,
     allergyMedicationSelections: Array.from(allergyMedicationSelections),
     immunizationCoreSelections: Array.from(immunizationCoreSelections),
     immunizationRoutineSelections: Array.from(immunizationRoutineSelections),
@@ -1566,6 +1628,12 @@ export function hydrateMedicalInfoFromLegacy(allergies: string, immunizations: s
 export function reconcileMedicalInfoForm(form: IntakeFormData): IntakeFormData {
   const normalizedForm: IntakeFormData = {
     ...form,
+    allergyMedicationStatus:
+      form.allergyMedicationStatus === 'has_allergies' ||
+      form.allergyMedicationStatus === 'none_known' ||
+      form.allergyMedicationStatus === 'unsure'
+        ? form.allergyMedicationStatus
+        : '',
     allergyEnvironmentalSelections: normalizeMedicalInfoSelection(
       form.allergyEnvironmentalSelections,
       medicalInfoCategoryOptions.allergyEnvironmental,
@@ -1602,9 +1670,17 @@ export function reconcileMedicalInfoForm(form: IntakeFormData): IntakeFormData {
   };
 
   if (hasStructuredMedicalInfoSelections(normalizedForm)) {
+    const normalizedMedicationStatus =
+      normalizedForm.allergyMedicationSelections.length > 0
+        ? 'has_allergies'
+        : normalizedForm.allergyMedicationStatus;
     return {
       ...normalizedForm,
-      allergies: buildMedicalInfoAllergyEntries(normalizedForm).join(', '),
+      allergies: buildMedicalInfoLegacyAllergyText({
+        ...normalizedForm,
+        allergyMedicationStatus: normalizedMedicationStatus,
+      }),
+      allergyMedicationStatus: normalizedMedicationStatus,
       immunizations: buildMedicalInfoImmunizationEntries(normalizedForm).join(', '),
       medicalInfoHydrated: true,
     };
@@ -1624,6 +1700,11 @@ export function reconcileMedicalInfoForm(form: IntakeFormData): IntakeFormData {
   const hydratedForm = {
     ...normalizedForm,
     ...hydrated,
+    allergyMedicationStatus:
+      hydrated.allergyMedicationSelections &&
+      hydrated.allergyMedicationSelections.length > 0
+        ? 'has_allergies'
+        : normalizedForm.allergyMedicationStatus,
   } satisfies IntakeFormData;
   const hydratedAllergies = buildMedicalInfoAllergyEntries(hydratedForm).join(', ');
   const hydratedImmunizations =
@@ -1631,7 +1712,10 @@ export function reconcileMedicalInfoForm(form: IntakeFormData): IntakeFormData {
 
   return {
     ...hydratedForm,
-    allergies: hydratedAllergies || normalizedForm.allergies,
+    allergies:
+      hydratedAllergies ||
+      getMedicationAllergyStatusLabel(hydratedForm.allergyMedicationStatus) ||
+      normalizedForm.allergies,
     immunizations: hydratedImmunizations || normalizedForm.immunizations,
     medicalInfoHydrated: true,
   };
@@ -1757,11 +1841,24 @@ export function normalizeIntakeFormFields(
   if ('medicalInfoHydrated' in nextValues) {
     nextValues.medicalInfoHydrated = nextValues.medicalInfoHydrated === true;
   }
+  if (typeof nextValues.allergyMedicationStatus === 'string') {
+    const normalizedStatus = nextValues.allergyMedicationStatus.trim().toLowerCase();
+    nextValues.allergyMedicationStatus =
+      normalizedStatus === 'has_allergies' ||
+      normalizedStatus === 'none_known' ||
+      normalizedStatus === 'unsure'
+        ? normalizedStatus
+        : '';
+  }
   if ('allergyMedicationSelections' in nextValues) {
     nextValues.allergyMedicationSelections = normalizeMedicalInfoSelection(
       nextValues.allergyMedicationSelections,
       medicalInfoCategoryOptions.allergyMedication,
     );
+    nextValues.allergyMedicationStatus =
+      nextValues.allergyMedicationSelections.length > 0
+        ? 'has_allergies'
+        : nextValues.allergyMedicationStatus ?? '';
   }
   if ('allergyMaterialSelections' in nextValues) {
     nextValues.allergyMaterialSelections = normalizeMedicalInfoSelection(
@@ -1880,6 +1977,7 @@ export function createInitialIntakeForm(): IntakeFormData {
     medicalConditions: '',
     immunizations: '',
     medicalInfoHydrated: false,
+    allergyMedicationStatus: '',
     allergyMedicationSelections: [],
     allergyMaterialSelections: [],
     allergyFoodSelections: [],

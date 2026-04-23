@@ -240,6 +240,7 @@ function normalizeDraftPatch(value: unknown): Partial<IntakeFormData> {
     'lastDose',
     'medicalConditions',
     'allergies',
+    'allergyMedicationStatus',
     'allergyReaction',
     'allergyNotes',
     'insuranceProvider',

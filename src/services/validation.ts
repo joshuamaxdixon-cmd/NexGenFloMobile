@@ -3,7 +3,10 @@ import type {
   IntakeFormData,
   IntakeStepKey,
 } from './intake';
-import { buildPastMedicalHistoryEntries } from './intake';
+import {
+  buildMedicalInfoAllergyEntries,
+  buildPastMedicalHistoryEntries,
+} from './intake';
 
 export type IntakeFieldErrors = Partial<Record<keyof IntakeFormData, string>>;
 
@@ -206,6 +209,12 @@ export function getReviewReadiness(options: {
 }) {
   const fieldErrors = validateIntakeStep('review', options.form);
   const pastMedicalHistory = buildPastMedicalHistoryEntries(options.form);
+  const hasNamedAllergies = buildMedicalInfoAllergyEntries(options.form).length > 0;
+  const medicationAllergyStatus = options.form.allergyMedicationStatus.trim().toLowerCase();
+  const hasMedicationAllergyDecision =
+    medicationAllergyStatus === 'has_allergies' ||
+    medicationAllergyStatus === 'none_known' ||
+    medicationAllergyStatus === 'unsure';
   const blockers = Object.values(fieldErrors).filter(
     (value): value is string => typeof value === 'string' && value.length > 0,
   );
@@ -271,19 +280,19 @@ export function getReviewReadiness(options: {
       'Last dose is still missing.',
     );
   }
-  if (!hasText(options.form.allergies)) {
+  if (!hasNamedAllergies && !hasMedicationAllergyDecision) {
     pushRecommendation(
       'symptoms',
       'No allergies are listed yet. If there are none, staff can confirm that during review.',
     );
   }
-  if (hasText(options.form.allergies) && !hasText(options.form.allergyReaction)) {
+  if (hasNamedAllergies && !hasText(options.form.allergyReaction)) {
     pushRecommendation(
       'symptoms',
       'Reaction details are still missing for the listed allergies.',
     );
   }
-  if (hasText(options.form.allergies) && !hasText(options.form.allergyNotes)) {
+  if (hasNamedAllergies && !hasText(options.form.allergyNotes)) {
     pushRecommendation(
       'symptoms',
       'Safety notes are still missing for the listed allergies.',

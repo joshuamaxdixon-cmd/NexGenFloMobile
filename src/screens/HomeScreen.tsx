@@ -25,6 +25,7 @@ function createFreshIntakePrefill(): Partial<IntakeFormData> {
     allergyEnvironmentalSelections: [],
     allergyFoodSelections: [],
     allergyMaterialSelections: [],
+    allergyMedicationStatus: '',
     allergyMedicationSelections: [],
     allergyNotes: '',
     allergyReaction: '',

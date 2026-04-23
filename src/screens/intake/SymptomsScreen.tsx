@@ -118,7 +118,8 @@ function EditorSheet({
       <View style={styles.modalFrame}>
         <Pressable onPress={onClose} style={styles.modalBackdrop} />
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? spacing.lg : spacing.xxxl}
           style={styles.modalKeyboardWrap}
         >
           <View style={styles.modalSheet}>
@@ -144,6 +145,7 @@ function EditorSheet({
             </View>
             <ScrollView
               contentContainerStyle={styles.modalBody}
+              keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >

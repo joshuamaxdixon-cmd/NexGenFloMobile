@@ -608,6 +608,13 @@ const STRUCTURED_MEDICAL_INFO_FIELDS = [
 ] as const;
 
 type StructuredMedicalInfoField = (typeof STRUCTURED_MEDICAL_INFO_FIELDS)[number];
+const STRUCTURED_ALLERGY_FIELDS = [
+  'allergyMedicationSelections',
+  'allergyMaterialSelections',
+  'allergyFoodSelections',
+  'allergyEnvironmentalSelections',
+] as const;
+type StructuredAllergyField = (typeof STRUCTURED_ALLERGY_FIELDS)[number];
 
 function isStructuredMedicalInfoField(
   field: string | null,
@@ -615,6 +622,10 @@ function isStructuredMedicalInfoField(
   return STRUCTURED_MEDICAL_INFO_FIELDS.includes(
     field as StructuredMedicalInfoField,
   );
+}
+
+function isStructuredAllergyField(field: string | null): field is StructuredAllergyField {
+  return STRUCTURED_ALLERGY_FIELDS.includes(field as StructuredAllergyField);
 }
 
 function parseStructuredMedicalInfoCapture(
@@ -680,7 +691,7 @@ function transcriptMeansUnsure(value: string) {
 function parseMedicationAllergyVoiceCapture(
   transcript: string,
 ): {
-  confirmationMessage: string;
+  acknowledgementMessage: string;
   updates: Partial<IntakeFormData>;
   value: string;
 } | null {
@@ -692,7 +703,8 @@ function parseMedicationAllergyVoiceCapture(
 
   if (transcriptMeansUnsure(normalizedTranscript)) {
     return {
-      confirmationMessage: "Okay, I'll mark medication allergies as unsure.",
+      acknowledgementMessage:
+        "I heard I don't know. I'll mark medication allergies as unsure.",
       updates: {
         allergies: 'Unsure',
         allergyMedicationSelections: [],
@@ -705,7 +717,8 @@ function parseMedicationAllergyVoiceCapture(
 
   if (transcriptMeansNone(normalizedTranscript)) {
     return {
-      confirmationMessage: "Okay, I'll mark no known medication allergies.",
+      acknowledgementMessage:
+        "I heard none. I'll mark no known medication allergies.",
       updates: {
         allergies: 'None known',
         allergyMedicationSelections: [],
@@ -725,15 +738,91 @@ function parseMedicationAllergyVoiceCapture(
   const displayValue = normalizedSelection.join(', ');
 
   return {
-    confirmationMessage:
+    acknowledgementMessage:
       normalizedSelection.length === 1
-        ? `Okay, I'll record ${displayValue} as a medication allergy.`
-        : `Okay, I'll record these medication allergies: ${displayValue}.`,
+        ? `I heard ${displayValue}. I'll record that as a medication allergy.`
+        : `I heard ${displayValue}. I'll record those as medication allergies.`,
     updates: {
       allergyMedicationSelections: normalizedSelection,
       allergyMedicationStatus: 'has_allergies',
       medicalInfoHydrated: true,
     },
+    value: displayValue,
+  };
+}
+
+function getAllergyFieldLabelForSpeech(field: StructuredAllergyField) {
+  switch (field) {
+    case 'allergyMaterialSelections':
+      return 'material or contact allergies';
+    case 'allergyFoodSelections':
+      return 'food allergies';
+    case 'allergyEnvironmentalSelections':
+      return 'environmental allergies';
+    default:
+      return 'medication allergies';
+  }
+}
+
+function parseAllergyFieldVoiceCapture(
+  field: StructuredAllergyField,
+  transcript: string,
+): {
+  acknowledgementMessage: string;
+  updates: Partial<IntakeFormData>;
+  value: string;
+} | null {
+  if (field === 'allergyMedicationSelections') {
+    return parseMedicationAllergyVoiceCapture(transcript);
+  }
+
+  const normalizedTranscript = normalizeTranscriptText(transcript);
+
+  if (!normalizedTranscript) {
+    return null;
+  }
+
+  const fieldLabel = getAllergyFieldLabelForSpeech(field);
+
+  if (transcriptMeansUnsure(normalizedTranscript)) {
+    return {
+      acknowledgementMessage: `I heard I don't know. I'll mark ${fieldLabel} as unsure.`,
+      updates: {
+        [field]: ['Unknown / Unsure'],
+        medicalInfoHydrated: true,
+      } as Partial<IntakeFormData>,
+      value: 'Unsure',
+    };
+  }
+
+  if (transcriptMeansNone(normalizedTranscript)) {
+    return {
+      acknowledgementMessage: `I heard none. I'll mark no known ${fieldLabel}.`,
+      updates: {
+        [field]: [],
+        medicalInfoHydrated: true,
+      } as Partial<IntakeFormData>,
+      value: 'None known',
+    };
+  }
+
+  const hydrated = hydrateMedicalInfoFromLegacy(normalizedTranscript, '');
+  const selections = hydrated[field];
+  const normalizedSelection =
+    Array.isArray(selections) && selections.length > 0
+      ? selections.filter((value) => value !== 'Unknown / Unsure')
+      : [normalizedTranscript];
+  const displayValue = normalizedSelection.join(', ');
+
+  return {
+    acknowledgementMessage:
+      normalizedSelection.length === 1
+        ? `I heard ${displayValue}. I'll record that under ${fieldLabel}.`
+        : `I heard ${displayValue}. I'll record those under ${fieldLabel}.`,
+    updates: {
+      [field]: normalizedSelection,
+      medicalInfoHydrated: true,
+    } as Partial<IntakeFormData>,
     value: displayValue,
   };
 }
@@ -2179,22 +2268,24 @@ export function VoiceExperience({
 
       if (
         janetStep === 'symptoms' &&
-        activeManagedField === 'allergyMedicationSelections' &&
+        isStructuredAllergyField(activeManagedField) &&
         interactionMode !== 'correction'
       ) {
-        const medicationAllergyCapture =
-          parseMedicationAllergyVoiceCapture(transcript);
+        const allergyFieldCapture = parseAllergyFieldVoiceCapture(
+          activeManagedField,
+          transcript,
+        );
 
-        if (medicationAllergyCapture) {
+        if (allergyFieldCapture) {
           const mergedForm = reconcileStructuredIntakeForm(
             normalizeIntakeFormFields({
               ...state.intake.form,
               ...(session?.draftPatch ?? {}),
-              ...medicationAllergyCapture.updates,
+              ...allergyFieldCapture.updates,
               allergies: buildMedicalInfoLegacyAllergyText({
                 ...state.intake.form,
                 ...(session?.draftPatch ?? {}),
-                ...medicationAllergyCapture.updates,
+                ...allergyFieldCapture.updates,
               } as IntakeFormData),
             }) as IntakeFormData,
           );
@@ -2218,7 +2309,7 @@ export function VoiceExperience({
           });
 
           updateIntakeFields({
-            ...medicationAllergyCapture.updates,
+            ...allergyFieldCapture.updates,
             allergies: mergedForm.allergies,
           });
           setVoiceHandoff(nextHandoff);
@@ -2226,8 +2317,8 @@ export function VoiceExperience({
           setLowConfidence(false);
           setConfirmation(EMPTY_CONFIRMATION);
           setPartialTranscript('');
-          setFinalTranscript(medicationAllergyCapture.value);
-          setVoiceTranscript(medicationAllergyCapture.value);
+          setFinalTranscript(allergyFieldCapture.value);
+          setVoiceTranscript(allergyFieldCapture.value);
           setSession((currentSession) =>
             currentSession
               ? {
@@ -2237,20 +2328,20 @@ export function VoiceExperience({
                   currentStep: 'symptoms',
                   draftPatch: {
                     ...currentSession.draftPatch,
-                    ...medicationAllergyCapture.updates,
+                    ...allergyFieldCapture.updates,
                     allergies: mergedForm.allergies,
                   },
                   firstPrompt: nextPrompt || currentSession.firstPrompt,
                 }
               : currentSession,
           );
-          setReplyText(nextPrompt || medicationAllergyCapture.confirmationMessage);
+          setReplyText(nextPrompt || allergyFieldCapture.acknowledgementMessage);
           setJanetModeStep('symptoms');
           void queueDraftAndHandoffSync({
             formOverride: mergedForm,
           });
 
-          await playPrompt(medicationAllergyCapture.confirmationMessage, {
+          await playPrompt(allergyFieldCapture.acknowledgementMessage, {
             autoListenAfter: false,
           });
 

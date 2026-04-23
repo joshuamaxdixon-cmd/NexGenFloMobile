@@ -54,7 +54,7 @@ import {
   buildPastMedicalHistoryPrompt,
   formatMedicationAllergySummary,
   getCanonicalJanetPrompt,
-  getNextIncompleteJanetFieldAfter,
+  getNextJanetFieldAfter,
   getNextPastMedicalHistoryField,
   getPastMedicalHistoryFieldAfter,
   getStepTransitionDeclinedPrompt,
@@ -2647,10 +2647,9 @@ export function VoiceExperience({
             }) as IntakeFormData,
           );
           const nextField = medicalInfoCapture.currentFieldAnswered
-            ? getNextIncompleteJanetFieldAfter(
+            ? getNextJanetFieldAfter(
                 'symptoms',
                 activeManagedField,
-                mergedForm,
               )
             : activeManagedField;
           const nextPrompt = getCanonicalJanetPrompt({
@@ -2748,11 +2747,7 @@ export function VoiceExperience({
               ...symptomTextCapture.updates,
             }) as IntakeFormData,
           );
-          const nextField = getNextIncompleteJanetFieldAfter(
-            'symptoms',
-            activeManagedField,
-            mergedForm,
-          );
+          const nextField = getNextJanetFieldAfter('symptoms', activeManagedField);
           const nextPrompt = getCanonicalJanetPrompt({
             field: nextField,
             language: state.janetMode.language,

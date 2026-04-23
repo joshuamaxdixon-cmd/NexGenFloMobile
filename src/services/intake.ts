@@ -588,6 +588,24 @@ export function getNextIncompleteJanetFieldAfter(
   return fieldOrder.slice(currentIndex + 1).find((field) => !janetFieldHasValue(field, form)) ?? null;
 }
 
+export function getNextJanetFieldAfter(
+  step: IntakeStepKey,
+  currentField: JanetActiveFieldKey | string | null | undefined,
+) {
+  if (!currentField) {
+    return getJanetFieldsForStep(step)[0] ?? null;
+  }
+
+  const fieldOrder = getJanetFieldsForStep(step);
+  const currentIndex = fieldOrder.findIndex((field) => field === currentField);
+
+  if (currentIndex < 0) {
+    return getJanetFieldsForStep(step)[0] ?? null;
+  }
+
+  return fieldOrder[currentIndex + 1] ?? null;
+}
+
 export function resolveJanetFieldForStep(
   step: IntakeStepKey,
   form: IntakeFormData,

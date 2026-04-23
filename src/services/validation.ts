@@ -268,12 +268,6 @@ export function getReviewReadiness(options: {
       'No medications have been entered yet. Add them now if the patient knows what they take.',
     );
   }
-  if (hasText(options.form.medications) && !hasText(options.form.pharmacy)) {
-    pushRecommendation(
-      'symptoms',
-      'Preferred pharmacy is still missing.',
-    );
-  }
   if (hasText(options.form.medications) && !hasText(options.form.lastDose)) {
     pushRecommendation(
       'symptoms',

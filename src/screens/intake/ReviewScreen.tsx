@@ -125,7 +125,6 @@ export function ReviewScreen({
           formatSelectionList(form.allergyEnvironmentalSelections),
         ],
         ['Medications', valueOrFallback(form.medications)],
-        ['Preferred pharmacy', valueOrFallback(form.pharmacy)],
         ['Last dose', valueOrFallback(form.lastDose)],
         ['Core Vaccines', formatSelectionList(form.immunizationCoreSelections)],
         [

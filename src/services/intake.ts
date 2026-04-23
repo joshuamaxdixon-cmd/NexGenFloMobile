@@ -117,7 +117,6 @@ export const janetStepFieldOrder = {
     'allergyFoodSelections',
     'allergyEnvironmentalSelections',
     'medications',
-    'pharmacy',
     'lastDose',
     'immunizationCoreSelections',
     'immunizationRoutineSelections',
@@ -331,15 +330,6 @@ const JANET_FIELD_METADATA = {
       es: '¿Qué medicamentos estás tomando ahora mismo, como albuterol o ibuprofeno? Puedes decir ninguno.',
     },
     title: 'Medications',
-  },
-  pharmacy: {
-    hints: ['pharmacy', 'drugstore'],
-    label: 'preferred pharmacy',
-    prompt: {
-      en: 'What is your preferred pharmacy, like CVS or Walgreens?',
-      es: '¿Cuál es tu farmacia preferida, como CVS o Walgreens?',
-    },
-    title: 'Preferred Pharmacy',
   },
   lastDose: {
     hints: ['last dose', 'last time taken', 'today', 'yesterday'],

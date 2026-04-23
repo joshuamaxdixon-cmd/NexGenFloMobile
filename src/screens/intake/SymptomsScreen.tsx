@@ -45,7 +45,6 @@ type TextEditorKey =
   | 'lastDose'
   | 'medications'
   | 'painLevel'
-  | 'pharmacy'
   | 'symptomDuration'
   | 'symptomNotes';
 
@@ -77,7 +76,6 @@ const editorTitles: Record<MedicalInfoEditorKey, string> = {
   lastDose: 'Last Dose',
   medications: 'Medications',
   painLevel: 'Severity',
-  pharmacy: 'Preferred Pharmacy',
   symptomDuration: 'Duration',
   symptomNotes: 'Symptom Notes',
 };
@@ -508,20 +506,6 @@ export function SymptomsScreen({
             })}
           </EditorSheet>
         );
-      case 'pharmacy':
-        return (
-          <EditorSheet
-            onClose={() => setActiveEditor(null)}
-            subtitle="Add the preferred pharmacy if the patient has one."
-            title={editorTitles.pharmacy}
-            visible
-          >
-            {renderTextEditor('pharmacy', {
-              optional: true,
-              placeholder: 'Enter preferred pharmacy',
-            })}
-          </EditorSheet>
-        );
       case 'lastDose':
         return (
           <EditorSheet
@@ -633,11 +617,6 @@ export function SymptomsScreen({
             onPress={() => setActiveEditor('medications')}
             summary={formatCompactTextSummary(form.medications)}
             title="Medications"
-          />
-          <CompactSummaryRow
-            onPress={() => setActiveEditor('pharmacy')}
-            summary={formatCompactTextSummary(form.pharmacy)}
-            title="Preferred Pharmacy"
           />
           <CompactSummaryRow
             onPress={() => setActiveEditor('lastDose')}

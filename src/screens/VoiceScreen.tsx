@@ -359,7 +359,6 @@ function buildPreviewRows(
     return [
       ['Allergies', buildMedicalInfoAllergyEntries(form).join(', ')],
       ['Medications', form.medications],
-      ['Preferred pharmacy', form.pharmacy],
       ['Last dose', form.lastDose],
       ['Immunizations', buildMedicalInfoImmunizationEntries(form).join(', ')],
       ['Chief concern', form.chiefConcern],

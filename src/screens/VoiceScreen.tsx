@@ -1208,6 +1208,8 @@ export function VoiceExperience({
 
   const recordingRef = useRef<Audio.Recording | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
+  const setVoiceListeningRef = useRef(setVoiceListening);
+  const setVoiceTranscriptRef = useRef(setVoiceTranscript);
   const bootstrapKeyRef = useRef('');
   const lastSpokenTextRef = useRef('');
   const autoPlayedSessionRef = useRef('');
@@ -3121,23 +3123,28 @@ export function VoiceExperience({
   }, [handleJanetTurn]);
 
   useEffect(() => {
+    setVoiceListeningRef.current = setVoiceListening;
+    setVoiceTranscriptRef.current = setVoiceTranscript;
+  }, [setVoiceListening, setVoiceTranscript]);
+
+  useEffect(() => {
     bootstrapKeyRef.current = '';
     autoPlayedSessionRef.current = '';
     autoListenRef.current = '';
     setPendingAutoListenToken(null);
-    setVoiceListening(false);
+    setVoiceListeningRef.current(false);
     setReplyText('');
     setConfirmation(EMPTY_CONFIRMATION);
     setPartialTranscript('');
     setFinalTranscript('');
-    setVoiceTranscript('');
+    setVoiceTranscriptRef.current('');
     setMicError(null);
 
     return () => {
-      setVoiceListening(false);
+      setVoiceListeningRef.current(false);
       setPendingAutoListenToken(null);
     };
-  }, [setVoiceListening, setVoiceTranscript]);
+  }, []);
 
   useEffect(() => {
     if (!replyText.trim()) {

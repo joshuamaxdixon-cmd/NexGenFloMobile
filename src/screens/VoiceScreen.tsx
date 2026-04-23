@@ -569,8 +569,20 @@ function parseBasicInfoLocalCapture(
   }
 
   if (field === 'weightLb') {
-    const weightSource =
-      parseSpokenDigits(normalized).match(/\d+(?:\.\d+)?/)?.[0] ?? normalized;
+    const normalizedWeightTranscript = parseSpokenDigits(normalized)
+      .toLowerCase()
+      .replace(/\bpounds?\b/g, ' ')
+      .replace(/\blbs?\b/g, ' ')
+      .replace(/[^\d.\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const numberGroups = normalizedWeightTranscript.match(/\d+/g) ?? [];
+    const hasDecimalPoint = normalizedWeightTranscript.includes('.');
+    const weightSource = hasDecimalPoint
+      ? normalizedWeightTranscript.match(/\d+(?:\.\d+)?/)?.[0] ?? normalized
+      : numberGroups.length > 0
+        ? numberGroups.join('')
+        : normalized;
     const normalizedWeight = normalizeIntakeFormFields({
       weightLb: weightSource,
     }).weightLb;

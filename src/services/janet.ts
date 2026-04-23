@@ -689,7 +689,7 @@ export async function playJanetReplyAudio(options: {
 
       Speech.stop();
       Speech.speak(options.text, {
-        language: 'en-US',
+        language: options.language === 'es' ? 'es-US' : 'en-US',
         pitch: 1.02,
         rate: 0.92,
         onDone: () => {

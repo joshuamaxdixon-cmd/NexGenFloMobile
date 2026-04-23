@@ -25,6 +25,7 @@ import {
   configureJanetPlaybackAudioMode,
   configureJanetRecordingAudioMode,
   getJanetFieldLabel,
+  getFirstIncompleteJanetField,
   getJanetFieldPrompt,
   getJanetFieldTitle,
   getJanetRecognitionHints,
@@ -70,6 +71,21 @@ type JanetRecordingStatus = {
 
 type PendingScanResult = DocumentScanResult & {
   promptText: string;
+};
+
+const LOCAL_CONFIRMATION_FIELDS = [
+  'firstName',
+  'lastName',
+  'phoneNumber',
+  'email',
+  'emergencyContactName',
+  'emergencyContactPhone',
+] as const;
+
+type LocalConfirmationField = (typeof LOCAL_CONFIRMATION_FIELDS)[number];
+type LocalConfirmationState = {
+  field: LocalConfirmationField;
+  value: string;
 };
 
 type PastMedicalHistoryVoiceField =
@@ -446,6 +462,80 @@ function buildRecognitionContext(
   return getJanetRecognitionHints(field, form);
 }
 
+function isLocalConfirmationField(
+  field: string | null | undefined,
+): field is LocalConfirmationField {
+  return LOCAL_CONFIRMATION_FIELDS.includes(field as LocalConfirmationField);
+}
+
+function normalizeLocalConfirmationValue(
+  field: LocalConfirmationField,
+  transcript: string,
+) {
+  const normalized = normalizeTranscriptText(transcript);
+
+  if (!normalized) {
+    return '';
+  }
+
+  if (field === 'email') {
+    return normalized
+      .toLowerCase()
+      .replace(/\s+at\s+/gi, '@')
+      .replace(/\s+dot\s+/gi, '.')
+      .replace(/\s+/g, '');
+  }
+
+  if (field === 'phoneNumber' || field === 'emergencyContactPhone') {
+    const normalizedField = normalizeIntakeFormFields({
+      [field]: normalized,
+    } as Partial<IntakeFormData>)[field];
+
+    return typeof normalizedField === 'string' ? normalizedField : '';
+  }
+
+  return normalized;
+}
+
+function buildLocalConfirmationPrompt(options: {
+  field: LocalConfirmationField;
+  language: 'en' | 'es';
+  value: string;
+}) {
+  const { language, value } = options;
+  if (language === 'es') {
+    return `Escuché ${value}. ¿Es correcto?`;
+  }
+
+  return `I heard ${value}. Is that right?`;
+}
+
+function transcriptIsAffirmative(value: string, language: 'en' | 'es') {
+  const normalized = normalizeTranscriptText(value).toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  if (language === 'es') {
+    return ['si', 'sí', 'correcto', 'correcta'].includes(normalized);
+  }
+
+  return ['yes', 'yeah', 'yep', 'correct', 'that is right'].includes(normalized);
+}
+
+function transcriptIsNegative(value: string, language: 'en' | 'es') {
+  const normalized = normalizeTranscriptText(value).toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  if (language === 'es') {
+    return ['no', 'incorrecto', 'incorrecta'].includes(normalized);
+  }
+
+  return ['no', 'nope', 'incorrect', 'not right'].includes(normalized);
+}
+
 function getCanonicalVoicePrompt(options: {
   field: string | null;
   language: 'en' | 'es';
@@ -534,6 +624,8 @@ export function VoiceExperience({
   const [pendingScanResult, setPendingScanResult] = useState<PendingScanResult | null>(
     null,
   );
+  const [localConfirmation, setLocalConfirmation] =
+    useState<LocalConfirmationState | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [scanningDocumentType, setScanningDocumentType] = useState<
     DocumentScanResult['documentType'] | null
@@ -1072,6 +1164,151 @@ export function VoiceExperience({
       confidence: number | null,
       interactionMode: 'correction' | 'normal' | 'spell' = 'normal',
     ) => {
+      if (localConfirmation) {
+        if (
+          interactionMode === 'correction' ||
+          transcriptIsNegative(transcript, state.janetMode.language)
+        ) {
+          const retryPrompt = getCanonicalVoicePrompt({
+            field: localConfirmation.field,
+            language: state.janetMode.language,
+            pastMedicalHistoryField: null,
+            step: 'basicInfo',
+          });
+          setLocalConfirmation(null);
+          setConfirmation(EMPTY_CONFIRMATION);
+          setReplyText(retryPrompt);
+          setFinalTranscript('');
+          setVoiceTranscript('');
+          await playPrompt(retryPrompt);
+          return;
+        }
+
+        const correctedValue = normalizeLocalConfirmationValue(
+          localConfirmation.field,
+          transcript,
+        );
+        const shouldApplyCurrentValue =
+          interactionMode === 'normal' &&
+          transcriptIsAffirmative(transcript, state.janetMode.language);
+
+        const confirmedValue = shouldApplyCurrentValue
+          ? localConfirmation.value
+          : correctedValue;
+
+        if (!confirmedValue) {
+          const retryPrompt = getCanonicalVoicePrompt({
+            field: localConfirmation.field,
+            language: state.janetMode.language,
+            pastMedicalHistoryField: null,
+            step: 'basicInfo',
+          });
+          setConfirmation(EMPTY_CONFIRMATION);
+          setLocalConfirmation(null);
+          setReplyText(retryPrompt);
+          await playPrompt(retryPrompt);
+          return;
+        }
+
+        const updates = normalizeIntakeFormFields({
+          [localConfirmation.field]: confirmedValue,
+        } as Partial<IntakeFormData>);
+        const mergedForm = {
+          ...state.intake.form,
+          ...updates,
+        };
+        updateIntakeFields(updates);
+        setConfirmation(EMPTY_CONFIRMATION);
+        setLocalConfirmation(null);
+        setWarnings([]);
+        setLowConfidence(false);
+        setFinalTranscript(confirmedValue);
+        setVoiceTranscript(confirmedValue);
+
+        const nextBasicField = getFirstIncompleteJanetField('basicInfo', mergedForm);
+        const nextStep = nextBasicField ? 'basicInfo' : 'symptoms';
+        const nextField =
+          nextBasicField ?? getFirstIncompleteJanetField('symptoms', mergedForm);
+        const nextPrompt = getCanonicalVoicePrompt({
+          field: nextField,
+          language: state.janetMode.language,
+          pastMedicalHistoryField: null,
+          step: nextStep,
+        });
+
+        setSession((currentSession) =>
+          currentSession
+            ? {
+                ...currentSession,
+                currentField: nextField,
+                currentStep: nextStep,
+                draftPatch: {
+                  ...currentSession.draftPatch,
+                  ...updates,
+                },
+                firstPrompt: nextPrompt || currentSession.firstPrompt,
+              }
+            : currentSession,
+        );
+        setJanetModeStep(nextStep);
+        setReplyText(nextPrompt);
+        setTimeout(() => {
+          void syncCurrentDraft();
+        }, 0);
+        if (nextPrompt.trim()) {
+          await playPrompt(nextPrompt);
+        }
+        return;
+      }
+
+      if (
+        janetStep === 'basicInfo' &&
+        isLocalConfirmationField(activeManagedField) &&
+        interactionMode !== 'correction'
+      ) {
+        const normalizedValue = normalizeLocalConfirmationValue(
+          activeManagedField,
+          transcript,
+        );
+
+        if (!normalizedValue) {
+          setMicError(
+            state.janetMode.language === 'es'
+              ? 'Janet no pudo confirmar ese detalle. Inténtalo otra vez.'
+              : 'Janet could not confirm that detail. Please try again.',
+          );
+          return;
+        }
+
+        setLocalConfirmation({
+          field: activeManagedField,
+          value: normalizedValue,
+        });
+        setConfirmation({
+          choices: [],
+          field: activeManagedField,
+          prompt: buildLocalConfirmationPrompt({
+            field: activeManagedField,
+            language: state.janetMode.language,
+            value: normalizedValue,
+          }),
+          required: true,
+        });
+        setWarnings([]);
+        setLowConfidence(false);
+        setFinalTranscript(normalizedValue);
+        setVoiceTranscript(normalizedValue);
+        await playPrompt(
+          buildLocalConfirmationPrompt({
+            field: activeManagedField,
+            language: state.janetMode.language,
+            value: normalizedValue,
+          }),
+          { autoListenAfter: false },
+        );
+        return;
+      }
+
       if (janetStep === 'pastMedicalHistory') {
         setIsProcessing(true);
         setMicError(null);
@@ -1316,6 +1553,7 @@ export function VoiceExperience({
       backendJanetStep,
       activeManagedField,
       janetStep,
+      localConfirmation,
       pastMedicalHistoryField,
       playPrompt,
       session,
@@ -1893,6 +2131,7 @@ export function VoiceExperience({
     setScanningDocumentType(null);
     setSession(null);
     setReplyText('');
+    setLocalConfirmation(null);
     setConfirmation(EMPTY_CONFIRMATION);
     setWarnings([]);
     setLowConfidence(false);

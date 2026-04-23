@@ -1329,14 +1329,22 @@ export function VoiceExperience({
     pastMedicalHistoryField,
     step: janetStep,
   });
+  const sanitizedReplyText = getSanitizedJanetPrompt({
+    candidatePrompt: replyText,
+    field: activeManagedField,
+    isStepComplete: resolvedVoiceStepState.isStepComplete,
+    language: state.janetMode.language,
+    pastMedicalHistoryField,
+    step: janetStep,
+  });
   const currentSpeechText = buildJanetSpeechText({
     confirmation,
     handoff: state.voice.handoff,
-    replyText,
+    replyText: sanitizedReplyText,
     spellModeEnabled: state.voice.spellModeEnabled,
   });
-  const resolvedSpeechText = replyText.trim().length > 0
-    ? replyText
+  const resolvedSpeechText = sanitizedReplyText.trim().length > 0
+    ? sanitizedReplyText
     : !confirmation.required && canonicalVoicePrompt.trim().length > 0
       ? canonicalVoicePrompt
       : currentSpeechText;
@@ -3113,6 +3121,37 @@ export function VoiceExperience({
   }, [handleJanetTurn]);
 
   useEffect(() => {
+    bootstrapKeyRef.current = '';
+    autoPlayedSessionRef.current = '';
+    autoListenRef.current = '';
+    setPendingAutoListenToken(null);
+    setVoiceListening(false);
+    setReplyText('');
+    setConfirmation(EMPTY_CONFIRMATION);
+    setPartialTranscript('');
+    setFinalTranscript('');
+    setVoiceTranscript('');
+    setMicError(null);
+
+    return () => {
+      setVoiceListening(false);
+      setPendingAutoListenToken(null);
+    };
+  }, [setVoiceListening, setVoiceTranscript]);
+
+  useEffect(() => {
+    if (!replyText.trim()) {
+      return;
+    }
+
+    if (replyText === sanitizedReplyText) {
+      return;
+    }
+
+    setReplyText(sanitizedReplyText);
+  }, [replyText, sanitizedReplyText]);
+
+  useEffect(() => {
     if (!liveSpeechAvailability.moduleAvailable) {
       return;
     }
@@ -3379,7 +3418,7 @@ export function VoiceExperience({
   const currentQuestionText = shouldShowScanConfirmation
     ? pendingScanResult?.promptText ?? 'Please confirm these scanned details before saving them.'
     : janetStep === 'pastMedicalHistory'
-      ? replyText.trim() ||
+      ? sanitizedReplyText.trim() ||
         buildPastMedicalHistoryPrompt(
           pastMedicalHistoryField,
           state.janetMode.language,

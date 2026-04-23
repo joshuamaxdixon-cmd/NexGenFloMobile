@@ -33,21 +33,21 @@ export function InfoCard({
 const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.surface,
-    borderRadius: 28,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: colors.divider,
-    padding: spacing.xl,
+    padding: spacing.md,
     shadowColor: colors.shadow,
     shadowOffset: {
       width: 0,
-      height: 10,
+      height: 5,
     },
-    shadowOpacity: 0.06,
-    shadowRadius: 24,
-    elevation: 4,
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    elevation: 2,
   },
   header: {
     marginBottom: spacing.md,
-    gap: spacing.xs,
+    gap: spacing.xxs,
   },
 });

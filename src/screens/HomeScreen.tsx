@@ -314,26 +314,26 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
 
 const styles = StyleSheet.create({
   content: {
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.jumbo,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xxl,
   },
   heroCard: {
     overflow: 'hidden',
-    borderRadius: 30,
+    borderRadius: 20,
     backgroundColor: colors.surfaceSoft,
     borderWidth: 1,
     borderColor: colors.divider,
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.xl + spacing.xs,
-    paddingBottom: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.md,
     shadowColor: colors.shadow,
     shadowOffset: {
       width: 0,
-      height: 12,
+      height: 5,
     },
-    shadowOpacity: 0.06,
-    shadowRadius: 22,
-    elevation: 3,
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    elevation: 2,
     alignItems: 'center',
   },
   heroAccent: {
@@ -341,27 +341,21 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: 10,
+    height: 8,
     backgroundColor: colors.primary,
   },
   heroTitleLead: {
     ...typography.display,
-    fontSize: 32,
-    lineHeight: 36,
     textAlign: 'center',
   },
   heroTitleLine: {
     ...typography.display,
-    fontSize: 27,
-    lineHeight: 31,
     marginTop: 2,
-    marginBottom: spacing.sm,
+    marginBottom: spacing.xs,
     textAlign: 'center',
   },
   heroSubtitle: {
     ...typography.bodyLarge,
-    fontSize: 16,
-    lineHeight: 24,
     color: colors.textSecondary,
     textAlign: 'center',
   },
@@ -373,11 +367,10 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   primaryAction: {
-    minHeight: 60,
-    borderRadius: 22,
+    minHeight: 48,
   },
   secondaryAction: {
-    minHeight: 56,
+    minHeight: 42,
   },
   resumeSection: {
     gap: spacing.xs,
@@ -389,12 +382,12 @@ const styles = StyleSheet.create({
   },
   devSection: {
     marginTop: spacing.xxl,
-    borderRadius: 24,
+    borderRadius: 18,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.lg,
+    paddingVertical: spacing.md,
   },
   devLabel: {
     ...typography.sectionTitle,
@@ -410,6 +403,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   devButton: {
-    minHeight: 52,
+    minHeight: 42,
   },
 });

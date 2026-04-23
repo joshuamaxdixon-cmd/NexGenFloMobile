@@ -164,20 +164,20 @@ export function PatientPortalHomeScreen({
 
 const styles = StyleSheet.create({
   container: {
-    gap: spacing.lg,
+    gap: spacing.md,
   },
   avatarFallback: {
     alignItems: 'center',
     backgroundColor: colors.primarySoft,
-    borderRadius: 32,
-    height: 64,
+    borderRadius: 26,
+    height: 52,
     justifyContent: 'center',
-    width: 64,
+    width: 52,
   },
   avatarImage: {
-    borderRadius: 32,
-    height: 64,
-    width: 64,
+    borderRadius: 26,
+    height: 52,
+    width: 52,
   },
   avatarInitials: {
     ...typography.headline,
@@ -202,7 +202,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: spacing.md,
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
   },
   identityText: {
     flex: 1,
@@ -221,7 +221,7 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.divider,
     borderBottomWidth: 1,
     gap: spacing.xxs,
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.sm,
   },
   label: {
     ...typography.caption,

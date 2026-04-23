@@ -100,24 +100,24 @@ export function SearchableCheckboxPicker({
 
 const styles = StyleSheet.create({
   container: {
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   searchShell: {
     alignItems: 'center',
     backgroundColor: colors.surfaceSoft,
     borderColor: colors.divider,
-    borderRadius: 18,
+    borderRadius: 12,
     borderWidth: 1,
     flexDirection: 'row',
     gap: spacing.sm,
-    minHeight: 52,
+    minHeight: 42,
     paddingHorizontal: spacing.md,
   },
   searchInput: {
     ...typography.body,
     color: colors.textPrimary,
     flex: 1,
-    minHeight: 52,
+    minHeight: 42,
   },
   optionsList: {
     gap: spacing.sm,
@@ -126,13 +126,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.surfaceSoft,
     borderColor: colors.divider,
-    borderRadius: 18,
+    borderRadius: 12,
     borderWidth: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    minHeight: 56,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
+    minHeight: 44,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
   },
   optionRowSelected: {
     backgroundColor: colors.primarySoft,

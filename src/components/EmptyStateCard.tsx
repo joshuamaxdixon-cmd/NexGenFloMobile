@@ -38,9 +38,9 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
   },
   iconWrap: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.primarySoft,

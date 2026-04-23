@@ -99,8 +99,8 @@ const styles = StyleSheet.create({
     color: colors.textTertiary,
   },
   inputShell: {
-    minHeight: 56,
-    borderRadius: 18,
+    minHeight: 44,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.divider,
     backgroundColor: colors.surface,
@@ -110,19 +110,19 @@ const styles = StyleSheet.create({
   },
   inputShellMultiline: {
     alignItems: 'flex-start',
-    minHeight: 112,
+    minHeight: 92,
   },
   input: {
     flex: 1,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
     color: colors.textPrimary,
-    fontSize: 15,
-    lineHeight: 22,
-    minHeight: 56,
+    fontSize: 14,
+    lineHeight: 20,
+    minHeight: 44,
   },
   multilineInput: {
-    minHeight: 112,
+    minHeight: 92,
   },
   inputWithVoice: {
     paddingRight: spacing.sm,

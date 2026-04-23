@@ -42,28 +42,28 @@ export function ActionCard({
 
 const styles = StyleSheet.create({
   card: {
-    minHeight: 188,
-    borderRadius: 24,
+    minHeight: 156,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
-    padding: spacing.xl,
+    padding: spacing.md,
     shadowColor: colors.shadow,
     shadowOffset: {
       width: 0,
-      height: 12,
+      height: 5,
     },
-    shadowOpacity: 0.07,
-    shadowRadius: 20,
-    elevation: 4,
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    elevation: 2,
   },
   cardPressed: {
     transform: [{ scale: 0.985 }],
   },
   iconWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: 18,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.md,
@@ -80,11 +80,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: spacing.lg,
+    paddingTop: spacing.md,
   },
   linkLabel: {
     ...typography.caption,
     color: colors.primaryDeep,
-    fontWeight: '700',
+    fontWeight: '600',
   },
 });

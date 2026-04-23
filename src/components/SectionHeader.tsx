@@ -46,7 +46,7 @@ export function SectionHeader({
 const styles = StyleSheet.create({
   container: {
     gap: spacing.sm,
-    marginBottom: spacing.xl,
+    marginBottom: spacing.lg,
   },
   centered: {
     alignItems: 'center',

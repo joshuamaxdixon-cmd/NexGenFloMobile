@@ -62,7 +62,7 @@ const styles = StyleSheet.create({
   actionLabel: {
     ...typography.label,
     color: colors.primaryDeep,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   actionRow: {
     alignItems: 'center',
@@ -75,12 +75,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.surface,
     borderColor: colors.border,
-    borderRadius: 24,
+    borderRadius: 16,
     borderWidth: 1,
     flexDirection: 'row',
     gap: spacing.md,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
     width: '100%',
   },
   cardPressed: {
@@ -100,13 +100,13 @@ const styles = StyleSheet.create({
     borderColor: colors.divider,
     borderRadius: 999,
     borderWidth: 1,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 3,
   },
   statusText: {
     ...typography.caption,
     color: colors.primaryDeep,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   subtitle: {
     ...typography.body,

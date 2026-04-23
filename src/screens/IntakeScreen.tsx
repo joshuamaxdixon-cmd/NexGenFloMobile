@@ -464,7 +464,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   janetEntry: {
-    marginTop: spacing.md,
+    marginTop: spacing.sm,
     marginBottom: spacing.md,
   },
   resetButton: {

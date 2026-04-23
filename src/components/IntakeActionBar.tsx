@@ -72,15 +72,15 @@ const styles = StyleSheet.create({
   shell: {
     backgroundColor: colors.background,
     gap: spacing.sm,
-    marginTop: spacing.xl,
-    paddingBottom: spacing.xl,
+    marginTop: spacing.lg,
+    paddingBottom: spacing.lg,
     width: '100%',
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    minHeight: 58,
+    minHeight: 46,
   },
   backButton: {
     flex: 1,
@@ -97,7 +97,7 @@ const styles = StyleSheet.create({
   },
   tertiaryButton: {
     alignSelf: 'center',
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
   },
   tertiaryButtonPressed: {
@@ -109,6 +109,6 @@ const styles = StyleSheet.create({
   tertiaryLabel: {
     ...typography.body,
     color: colors.primaryDeep,
-    fontWeight: '600',
+    fontWeight: '500',
   },
 });

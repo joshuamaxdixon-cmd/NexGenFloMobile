@@ -27,11 +27,11 @@ export function ProgressBar({
 
 const styles = StyleSheet.create({
   container: {
-    gap: spacing.sm,
+    gap: spacing.xs,
     marginBottom: spacing.md,
   },
   track: {
-    height: 10,
+    height: 8,
     borderRadius: 999,
     backgroundColor: colors.surfaceMuted,
     overflow: 'hidden',

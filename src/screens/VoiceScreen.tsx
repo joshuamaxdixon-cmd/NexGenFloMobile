@@ -75,6 +75,9 @@ type PendingScanResult = DocumentScanResult & {
 const LOCAL_CONFIRMATION_FIELDS = [
   'firstName',
   'lastName',
+  'heightFt',
+  'heightIn',
+  'weightLb',
   'gender',
   'phoneNumber',
   'email',
@@ -85,8 +88,24 @@ const LOCAL_CONFIRMATION_FIELDS = [
 type LocalConfirmationField = (typeof LOCAL_CONFIRMATION_FIELDS)[number];
 type LocalConfirmationState = {
   field: LocalConfirmationField;
+  updates: Partial<IntakeFormData>;
   value: string;
 };
+
+const OPTIONAL_BASIC_INFO_FIELDS = [
+  'heightFt',
+  'heightIn',
+  'weightLb',
+  'email',
+  'emergencyContactName',
+  'emergencyContactPhone',
+] as const satisfies readonly LocalConfirmationField[];
+
+function isOptionalBasicInfoField(
+  field: LocalConfirmationField,
+): field is (typeof OPTIONAL_BASIC_INFO_FIELDS)[number] {
+  return OPTIONAL_BASIC_INFO_FIELDS.includes(field as (typeof OPTIONAL_BASIC_INFO_FIELDS)[number]);
+}
 
 type JanetFlowMode =
   | 'field_question'
@@ -530,6 +549,92 @@ function normalizeLocalConfirmationValue(
   }
 
   return normalized;
+}
+
+function parseSpokenDigits(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/\boh\b/g, '0')
+    .replace(/\bzero\b/g, '0')
+    .replace(/\bone\b/g, '1')
+    .replace(/\btwo\b/g, '2')
+    .replace(/\bthree\b/g, '3')
+    .replace(/\bfour\b/g, '4')
+    .replace(/\bfive\b/g, '5')
+    .replace(/\bsix\b/g, '6')
+    .replace(/\bseven\b/g, '7')
+    .replace(/\beight\b/g, '8')
+    .replace(/\bnine\b/g, '9');
+}
+
+function parseBasicInfoLocalCapture(
+  field: LocalConfirmationField,
+  transcript: string,
+): { updates: Partial<IntakeFormData>; value: string } | null {
+  const normalized = normalizeTranscriptText(transcript);
+  if (!normalized) {
+    return null;
+  }
+
+  if (field === 'heightFt') {
+    const normalizedHeight = parseSpokenDigits(normalized)
+      .replace(/feet|foot|ft/gi, ' ')
+      .replace(/inches|inch|in/gi, ' ')
+      .replace(/['"]/g, ' ');
+    const numbers = normalizedHeight.match(/\d+/g) ?? [];
+    const feet = numbers[0]?.slice(0, 2) ?? '';
+    const inches = numbers[1]?.slice(0, 2) ?? '';
+
+    if (!feet) {
+      return null;
+    }
+
+    return {
+      updates: {
+        heightFt: feet,
+        ...(inches ? { heightIn: inches } : {}),
+      },
+      value: inches ? `${feet} ft ${inches} in` : `${feet} ft`,
+    };
+  }
+
+  if (field === 'heightIn') {
+    const digits = parseSpokenDigits(normalized).match(/\d+/)?.[0]?.slice(0, 2) ?? '';
+    if (!digits) {
+      return null;
+    }
+
+    return {
+      updates: { heightIn: digits },
+      value: `${digits} in`,
+    };
+  }
+
+  if (field === 'weightLb') {
+    const normalizedWeight = normalizeIntakeFormFields({
+      weightLb: normalized,
+    }).weightLb;
+    if (typeof normalizedWeight !== 'string' || !normalizedWeight) {
+      return null;
+    }
+
+    return {
+      updates: { weightLb: normalizedWeight },
+      value: normalizedWeight,
+    };
+  }
+
+  const normalizedValue = normalizeLocalConfirmationValue(field, transcript);
+  if (!normalizedValue) {
+    return null;
+  }
+
+  return {
+    updates: {
+      [field]: normalizedValue,
+    } as Partial<IntakeFormData>,
+    value: normalizedValue,
+  };
 }
 
 function buildLocalConfirmationPrompt(options: {
@@ -1734,7 +1839,7 @@ export function VoiceExperience({
           return;
         }
 
-        const correctedValue = normalizeLocalConfirmationValue(
+        const correctedCapture = parseBasicInfoLocalCapture(
           localConfirmation.field,
           transcript,
         );
@@ -1744,7 +1849,7 @@ export function VoiceExperience({
 
         const confirmedValue = shouldApplyCurrentValue
           ? localConfirmation.value
-          : correctedValue;
+          : correctedCapture?.value ?? '';
 
         if (!confirmedValue) {
           const retryPrompt = buildLocalRetryPrompt({
@@ -1758,9 +1863,11 @@ export function VoiceExperience({
           return;
         }
 
-        const updates = normalizeIntakeFormFields({
-          [localConfirmation.field]: confirmedValue,
-        } as Partial<IntakeFormData>);
+        const updates = normalizeIntakeFormFields(
+          shouldApplyCurrentValue
+            ? localConfirmation.updates
+            : correctedCapture?.updates ?? {},
+        );
         const baseForm = normalizeIntakeFormFields({
           ...state.intake.form,
           ...(session?.draftPatch ?? {}),
@@ -1820,12 +1927,58 @@ export function VoiceExperience({
         isLocalConfirmationField(activeManagedField) &&
         interactionMode !== 'correction'
       ) {
-        const normalizedValue = normalizeLocalConfirmationValue(
+        if (
+          transcriptMatchesIntent(transcript, ['skip', 'skip for now']) &&
+          isOptionalBasicInfoField(activeManagedField)
+        ) {
+          const baseForm = normalizeIntakeFormFields({
+            ...state.intake.form,
+            ...(session?.draftPatch ?? {}),
+            ...(activeManagedField === 'heightFt'
+              ? { heightFt: '', heightIn: '' }
+              : { [activeManagedField]: '' }),
+          }) as IntakeFormData;
+          const nextBasicField = getFirstIncompleteJanetField('basicInfo', baseForm);
+          const nextPrompt = getCanonicalVoicePrompt({
+            field: nextBasicField,
+            language: state.janetMode.language,
+            pastMedicalHistoryField: null,
+            step: 'basicInfo',
+          });
+
+          setSession((currentSession) =>
+            currentSession
+              ? {
+                  ...currentSession,
+                  currentField: nextBasicField,
+                  currentStep: 'basicInfo',
+                  draftPatch: {
+                    ...currentSession.draftPatch,
+                    ...(activeManagedField === 'heightFt'
+                      ? { heightFt: '', heightIn: '' }
+                      : { [activeManagedField]: '' }),
+                  },
+                  firstPrompt: nextPrompt || currentSession.firstPrompt,
+                }
+              : currentSession,
+          );
+          setReplyText(nextPrompt);
+          if (!nextBasicField) {
+            await queueStepTransitionPrompt('basicInfo');
+            return;
+          }
+          if (nextPrompt.trim()) {
+            await playPrompt(nextPrompt);
+          }
+          return;
+        }
+
+        const localCapture = parseBasicInfoLocalCapture(
           activeManagedField,
           transcript,
         );
 
-        if (!normalizedValue) {
+        if (!localCapture) {
           const retryPrompt = buildLocalRetryPrompt({
             field: activeManagedField,
             language: state.janetMode.language,
@@ -1842,7 +1995,8 @@ export function VoiceExperience({
 
         setLocalConfirmation({
           field: activeManagedField,
-          value: normalizedValue,
+          updates: localCapture.updates,
+          value: localCapture.value,
         });
         setConfirmation({
           choices: [],
@@ -1850,19 +2004,19 @@ export function VoiceExperience({
           prompt: buildLocalConfirmationPrompt({
             field: activeManagedField,
             language: state.janetMode.language,
-            value: normalizedValue,
+            value: localCapture.value,
           }),
           required: true,
         });
         setWarnings([]);
         setLowConfidence(false);
-        setFinalTranscript(normalizedValue);
-        setVoiceTranscript(normalizedValue);
+        setFinalTranscript(localCapture.value);
+        setVoiceTranscript(localCapture.value);
         await playPrompt(
           buildLocalConfirmationPrompt({
             field: activeManagedField,
             language: state.janetMode.language,
-            value: normalizedValue,
+            value: localCapture.value,
           }),
         );
         return;

@@ -111,11 +111,16 @@ export const janetStepFieldOrder = {
     'emergencyContactPhone',
   ],
   symptoms: [
-    'allergies',
+    'allergyMedicationSelections',
+    'allergyMaterialSelections',
+    'allergyFoodSelections',
+    'allergyEnvironmentalSelections',
     'medications',
     'pharmacy',
     'lastDose',
-    'immunizations',
+    'immunizationCoreSelections',
+    'immunizationRoutineSelections',
+    'immunizationTravelSelections',
     'chiefConcern',
     'symptomDuration',
     'painLevel',
@@ -242,14 +247,41 @@ const JANET_FIELD_METADATA = {
     },
     title: 'Emergency Contact Phone',
   },
-  allergies: {
-    hints: ['allergies', 'medication allergies', 'food allergies', 'latex', 'unknown'],
-    label: 'allergies',
+  allergyMedicationSelections: {
+    hints: ['medication allergies', 'allergy medicine', 'penicillin', 'none'],
+    label: 'medication allergies',
     prompt: {
-      en: 'Tell me about any allergies that matter for today. You can say none.',
-      es: 'Dime cualquier alergia importante para hoy. También puedes decir ninguna.',
+      en: 'Do you have any medication allergies? You can say none.',
+      es: '¿Tienes alguna alergia a medicamentos? Puedes decir ninguna.',
     },
-    title: 'Allergies',
+    title: 'Medication Allergies',
+  },
+  allergyMaterialSelections: {
+    hints: ['material allergies', 'contact allergies', 'latex', 'adhesive', 'none'],
+    label: 'material or contact allergies',
+    prompt: {
+      en: 'Do you have any material or contact allergies? You can say none.',
+      es: '¿Tienes alguna alergia a materiales o de contacto? Puedes decir ninguna.',
+    },
+    title: 'Material / Contact Allergies',
+  },
+  allergyFoodSelections: {
+    hints: ['food allergies', 'peanut', 'shellfish', 'dairy', 'none'],
+    label: 'food allergies',
+    prompt: {
+      en: 'Do you have any food allergies? You can say none.',
+      es: '¿Tienes alguna alergia alimentaria? Puedes decir ninguna.',
+    },
+    title: 'Food Allergies',
+  },
+  allergyEnvironmentalSelections: {
+    hints: ['environmental allergies', 'pollen', 'dust', 'pet dander', 'none'],
+    label: 'environmental allergies',
+    prompt: {
+      en: 'Do you have any environmental allergies? You can say none.',
+      es: '¿Tienes alguna alergia ambiental? Puedes decir ninguna.',
+    },
+    title: 'Environmental Allergies',
   },
   medications: {
     hints: ['medications', 'medicine', 'prescriptions'],
@@ -278,14 +310,32 @@ const JANET_FIELD_METADATA = {
     },
     title: 'Last Dose',
   },
-  immunizations: {
-    hints: ['vaccines', 'immunizations', 'flu shot', 'covid vaccine', 'unknown'],
-    label: 'immunizations',
+  immunizationCoreSelections: {
+    hints: ['core vaccines', 'immunizations', 'flu shot', 'covid vaccine', 'none', 'unsure'],
+    label: 'core vaccines',
     prompt: {
-      en: 'Tell me about any vaccines or immunizations you want noted today. You can say unsure.',
-      es: 'Dime qué vacunas o inmunizaciones quieres registrar hoy. También puedes decir no estoy seguro.',
+      en: 'Which core vaccines should we note? You can say none or unsure.',
+      es: '¿Qué vacunas principales debemos registrar? Puedes decir ninguna o no estoy seguro.',
     },
-    title: 'Immunizations',
+    title: 'Core Vaccines',
+  },
+  immunizationRoutineSelections: {
+    hints: ['routine adult vaccines', 'tetanus', 'shingles', 'pneumonia', 'none', 'unsure'],
+    label: 'routine adult vaccines',
+    prompt: {
+      en: 'Which routine adult vaccines should we note? You can say none or unsure.',
+      es: '¿Qué vacunas rutinarias para adultos debemos registrar? Puedes decir ninguna o no estoy seguro.',
+    },
+    title: 'Routine Adult Vaccines',
+  },
+  immunizationTravelSelections: {
+    hints: ['travel vaccines', 'risk-based vaccines', 'yellow fever', 'hepatitis', 'none', 'unsure'],
+    label: 'travel or risk-based vaccines',
+    prompt: {
+      en: 'Which travel or risk-based vaccines should we note? You can say none or unsure.',
+      es: '¿Qué vacunas de viaje o basadas en riesgo debemos registrar? Puedes decir ninguna o no estoy seguro.',
+    },
+    title: 'Travel / Risk-Based Vaccines',
   },
   chiefConcern: {
     hints: ['reason for visit', 'chief concern', 'symptoms'],
@@ -486,11 +536,17 @@ export function resolveJanetFieldForStep(
   form: IntakeFormData,
   proposedField: string | null | undefined,
 ) {
+  const firstIncompleteField = getFirstIncompleteJanetField(step, form);
+
+  if (firstIncompleteField) {
+    return firstIncompleteField;
+  }
+
   if (isJanetFieldActiveForStep(step, proposedField)) {
     return proposedField;
   }
 
-  return getFirstIncompleteJanetField(step, form);
+  return null;
 }
 
 export const pastMedicalHistoryOptions = {

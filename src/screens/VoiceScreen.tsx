@@ -80,38 +80,40 @@ type PastMedicalHistoryVoiceField =
 
 const JANET_UI_COPY = {
   en: {
-    close: 'Close Janet',
     currentQuestion: 'CURRENT QUESTION',
     editManually: 'Edit manually',
     greetingTitle: 'Janet Guided Check-In',
     greetingSubtitle:
       'Janet asks one question at a time and writes answers back into this same check-in.',
-    janetVoiceMode: 'JANET\nVOICE MODE',
+    janetVoiceMode: 'Janet Voice Mode',
     language: 'English',
     listening: 'Listening…',
     noisyRoom: 'Noisy Room',
     playPrompt: 'Play prompt',
     processing: 'Processing your answer…',
     repeat: 'Repeat',
+    soundOff: 'Sound: Off',
+    soundOn: 'Sound: On',
     spanish: 'Español',
     stopAudio: 'Stop audio',
     switchToTyping: 'Edit manually',
     tapOrSpeak: 'Tap or speak when ready.',
   },
   es: {
-    close: 'Cerrar Janet',
     currentQuestion: 'PREGUNTA ACTUAL',
     editManually: 'Editar manualmente',
     greetingTitle: 'Registro guiado con Janet',
     greetingSubtitle:
       'Janet hace una pregunta a la vez y guarda las respuestas en este mismo check-in.',
-    janetVoiceMode: 'JANET\nMODO VOZ',
+    janetVoiceMode: 'Modo de voz de Janet',
     language: 'Español',
     listening: 'Escuchando…',
     noisyRoom: 'Lugar ruidoso',
     playPrompt: 'Repetir pregunta',
     processing: 'Procesando tu respuesta…',
     repeat: 'Repetir',
+    soundOff: 'Sound: Off',
+    soundOn: 'Sound: On',
     spanish: 'Español',
     stopAudio: 'Detener audio',
     switchToTyping: 'Editar manualmente',
@@ -455,7 +457,6 @@ export function VoiceExperience({
     closeJanetMode,
     setJanetLanguage,
     setJanetModeStep,
-    setJanetNoisyRoom,
     setVoiceEditing,
     setVoiceHandoff,
     setVoiceListening,
@@ -1861,65 +1862,103 @@ export function VoiceExperience({
       {!embedded ? (
         <>
           <View style={styles.topbar}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                void Haptics.selectionAsync();
+                if (onClose) {
+                  onClose();
+                  return;
+                }
+                closeJanetMode();
+              }}
+              style={styles.topbarBackButton}
+            >
+              <Ionicons
+                color={colors.textPrimary}
+                name="chevron-back"
+                size={22}
+              />
+            </Pressable>
             <Text style={styles.topbarLabel}>{janetCopy.janetVoiceMode}</Text>
             <View style={styles.topbarActions}>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => {
-                  void Haptics.selectionAsync();
-                  setJanetLanguage(
-                    state.janetMode.language === 'en' ? 'es' : 'en',
-                  );
-                }}
-                style={styles.topbarButton}
-              >
-                <Text style={styles.topbarButtonText}>
-                  {state.janetMode.language === 'en'
-                    ? janetCopy.spanish
-                    : JANET_UI_COPY.en.language}
-                </Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => {
-                  void Haptics.selectionAsync();
-                  setJanetNoisyRoom(!state.janetMode.noisyRoomEnabled);
-                }}
-                style={styles.topbarButton}
-              >
-                <Text style={styles.topbarButtonText}>
-                  {janetCopy.noisyRoom}: {state.janetMode.noisyRoomEnabled ? 'On' : 'Off'}
-                </Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => {
-                  void Haptics.selectionAsync();
-                  setVoiceOutputEnabled((current) => !current);
-                }}
-                style={styles.topbarButton}
-              >
-                <Text style={styles.topbarButtonText}>
-                  {voiceOutputEnabled ? 'Mute Janet Voice' : 'Turn Janet Voice On'}
-                </Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => {
-                  void Haptics.selectionAsync();
-                  if (onClose) {
-                    onClose();
-                    return;
-                  }
-                  closeJanetMode();
-                }}
-                style={styles.topbarButton}
-              >
-                <Text style={styles.topbarButtonText}>
-                  {janetCopy.close}
-                </Text>
-              </Pressable>
+              <View style={styles.languageToggle}>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => {
+                    if (state.janetMode.language === 'en') {
+                      return;
+                    }
+                    void Haptics.selectionAsync();
+                    setJanetLanguage('en');
+                  }}
+                  style={[
+                    styles.languageOption,
+                    state.janetMode.language === 'en'
+                      ? styles.languageOptionActive
+                      : null,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.languageOptionText,
+                      state.janetMode.language === 'en'
+                        ? styles.languageOptionTextActive
+                        : null,
+                    ]}
+                  >
+                    {JANET_UI_COPY.en.language}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => {
+                    if (state.janetMode.language === 'es') {
+                      return;
+                    }
+                    void Haptics.selectionAsync();
+                    setJanetLanguage('es');
+                  }}
+                  style={[
+                    styles.languageOption,
+                    state.janetMode.language === 'es'
+                      ? styles.languageOptionActive
+                      : null,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.languageOptionText,
+                      state.janetMode.language === 'es'
+                        ? styles.languageOptionTextActive
+                        : null,
+                    ]}
+                  >
+                    {JANET_UI_COPY.en.spanish}
+                  </Text>
+                </Pressable>
+              </View>
             </View>
+          </View>
+
+          <View style={styles.soundRow}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                void Haptics.selectionAsync();
+                setVoiceOutputEnabled((current) => !current);
+              }}
+              style={styles.soundButton}
+            >
+              <Ionicons
+                color={colors.primaryDeep}
+                name={voiceOutputEnabled ? 'volume-high-outline' : 'volume-mute-outline'}
+                size={18}
+              />
+              <Text style={styles.soundButtonText}>
+                {voiceOutputEnabled ? janetCopy.soundOn : janetCopy.soundOff}
+              </Text>
+            </Pressable>
           </View>
 
           <View style={styles.hero}>
@@ -2852,33 +2891,77 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
   },
   topbar: {
-    alignItems: 'flex-start',
+    alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
     width: '100%',
   },
   topbarActions: {
     alignItems: 'flex-end',
-    gap: spacing.sm,
+    flexShrink: 0,
   },
-  topbarButton: {
+  topbarBackButton: {
+    alignItems: 'center',
     backgroundColor: colors.surface,
     borderColor: colors.divider,
     borderWidth: 1,
     borderRadius: 999,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-  },
-  topbarButtonText: {
-    ...typography.body,
-    color: colors.textPrimary,
-    fontWeight: '700',
+    height: 46,
+    justifyContent: 'center',
+    width: 46,
   },
   topbarLabel: {
-    ...typography.caption,
-    color: colors.textTertiary,
+    ...typography.title,
+    color: colors.textPrimary,
+    flex: 1,
     fontWeight: '700',
-    letterSpacing: 1.2,
+    marginLeft: spacing.md,
+  },
+  languageToggle: {
+    backgroundColor: colors.surface,
+    borderColor: colors.divider,
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: 'row',
+    overflow: 'hidden',
+    padding: 3,
+  },
+  languageOption: {
+    borderRadius: 999,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 9,
+  },
+  languageOptionActive: {
+    backgroundColor: colors.surfaceSoft,
+  },
+  languageOptionText: {
+    ...typography.label,
+    color: colors.textSecondary,
+    fontWeight: '600',
+  },
+  languageOptionTextActive: {
+    color: colors.primaryDeep,
+  },
+  soundRow: {
+    alignItems: 'flex-end',
+    marginTop: spacing.sm,
+    width: '100%',
+  },
+  soundButton: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.divider,
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 11,
+  },
+  soundButtonText: {
+    ...typography.body,
+    color: colors.textPrimary,
+    fontWeight: '600',
   },
   utilityButton: {
     flex: 1,

@@ -1,5 +1,6 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -107,20 +108,47 @@ function EditorSheet({
   title: string;
   visible: boolean;
 }) {
+  const [keyboardInset, setKeyboardInset] = useState(0);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') {
+      setKeyboardInset(0);
+      return;
+    }
+
+    const handleKeyboardShow = Keyboard.addListener('keyboardDidShow', (event) => {
+      setKeyboardInset(Math.max(0, event.endCoordinates.height));
+    });
+    const handleKeyboardHide = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardInset(0);
+    });
+
+    return () => {
+      handleKeyboardShow.remove();
+      handleKeyboardHide.remove();
+    };
+  }, []);
+
   return (
     <Modal
       animationType="slide"
       onRequestClose={onClose}
       presentationStyle="overFullScreen"
+      statusBarTranslucent={Platform.OS === 'android'}
       transparent
       visible={visible}
     >
       <View style={styles.modalFrame}>
         <Pressable onPress={onClose} style={styles.modalBackdrop} />
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? spacing.lg : spacing.xxxl}
-          style={styles.modalKeyboardWrap}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? spacing.lg : 0}
+          style={[
+            styles.modalKeyboardWrap,
+            Platform.OS === 'android' && keyboardInset > 0
+              ? { paddingBottom: keyboardInset }
+              : null,
+          ]}
         >
           <View style={styles.modalSheet}>
             <View style={styles.modalHeader}>

@@ -534,6 +534,31 @@ function parseSpokenDigits(value: string) {
     .replace(/\bnine\b/g, '9');
 }
 
+function normalizeSpokenNumberWords(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/\bten\b/g, '10')
+    .replace(/\beleven\b/g, '11')
+    .replace(/\btwelve\b/g, '12')
+    .replace(/\bthirteen\b/g, '13')
+    .replace(/\bfourteen\b/g, '14')
+    .replace(/\bfifteen\b/g, '15')
+    .replace(/\bsixteen\b/g, '16')
+    .replace(/\bseventeen\b/g, '17')
+    .replace(/\beighteen\b/g, '18')
+    .replace(/\bnineteen\b/g, '19')
+    .replace(/\btwenty\b/g, '20')
+    .replace(/\bthirty\b/g, '30')
+    .replace(/\bforty\b/g, '40')
+    .replace(/\bfifty\b/g, '50')
+    .replace(/\bsixty\b/g, '60')
+    .replace(/\bseventy\b/g, '70')
+    .replace(/\beighty\b/g, '80')
+    .replace(/\bninety\b/g, '90')
+    .replace(/\bhundred\b/g, ' ')
+    .replace(/\band\b/g, ' ');
+}
+
 function parseBasicInfoLocalCapture(
   field: LocalConfirmationField,
   transcript: string,
@@ -578,7 +603,9 @@ function parseBasicInfoLocalCapture(
   }
 
   if (field === 'weightLb') {
-    const normalizedWeightTranscript = parseSpokenDigits(normalized)
+    const normalizedWeightTranscript = normalizeSpokenNumberWords(
+      parseSpokenDigits(normalized),
+    )
       .toLowerCase()
       .replace(/\bpounds?\b/g, ' ')
       .replace(/\blbs?\b/g, ' ')
@@ -660,15 +687,27 @@ function isLocalSymptomTextField(
 function parseStructuredMedicalInfoCapture(
   field: StructuredMedicalInfoField,
   transcript: string,
-): { updates: Partial<IntakeFormData>; value: string } | null {
+): {
+  acknowledgementMessage: string;
+  updates: Partial<IntakeFormData>;
+  value: string;
+} | null {
   const normalizedTranscript = normalizeTranscriptText(transcript);
 
   if (!normalizedTranscript) {
     return null;
   }
 
+  const fieldLabel =
+    field === 'immunizationCoreSelections'
+      ? 'core vaccines'
+      : field === 'immunizationRoutineSelections'
+        ? 'routine adult vaccines'
+        : 'travel or risk-based vaccines';
+
   if (transcriptMeansNone(normalizedTranscript)) {
     return {
+      acknowledgementMessage: `I heard none. I'll mark no known ${fieldLabel}.`,
       updates: {
         [field]: [],
         medicalInfoHydrated: true,
@@ -690,6 +729,10 @@ function parseStructuredMedicalInfoCapture(
   }
 
   return {
+    acknowledgementMessage:
+      selection.length === 1
+        ? `I heard ${selection[0]}. I'll record that under ${fieldLabel}.`
+        : `I heard ${selection.join(', ')}. I'll record those under ${fieldLabel}.`,
     updates: {
       [field]: selection,
       medicalInfoHydrated: true,
@@ -2413,25 +2456,30 @@ export function VoiceExperience({
 
       if (
         janetStep === 'symptoms' &&
-        isStructuredAllergyField(activeManagedField) &&
+        isStructuredMedicalInfoField(activeManagedField) &&
         interactionMode !== 'correction'
       ) {
-        const allergyFieldCapture = parseAllergyFieldVoiceCapture(
-          activeManagedField,
-          transcript,
-        );
+        const medicalInfoCapture = isStructuredAllergyField(activeManagedField)
+          ? parseAllergyFieldVoiceCapture(activeManagedField, transcript)
+          : parseStructuredMedicalInfoCapture(activeManagedField, transcript);
 
-        if (allergyFieldCapture) {
+        if (medicalInfoCapture) {
+          const mergedLegacyAllergies =
+            isStructuredAllergyField(activeManagedField)
+              ? buildMedicalInfoLegacyAllergyText({
+                  ...state.intake.form,
+                  ...(session?.draftPatch ?? {}),
+                  ...medicalInfoCapture.updates,
+                } as IntakeFormData)
+              : undefined;
           const mergedForm = reconcileStructuredIntakeForm(
             normalizeIntakeFormFields({
               ...state.intake.form,
               ...(session?.draftPatch ?? {}),
-              ...allergyFieldCapture.updates,
-              allergies: buildMedicalInfoLegacyAllergyText({
-                ...state.intake.form,
-                ...(session?.draftPatch ?? {}),
-                ...allergyFieldCapture.updates,
-              } as IntakeFormData),
+              ...medicalInfoCapture.updates,
+              ...(mergedLegacyAllergies
+                ? { allergies: mergedLegacyAllergies }
+                : {}),
             }) as IntakeFormData,
           );
           const nextField = resolveJanetVoiceFieldState({
@@ -2453,17 +2501,21 @@ export function VoiceExperience({
             transcript,
           });
 
-          updateIntakeFields({
-            ...allergyFieldCapture.updates,
-            allergies: mergedForm.allergies,
-          });
+          updateIntakeFields(
+            isStructuredAllergyField(activeManagedField)
+              ? {
+                  ...medicalInfoCapture.updates,
+                  allergies: mergedForm.allergies,
+                }
+              : medicalInfoCapture.updates,
+          );
           setVoiceHandoff(nextHandoff);
           setWarnings([]);
           setLowConfidence(false);
           setConfirmation(EMPTY_CONFIRMATION);
           setPartialTranscript('');
-          setFinalTranscript(allergyFieldCapture.value);
-          setVoiceTranscript(allergyFieldCapture.value);
+          setFinalTranscript(medicalInfoCapture.value);
+          setVoiceTranscript(medicalInfoCapture.value);
           setSession((currentSession) =>
             currentSession
               ? {
@@ -2473,20 +2525,22 @@ export function VoiceExperience({
                   currentStep: 'symptoms',
                   draftPatch: {
                     ...currentSession.draftPatch,
-                    ...allergyFieldCapture.updates,
-                    allergies: mergedForm.allergies,
+                    ...medicalInfoCapture.updates,
+                    ...(mergedLegacyAllergies
+                      ? { allergies: mergedForm.allergies }
+                      : {}),
                   },
                   firstPrompt: nextPrompt || currentSession.firstPrompt,
                 }
               : currentSession,
           );
-          setReplyText(nextPrompt || allergyFieldCapture.acknowledgementMessage);
+          setReplyText(nextPrompt || medicalInfoCapture.acknowledgementMessage);
           setJanetModeStep('symptoms');
           void queueDraftAndHandoffSync({
             formOverride: mergedForm,
           });
 
-          await playPrompt(allergyFieldCapture.acknowledgementMessage, {
+          await playPrompt(medicalInfoCapture.acknowledgementMessage, {
             autoListenAfter: false,
           });
 
@@ -2608,89 +2662,9 @@ export function VoiceExperience({
           transcriptConfidence: confidence,
         });
 
-        if (
-          janetStep === 'symptoms' &&
-          isStructuredMedicalInfoField(activeManagedField) &&
-          !result.confirmation.required
-        ) {
-          const localStructuredCapture = parseStructuredMedicalInfoCapture(
-            activeManagedField,
-            transcript,
-          );
-
-          if (localStructuredCapture) {
-            const mergedForm = reconcileStructuredIntakeForm(
-              normalizeIntakeFormFields({
-                ...state.intake.form,
-                ...(session?.draftPatch ?? {}),
-                ...localStructuredCapture.updates,
-              }) as IntakeFormData,
-            );
-            const nextField = resolveJanetVoiceFieldState({
-              form: mergedForm,
-              pastMedicalHistoryField,
-              proposedField: null,
-              step: 'symptoms',
-            }).activeField;
-            const nextPrompt = getCanonicalJanetPrompt({
-              field: nextField,
-              language: state.janetMode.language,
-              pastMedicalHistoryField: null,
-              step: 'symptoms',
-            });
-            const nextHandoff = buildJanetHandoffFromDraft({
-              existing: state.voice.handoff,
-              form: mergedForm,
-              interpretedAt: new Date().toISOString(),
-              transcript,
-            });
-
-            updateIntakeFields(localStructuredCapture.updates);
-            setVoiceHandoff(nextHandoff);
-            setWarnings([]);
-            setLowConfidence(false);
-            setConfirmation(EMPTY_CONFIRMATION);
-            setPartialTranscript('');
-            setFinalTranscript(localStructuredCapture.value);
-            setVoiceTranscript(localStructuredCapture.value);
-            setSession((currentSession) =>
-              currentSession
-                ? {
-                    ...currentSession,
-                    confirmation: EMPTY_CONFIRMATION,
-                    currentField: nextField,
-                    currentStep: 'symptoms',
-                    draftPatch: {
-                      ...currentSession.draftPatch,
-                      ...localStructuredCapture.updates,
-                    },
-                    firstPrompt: nextPrompt || currentSession.firstPrompt,
-                  }
-                : currentSession,
-            );
-            setReplyText(nextPrompt);
-            setJanetModeStep('symptoms');
-            void queueDraftAndHandoffSync({
-              formOverride: mergedForm,
-            });
-
-            if (!nextField) {
-              await queueStepTransitionPrompt('symptoms');
-              setIsProcessing(false);
-              return;
-            }
-
-            if (nextPrompt.trim()) {
-              await playPrompt(nextPrompt);
-            }
-            setIsProcessing(false);
-            return;
-          }
-        }
-
-        const resolvedUpdatedStep = coerceJanetProgressStep(
-          janetStep,
-          result.extraction.updatedStep,
+      const resolvedUpdatedStep = coerceJanetProgressStep(
+        janetStep,
+        result.extraction.updatedStep,
         ) as JanetConversationStep;
         const mergedForm = reconcileStructuredIntakeForm(
           normalizeIntakeFormFields({

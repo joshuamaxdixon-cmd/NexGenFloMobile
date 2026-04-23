@@ -1089,10 +1089,15 @@ function reducer(
     case 'close_janet_mode':
       return {
         ...state,
+        intake: {
+          ...state.intake,
+          currentStep: state.janetMode.currentStep,
+          lastUpdatedAt: nowIso(),
+        },
         janetMode: {
           ...state.janetMode,
           active: false,
-          currentStep: state.janetMode.returnStep ?? state.intake.currentStep,
+          currentStep: state.janetMode.currentStep,
           returnStep: null,
         },
       };

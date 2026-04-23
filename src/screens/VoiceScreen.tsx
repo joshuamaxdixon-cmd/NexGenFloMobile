@@ -1477,12 +1477,13 @@ export function VoiceExperience({
 
   const continueInTypedIntake = useCallback(() => {
     setPendingScanResult(null);
+    const manualTargetStep = janetStep;
 
     if (!state.intake.form.firstName && !state.intake.form.chiefConcern) {
       startNewIntake({
         prefill: EMPTY_MEDICAL_AND_PMH_PREFILL,
         source: 'voice',
-        step: state.janetMode.returnStep ?? janetStep,
+        step: manualTargetStep,
       });
     }
 
@@ -1493,7 +1494,7 @@ export function VoiceExperience({
 
     navigation.navigate('Intake', {
       mode: 'intake',
-      startStep: state.janetMode.returnStep ?? janetStep,
+      startStep: manualTargetStep,
       launchSource: 'voice',
       resetKey: `voice-inline-${janetStep}-${Date.now()}`,
     });
@@ -1504,7 +1505,6 @@ export function VoiceExperience({
     startNewIntake,
     state.intake.form.chiefConcern,
     state.intake.form.firstName,
-    state.janetMode.returnStep,
   ]);
 
   useEffect(() => {

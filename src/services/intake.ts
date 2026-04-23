@@ -174,8 +174,8 @@ const JANET_FIELD_METADATA = {
     hints: ['height', 'feet tall', 'how tall'],
     label: 'height in feet',
     prompt: {
-      en: 'How tall are you in feet?',
-      es: '¿Cuánto mides en pies?',
+      en: 'What is your height?',
+      es: '¿Cuál es tu estatura?',
     },
     title: 'Height (ft)',
   },
@@ -192,19 +192,19 @@ const JANET_FIELD_METADATA = {
     hints: ['weight', 'pounds'],
     label: 'weight',
     prompt: {
-      en: 'What is your weight in pounds?',
-      es: '¿Cuál es tu peso en libras?',
+      en: 'What is your weight?',
+      es: '¿Cuál es tu peso?',
     },
     title: 'Weight',
   },
   gender: {
     hints: ['male', 'female', 'other', 'sex'],
-    label: 'sex',
+    label: 'gender',
     prompt: {
-      en: 'What sex should I record: male, female, or other?',
-      es: '¿Qué sexo debo registrar: masculino, femenino u otro?',
+      en: 'What is your gender?',
+      es: '¿Cuál es tu género?',
     },
-    title: 'Sex',
+    title: 'Gender',
   },
   phoneNumber: {
     hints: ['phone number', 'cell phone', 'area code'],

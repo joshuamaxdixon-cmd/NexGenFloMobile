@@ -1801,7 +1801,9 @@ export function VoiceExperience({
             : currentSession,
         );
         setJanetModeStep('basicInfo');
-        void syncCurrentDraft();
+        void syncCurrentDraft({
+          formOverride: mergedForm,
+        });
         if (!nextBasicField) {
           await queueStepTransitionPrompt('basicInfo');
           return;

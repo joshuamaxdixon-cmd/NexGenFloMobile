@@ -364,7 +364,7 @@ type DraftStoreContextValue = {
   }) => void;
   state: DraftStoreState;
   submitCurrentIntake: () => Promise<boolean>;
-  syncCurrentDraft: () => Promise<boolean>;
+  syncCurrentDraft: (options?: { formOverride?: IntakeFormData }) => Promise<boolean>;
   syncSelectedUpload: (documentType: UploadDocumentType) => Promise<boolean>;
   syncVoiceHandoff: () => Promise<boolean>;
   updateIntakeField: <K extends keyof IntakeFormData>(
@@ -1575,11 +1575,14 @@ function hasMinimumIdentityForSync(state: DraftStoreState) {
   );
 }
 
-function buildRemoteDraftPayload(state: DraftStoreState) {
+function buildRemoteDraftPayload(
+  state: DraftStoreState,
+  options?: { formOverride?: IntakeFormData },
+) {
   return {
     currentStep: state.intake.currentStep,
     draftId: state.backend.draft.draftId,
-    form: state.intake.form,
+    form: options?.formOverride ?? state.intake.form,
     janetHandoff: state.voice.handoff,
     patientId: state.backend.draft.patientId,
     returningPatient: state.returningPatient.form,
@@ -1706,7 +1709,7 @@ export function DraftStoreProvider({ children }: { children: ReactNode }) {
     return true;
   };
 
-  const syncCurrentDraft = async () => {
+  const syncCurrentDraft = async (options?: { formOverride?: IntakeFormData }) => {
     const currentState = stateRef.current;
 
     if (!hasMinimumIdentityForSync(currentState)) {
@@ -1732,7 +1735,9 @@ export function DraftStoreProvider({ children }: { children: ReactNode }) {
     });
 
     try {
-      const payload = buildRemoteDraftPayload(currentState);
+      const payload = buildRemoteDraftPayload(currentState, {
+        formOverride: options?.formOverride,
+      });
       const response = currentState.backend.draft.draftId
         ? await updateIntakeDraft(currentState.backend.draft.draftId, payload)
         : await saveIntakeDraft(payload);

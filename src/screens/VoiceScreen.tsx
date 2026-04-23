@@ -711,23 +711,35 @@ function parseStructuredMedicalInfoCapture(
       : field === 'immunizationRoutineSelections'
         ? 'routine adult vaccines'
         : 'travel or risk-based vaccines';
+  const isImmunizationField =
+    field === 'immunizationCoreSelections' ||
+    field === 'immunizationRoutineSelections' ||
+    field === 'immunizationTravelSelections';
+
+  if (isImmunizationField && transcriptMeansUnsure(normalizedTranscript)) {
+    return {
+      acknowledgementMessage: `I heard I don't know. I'll mark ${fieldLabel} as unsure.`,
+      currentFieldAnswered: true,
+      updates: {
+        [field]: ['Unknown / Unsure'],
+        medicalInfoHydrated: true,
+      } as Partial<IntakeFormData>,
+      value: 'Unknown / Unsure',
+    };
+  }
 
   if (transcriptMeansNone(normalizedTranscript)) {
     return {
-      acknowledgementMessage: `I heard none. I'll mark no known ${fieldLabel}.`,
+      acknowledgementMessage: `I heard none. I'll mark ${fieldLabel} as none.`,
       currentFieldAnswered: true,
       updates: {
-        [field]: [],
+        [field]: isImmunizationField ? ['None'] : [],
         medicalInfoHydrated: true,
       } as Partial<IntakeFormData>,
       value: 'none',
     };
   }
 
-  const isImmunizationField =
-    field === 'immunizationCoreSelections' ||
-    field === 'immunizationRoutineSelections' ||
-    field === 'immunizationTravelSelections';
   const hydrated = isImmunizationField
     ? hydrateMedicalInfoFromLegacy('', normalizedTranscript)
     : hydrateMedicalInfoFromLegacy(normalizedTranscript, '');

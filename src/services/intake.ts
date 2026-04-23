@@ -741,6 +741,7 @@ export const medicalInfoCategoryOptions = {
   allergyMaterial: MEDICAL_INFO_ALLERGY_OPTIONS.material,
   allergyMedication: MEDICAL_INFO_ALLERGY_OPTIONS.medication,
   immunizationCore: [
+    'None',
     'Influenza (yearly)',
     'COVID-19 vaccine',
     'Tetanus / Tdap (within 10 years)',
@@ -755,12 +756,14 @@ export const medicalInfoCategoryOptions = {
     'Unknown / Unsure',
   ],
   immunizationRoutine: [
+    'None',
     'Pneumococcal',
     'Shingles',
     'Shingrix - age 50+',
     'Unknown / Unsure',
   ],
   immunizationTravel: [
+    'None',
     'Typhoid',
     'Yellow Fever',
     'Japanese Encephalitis',
@@ -775,6 +778,7 @@ export const medicalInfoCategoryOptions = {
 } as const;
 
 const MEDICAL_INFO_IMMUNIZATION_ALIASES: Record<string, string[]> = {
+  None: ['none', 'no', 'none known'],
   'Tetanus / Tdap (within 10 years)': ['tetanus', 'tdap', 'tetanus tdap'],
   'MMR (Measles, Mumps, Rubella)': ['mmr', 'measles mumps rubella'],
   'Varicella (Chickenpox)': ['varicella', 'chickenpox', 'chicken pox'],
@@ -794,6 +798,14 @@ const MEDICAL_INFO_IMMUNIZATION_ALIASES: Record<string, string[]> = {
   'Japanese Encephalitis': ['japanese encephalitis'],
   'Rabies (pre-exposure)': ['rabies', 'rabies pre exposure'],
   'Other travel vaccines': ['other travel vaccine', 'travel vaccine other'],
+  'Unknown / Unsure': [
+    'unsure',
+    'not sure',
+    'unknown',
+    "i don't know",
+    'dont know',
+    'do not know',
+  ],
   'Unsure of immunization history': ['unsure', 'not sure', 'unknown history'],
   'No records available': ['no records', 'no vaccine records'],
 };

@@ -1,24 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
-import {
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Feather, Ionicons } from '@expo/vector-icons';
 
 import { DevPreviewPanel } from '../components/DevPreviewPanel';
 import { DevQaPanel } from '../components/DevQaPanel';
-import { JanetHelperCard } from '../components/JanetHelperCard';
-import { PrimaryButton } from '../components/PrimaryButton';
+import { JanetAvatar } from '../components/JanetAvatar';
 import { ScreenContainer } from '../components/ScreenContainer';
-import { SecondaryButton } from '../components/SecondaryButton';
 import type { RootTabParamList } from '../navigation/types';
 import {
   buildPortalIntakePrefill,
   type IntakeFormData,
-  usePatientPortal,
   useDraftStore,
+  usePatientPortal,
 } from '../services';
 import { colors, spacing, typography } from '../theme';
 
@@ -93,6 +87,40 @@ function createDevPreviewFullPrefill(): Partial<IntakeFormData> {
     symptomNotes: 'Worse at night',
     weightLb: '142',
   };
+}
+
+function HomeActionCard({
+  icon,
+  onPress,
+  subtitle,
+  title,
+}: {
+  icon: keyof typeof Feather.glyphMap;
+  onPress: () => void;
+  subtitle: string;
+  title: string;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.actionCard,
+        pressed ? styles.pressedCard : null,
+      ]}
+    >
+      <View style={styles.actionIconShell}>
+        <Feather color={colors.primaryDeep} name={icon} size={22} />
+      </View>
+      <View style={styles.actionCopy}>
+        <Text style={styles.actionTitle}>{title}</Text>
+        <Text style={styles.actionSubtitle}>{subtitle}</Text>
+      </View>
+      <View style={styles.actionChevronShell}>
+        <Feather color={colors.primaryDeep} name="chevron-right" size={20} />
+      </View>
+    </Pressable>
+  );
 }
 
 export function HomeScreen({ navigation }: HomeScreenProps) {
@@ -202,50 +230,100 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
         accessible={false}
         disabled={!__DEV__}
         onLongPress={() => setShowDeveloperTools((current) => !current)}
-        style={styles.heroCard}
+        style={styles.homeShell}
       >
-        <View style={styles.heroAccent} />
-        <Text style={styles.heroTitleLead}>Welcome</Text>
-        <Text
-          adjustsFontSizeToFit
-          minimumFontScale={0.88}
-          numberOfLines={1}
-          style={styles.heroTitleLine}
-        >
-          Let&apos;s get you checked in.
-        </Text>
-        <Text style={styles.heroSubtitle}>
-          Type or speak with Janet without losing your place.
-        </Text>
-      </Pressable>
+        <View style={styles.topRow}>
+          <View style={styles.brandRow}>
+            <View style={styles.logoMark}>
+              <View style={styles.logoCrossVertical} />
+              <View style={styles.logoCrossHorizontal} />
+            </View>
+            <Text style={styles.brandText}>NexGEN</Text>
+          </View>
 
-      <View style={styles.actionsSection}>
-        <JanetHelperCard
-          actionLabel="Open Janet"
-          avatarSize="sm"
+          <View style={styles.bellShell}>
+            <Ionicons
+              color={colors.textPrimary}
+              name="notifications-outline"
+              size={22}
+            />
+            <View style={styles.bellDot} />
+          </View>
+        </View>
+
+        <View style={styles.heroBlock}>
+          <Text style={styles.welcomeText}>Welcome</Text>
+          <Text style={styles.headingText}>Let&apos;s get you checked in.</Text>
+          <Text style={styles.supportingText}>
+            Type or speak with Janet without losing your place.
+          </Text>
+        </View>
+
+        <Pressable
+          accessibilityRole="button"
           onPress={openJanetAssistant}
-          style={styles.janetCard}
-          subtitle="Voice-guided check-in"
-          title="Janet's Assistant"
-        />
-        <PrimaryButton
-          onPress={openCheckIn}
-          style={styles.primaryAction}
-          title="Start Check-In"
-        />
-        <SecondaryButton
-          onPress={openPatientPortal}
-          style={styles.secondaryAction}
-          title="Open Patient Portal"
-        />
-      </View>
+          style={({ pressed }) => [
+            styles.janetCard,
+            pressed ? styles.pressedCard : null,
+          ]}
+        >
+          <View style={styles.janetCardGlow} />
+          <View style={styles.janetAvatarWrap}>
+            <JanetAvatar containerStyle={styles.janetAvatarShell} size={132} />
+          </View>
+          <View style={styles.janetCardContent}>
+            <View style={styles.badgeRow}>
+              <View style={styles.voiceBadge}>
+                <Feather color={colors.primaryDeep} name="activity" size={13} />
+                <Text style={styles.voiceBadgeText}>VOICE ASSISTANT</Text>
+              </View>
+            </View>
+            <Text style={styles.janetTitle}>Janet&apos;s Assistant</Text>
+            <Text style={styles.janetSubtitle}>Voice-guided check-in</Text>
+            <View style={styles.janetDivider} />
+            <Text style={styles.janetBody}>
+              Speak with Janet to move through check-in without losing your place.
+            </Text>
+            <View style={styles.janetFooter}>
+              <View style={styles.startTalkingButton}>
+                <Ionicons color={colors.surface} name="mic" size={18} />
+                <Text style={styles.startTalkingText}>Open Janet</Text>
+              </View>
+              <View style={styles.micHalo}>
+                <View style={styles.micHaloInner}>
+                  <Ionicons
+                    color={colors.primaryDeep}
+                    name="mic-outline"
+                    size={24}
+                  />
+                </View>
+              </View>
+            </View>
+          </View>
+        </Pressable>
+
+        <View style={styles.actionsSection}>
+          <HomeActionCard
+            icon="clipboard"
+            onPress={openCheckIn}
+            subtitle="Begin a new check-in for your visit today."
+            title="Start Check-In"
+          />
+          <HomeActionCard
+            icon="user"
+            onPress={openPatientPortal}
+            subtitle="Log in to your account to manage your profile, documents, and visit history."
+            title="Patient Portal"
+          />
+        </View>
+      </Pressable>
 
       {__DEV__ && showDeveloperTools ? (
         <View style={styles.devSection}>
           <Text style={styles.devLabel}>Development Tools</Text>
           <Text style={styles.devCopy}>
-            Hidden from the normal patient experience. Long-press the welcome
-            card to show or hide this section.
+            Hidden from the normal patient experience. Long-press the home
+            surface to show or hide this section.
           </Text>
           <DevPreviewPanel
             onOpenBasicInfo={() => openIntakePreview('basicInfo')}
@@ -256,21 +334,30 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
             onOpenReview={() => openIntakePreview('review')}
           />
           <View style={styles.devActions}>
-            <SecondaryButton
-              loading={state.backend.connectivity.status === 'checking'}
+            <Pressable
+              accessibilityRole="button"
               onPress={() => void checkBackendHealth()}
-              style={styles.devButton}
-              title={
-                state.backend.connectivity.status === 'checking'
+              style={({ pressed }) => [
+                styles.devActionButton,
+                pressed ? styles.pressedCard : null,
+              ]}
+            >
+              <Text style={styles.devActionText}>
+                {state.backend.connectivity.status === 'checking'
                   ? 'Checking Backend...'
-                  : 'Check Backend'
-              }
-            />
-            <SecondaryButton
+                  : 'Check Backend'}
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
               onPress={clearBackendDebugState}
-              style={styles.devButton}
-              title="Clear QA State"
-            />
+              style={({ pressed }) => [
+                styles.devActionButton,
+                pressed ? styles.pressedCard : null,
+              ]}
+            >
+              <Text style={styles.devActionText}>Clear QA State</Text>
+            </Pressable>
           </View>
           <DevQaPanel state={state} />
         </View>
@@ -281,87 +368,321 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
 
 const styles = StyleSheet.create({
   content: {
-    paddingTop: spacing.md,
+    paddingTop: spacing.xs,
     paddingBottom: spacing.xxl,
   },
-  heroCard: {
-    overflow: 'hidden',
-    borderRadius: 20,
-    backgroundColor: colors.surfaceSoft,
-    borderWidth: 1,
+  homeShell: {
+    gap: spacing.lg,
+  },
+  topRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  brandRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  logoMark: {
+    alignItems: 'center',
+    height: 38,
+    justifyContent: 'center',
+    position: 'relative',
+    width: 38,
+  },
+  logoCrossVertical: {
+    backgroundColor: colors.primary,
+    borderRadius: 999,
+    height: 38,
+    position: 'absolute',
+    width: 14,
+  },
+  logoCrossHorizontal: {
+    backgroundColor: colors.primaryDeep,
+    borderRadius: 999,
+    height: 14,
+    position: 'absolute',
+    width: 38,
+  },
+  brandText: {
+    ...typography.title,
+    color: colors.textPrimary,
+    fontWeight: '800',
+  },
+  bellShell: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
     borderColor: colors.divider,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.md,
+    borderRadius: 22,
+    borderWidth: 1,
+    height: 46,
+    justifyContent: 'center',
     shadowColor: colors.shadow,
     shadowOffset: {
       width: 0,
-      height: 5,
+      height: 4,
     },
-    shadowOpacity: 0.04,
-    shadowRadius: 12,
-    elevation: 2,
-    alignItems: 'center',
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    width: 46,
   },
-  heroAccent: {
+  bellDot: {
+    backgroundColor: '#F45D5D',
+    borderRadius: 5,
+    height: 9,
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 8,
-    backgroundColor: colors.primary,
+    right: 8,
+    top: 8,
+    width: 9,
   },
-  heroTitleLead: {
-    ...typography.display,
-    textAlign: 'center',
+  heroBlock: {
+    gap: spacing.xs,
+    paddingHorizontal: spacing.xs,
+    paddingTop: spacing.md,
   },
-  heroTitleLine: {
-    ...typography.display,
-    marginTop: 2,
-    marginBottom: spacing.xs,
-    textAlign: 'center',
+  welcomeText: {
+    fontSize: 22,
+    lineHeight: 27,
+    color: colors.textPrimary,
+    fontWeight: '800',
   },
-  heroSubtitle: {
+  headingText: {
+    fontSize: 22,
+    lineHeight: 27,
+    color: colors.textPrimary,
+    fontWeight: '800',
+  },
+  supportingText: {
     ...typography.bodyLarge,
     color: colors.textSecondary,
-    textAlign: 'center',
+    marginTop: spacing.sm,
+    maxWidth: '82%',
+  },
+  janetCard: {
+    backgroundColor: '#F3EBDD',
+    borderColor: colors.border,
+    borderRadius: 28,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    overflow: 'hidden',
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
+    position: 'relative',
+    shadowColor: colors.shadow,
+    shadowOffset: {
+      width: 0,
+      height: 6,
+    },
+    shadowOpacity: 0.05,
+    shadowRadius: 14,
+    elevation: 2,
+  },
+  pressedCard: {
+    opacity: 0.84,
+  },
+  janetCardGlow: {
+    backgroundColor: '#FBF6EC',
+    borderRadius: 140,
+    height: 200,
+    position: 'absolute',
+    right: -56,
+    top: -18,
+    width: 200,
+  },
+  janetAvatarWrap: {
+    justifyContent: 'flex-end',
+    minWidth: 124,
+    paddingTop: spacing.lg,
+  },
+  janetAvatarShell: {
+    alignSelf: 'center',
+    backgroundColor: '#EFE4D2',
+    borderColor: '#E7D9C4',
+  },
+  janetCardContent: {
+    flex: 1,
+    gap: spacing.xs,
+    paddingBottom: spacing.xs,
+    paddingTop: spacing.sm,
+  },
+  badgeRow: {
+    alignItems: 'flex-start',
+  },
+  voiceBadge: {
+    alignItems: 'center',
+    backgroundColor: '#EEE4D6',
+    borderColor: '#E1D2BF',
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.xxs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 5,
+  },
+  voiceBadgeText: {
+    ...typography.caption,
+    color: colors.primaryDeep,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+  },
+  janetTitle: {
+    fontSize: 22,
+    lineHeight: 27,
+    color: colors.textPrimary,
+    fontWeight: '800',
+  },
+  janetSubtitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    color: colors.primaryDeep,
+    fontWeight: '600',
+  },
+  janetDivider: {
+    backgroundColor: colors.primary,
+    borderRadius: 999,
+    height: 3,
+    marginVertical: spacing.xxs,
+    width: 42,
+  },
+  janetBody: {
+    ...typography.body,
+    color: colors.textPrimary,
+    lineHeight: 21,
+    maxWidth: '94%',
+  },
+  janetFooter: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  startTalkingButton: {
+    alignItems: 'center',
+    backgroundColor: colors.primaryDeep,
+    borderRadius: 18,
+    flex: 1,
+    flexDirection: 'row',
+    gap: spacing.xs,
+    justifyContent: 'center',
+    minHeight: 46,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  startTalkingText: {
+    ...typography.button,
+    color: colors.surface,
+    fontWeight: '700',
+  },
+  micHalo: {
+    alignItems: 'center',
+    backgroundColor: '#ECE0D1',
+    borderRadius: 27,
+    height: 54,
+    justifyContent: 'center',
+    width: 54,
+  },
+  micHaloInner: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.divider,
+    borderRadius: 20,
+    borderWidth: 1,
+    height: 40,
+    justifyContent: 'center',
+    width: 40,
   },
   actionsSection: {
     gap: spacing.sm,
-    marginTop: spacing.md,
   },
-  janetCard: {
-    marginBottom: spacing.xxs,
+  actionCard: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.divider,
+    borderRadius: 24,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 15,
+    shadowColor: colors.shadow,
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    elevation: 2,
   },
-  primaryAction: {
-    minHeight: 48,
+  actionIconShell: {
+    alignItems: 'center',
+    backgroundColor: colors.surfaceSoft,
+    borderRadius: 18,
+    height: 58,
+    justifyContent: 'center',
+    width: 58,
   },
-  secondaryAction: {
-    minHeight: 42,
+  actionCopy: {
+    flex: 1,
+    gap: spacing.xxs,
+  },
+  actionTitle: {
+    fontSize: 19,
+    lineHeight: 23,
+    color: colors.textPrimary,
+    fontWeight: '700',
+  },
+  actionSubtitle: {
+    ...typography.body,
+    color: colors.textSecondary,
+    lineHeight: 21,
+    maxWidth: '92%',
+  },
+  actionChevronShell: {
+    alignItems: 'center',
+    borderColor: colors.divider,
+    borderRadius: 20,
+    borderWidth: 1,
+    height: 40,
+    justifyContent: 'center',
+    width: 40,
   },
   devSection: {
-    marginTop: spacing.xxl,
-    borderRadius: 18,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    marginTop: spacing.xl,
   },
   devLabel: {
     ...typography.sectionTitle,
+    color: colors.textPrimary,
     marginBottom: spacing.xs,
   },
   devCopy: {
-    ...typography.caption,
+    ...typography.body,
     color: colors.textSecondary,
     marginBottom: spacing.md,
   },
   devActions: {
+    flexDirection: 'row',
     gap: spacing.sm,
     marginBottom: spacing.md,
   },
-  devButton: {
+  devActionButton: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.divider,
+    borderRadius: 14,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: 'center',
     minHeight: 42,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  devActionText: {
+    ...typography.label,
+    color: colors.primaryDeep,
+    fontWeight: '600',
+    textAlign: 'center',
   },
 });

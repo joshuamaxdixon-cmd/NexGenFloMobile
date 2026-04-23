@@ -1,6 +1,4 @@
-import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 
 import { InfoCard } from '../../components/InfoCard';
 import { InputField } from '../../components/InputField';
@@ -50,8 +48,6 @@ export function BasicInfoScreen({
   form,
   onChange,
 }: IntakeStepComponentProps) {
-  const [emergencyExpanded, setEmergencyExpanded] = useState(false);
-
   return (
     <View>
       <InfoCard>
@@ -154,43 +150,25 @@ export function BasicInfoScreen({
           />
 
           <View style={styles.fieldGroup}>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setEmergencyExpanded((current) => !current)}
-              style={({ pressed }) => [
-                styles.accordionHeader,
-                pressed ? styles.accordionHeaderPressed : null,
-              ]}
-            >
-              <Text style={styles.accordionLabel}>Emergency Contact (optional)</Text>
-              <Ionicons
-                color={colors.textSecondary}
-                name={emergencyExpanded ? 'chevron-up-outline' : 'chevron-down-outline'}
-                size={20}
-              />
-            </Pressable>
-            {emergencyExpanded ? (
-              <View style={styles.accordionContent}>
-                <InputField
-                  autoCapitalize="words"
-                  errorText={fieldErrors?.emergencyContactName}
-                  label="Full Name"
-                  onChangeText={(value) => onChange('emergencyContactName', value)}
-                  optional
-                  placeholder="Terry Cruise"
-                  value={form.emergencyContactName}
-                />
-                <InputField
-                  errorText={fieldErrors?.emergencyContactPhone}
-                  keyboardType="phone-pad"
-                  label="Phone Number"
-                  onChangeText={(value) => onChange('emergencyContactPhone', value)}
-                  optional
-                  placeholder="555-555-1212"
-                  value={form.emergencyContactPhone}
-                />
-              </View>
-            ) : null}
+            <Text style={typography.sectionTitle}>Emergency Contact (optional)</Text>
+            <InputField
+              autoCapitalize="words"
+              errorText={fieldErrors?.emergencyContactName}
+              label="Full Name"
+              onChangeText={(value) => onChange('emergencyContactName', value)}
+              optional
+              placeholder="Terry Cruise"
+              value={form.emergencyContactName}
+            />
+            <InputField
+              errorText={fieldErrors?.emergencyContactPhone}
+              keyboardType="phone-pad"
+              label="Phone Number"
+              onChangeText={(value) => onChange('emergencyContactPhone', value)}
+              optional
+              placeholder="555-555-1212"
+              value={form.emergencyContactPhone}
+            />
           </View>
         </View>
       </InfoCard>
@@ -241,23 +219,6 @@ const styles = StyleSheet.create({
   },
   selectionChipLabelSelected: {
     color: colors.primaryDeep,
-  },
-  accordionHeader: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    minHeight: 44,
-    paddingVertical: spacing.xs,
-  },
-  accordionHeaderPressed: {
-    opacity: 0.75,
-  },
-  accordionLabel: {
-    ...typography.sectionTitle,
-  },
-  accordionContent: {
-    gap: spacing.sm,
-    marginTop: spacing.sm,
   },
   errorText: {
     ...typography.caption,

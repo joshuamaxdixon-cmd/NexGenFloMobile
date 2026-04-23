@@ -30,8 +30,8 @@ export function PatientPortalLoginScreen({
   return (
     <View>
       <InfoCard
-        subtitle="Enter your email and date of birth to continue."
-        title="Continue Check-In"
+        subtitle="Sign in to manage your profile, documents, medical history, and visits."
+        title="Patient Portal Login"
       >
         <InputField
           autoCapitalize="none"
@@ -57,7 +57,7 @@ export function PatientPortalLoginScreen({
         loading={busy}
         onPress={onContinue}
         style={styles.button}
-        title="Continue"
+        title="Sign In"
       />
     </View>
   );

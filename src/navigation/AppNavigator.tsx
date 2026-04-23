@@ -18,8 +18,10 @@ import { PatientPortalLoginScreen } from '../screens/PatientPortalLoginScreen';
 import { PatientPortalMedicalHistoryScreen } from '../screens/PatientPortalMedicalHistoryScreen';
 import { PatientPortalProfileScreen } from '../screens/PatientPortalProfileScreen';
 import { PatientPortalVisitsScreen } from '../screens/PatientPortalVisitsScreen';
+import { ResumeCheckInScreen } from '../screens/ResumeCheckInScreen';
 import {
   buildPortalIntakePrefill,
+  hasResumableIntakeDraft,
   useDraftStore,
   usePatientPortal,
   type PatientPortalMedicalHistory,
@@ -129,8 +131,8 @@ function PortalLoginRoute() {
   return (
     <ScreenContainer>
       <SectionHeader
-        subtitle="Enter your email and date of birth to continue."
-        title="Continue Check-In"
+        subtitle="Sign in to manage your profile, documents, medical history, and visits."
+        title="Patient Portal Login"
       />
       <PatientPortalLoginScreen
         busy={patientPortal.state.busyAction === 'login'}
@@ -150,6 +152,56 @@ function PortalLoginRoute() {
             });
           }
         }}
+      />
+    </ScreenContainer>
+  );
+}
+
+function ResumeCheckInRoute() {
+  const navigation = useNavigation();
+  const stackNavigation = navigation as unknown as {
+    goBack: () => void;
+    navigate: (name: string, params?: object) => void;
+  };
+  const { clearDraft, resumeSavedDraft, startNewIntake, state } = useDraftStore();
+  const hasSavedDraft = hasResumableIntakeDraft(state);
+
+  return (
+    <ScreenContainer>
+      <SectionHeader
+        subtitle="Continue a saved check-in where you left off."
+        title="Resume Check-In"
+      />
+      <ResumeCheckInScreen
+        hasSavedDraft={hasSavedDraft}
+        onContinue={() => {
+          resumeSavedDraft();
+          stackNavigation.navigate('Tabs', {
+            screen: 'Intake',
+            params: {
+              launchSource: 'resume',
+              mode: 'intake',
+              resetKey: `resume-draft-${Date.now()}`,
+              startStep: state.intake.currentStep,
+            },
+          } as never);
+        }}
+        onStartNew={() => {
+          clearDraft('all');
+          startNewIntake({
+            source: 'home',
+            step: 'basicInfo',
+          });
+          stackNavigation.navigate('Tabs', {
+            screen: 'Intake',
+            params: {
+              mode: 'intake',
+              resetKey: `resume-new-${Date.now()}`,
+              startStep: 'basicInfo',
+            },
+          } as never);
+        }}
+        state={state}
       />
     </ScreenContainer>
   );
@@ -354,6 +406,7 @@ export function AppNavigator() {
       }}
     >
       <Stack.Screen component={MainTabsNavigator} name="Tabs" />
+      <Stack.Screen component={ResumeCheckInRoute} name="ResumeCheckIn" />
       <Stack.Screen component={PortalLoginRoute} name="PortalLogin" />
       <Stack.Screen component={PortalHomeRoute} name="PortalHome" />
       <Stack.Screen component={PortalProfileRoute} name="PortalProfile" />

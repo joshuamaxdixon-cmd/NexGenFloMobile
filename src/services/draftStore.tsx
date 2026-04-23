@@ -343,6 +343,7 @@ type DraftStoreContextValue = {
   lookupReturningPatient: () => Promise<boolean>;
   openJanetMode: (options?: { step?: IntakeStepKey }) => void;
   openReturningFlow: (reset?: boolean) => void;
+  resumeSavedDraft: () => void;
   setJanetLanguage: (language: 'en' | 'es') => void;
   setJanetModeStep: (step: IntakeStepKey) => void;
   setJanetNoisyRoom: (enabled: boolean) => void;
@@ -2467,6 +2468,12 @@ export function DraftStoreProvider({ children }: { children: ReactNode }) {
         },
       });
     },
+    resumeSavedDraft: () => {
+      dispatch({
+        type: 'set_active_flow_mode',
+        payload: 'intake',
+      });
+    },
     setJanetLanguage: (language) => {
       dispatch({
         type: 'set_janet_language',
@@ -2656,6 +2663,19 @@ export function hasResumeableDraft(state: DraftStoreState) {
   );
 }
 
+export function hasResumableIntakeDraft(state: DraftStoreState) {
+  const intakeHasData = Object.values(state.intake.form).some((value) =>
+    hasIntakeFieldValue(value),
+  );
+
+  return (
+    intakeHasData ||
+    Boolean(state.backend.draft.draftId) ||
+    (state.intake.currentStep !== 'basicInfo' &&
+      state.intake.currentStep !== 'patientType')
+  );
+}
+
 export function getResumeDraftDescription(state: DraftStoreState) {
   if (
     state.activeFlowMode === 'returning' &&
@@ -2671,6 +2691,16 @@ export function getResumeDraftDescription(state: DraftStoreState) {
   );
 
   return `Continue at ${currentStep?.title ?? 'Patient Info'}. ${formatLastSaved(
+    state.intake.lastUpdatedAt,
+  )}`;
+}
+
+export function getResumableIntakeDraftDescription(state: DraftStoreState) {
+  const currentStep = intakeFlowSteps.find(
+    (step) => step.key === state.intake.currentStep,
+  );
+
+  return `Continue at ${currentStep?.title ?? 'Patient Information'}. ${formatLastSaved(
     state.intake.lastUpdatedAt,
   )}`;
 }

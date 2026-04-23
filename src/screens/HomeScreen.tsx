@@ -168,13 +168,7 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
   };
 
   const openResumeCheckIn = () => {
-    clearDraft('returning');
-    openReturningFlow(true);
-    navigation.navigate('Intake', {
-      launchSource: 'returning',
-      mode: 'returning',
-      resetKey: `returning-${Date.now()}`,
-    });
+    navigation.getParent()?.navigate('ResumeCheckIn' as never);
   };
 
   const openPatientPortal = () => {
@@ -269,12 +263,12 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
             style={styles.secondaryAction}
             title="Resume Check-In"
           />
-          <Text style={styles.resumeHelper}>Returning patient access</Text>
+          <Text style={styles.resumeHelper}>Continue a saved check-in</Text>
         </View>
         <SecondaryButton
           onPress={openPatientPortal}
           style={styles.secondaryAction}
-          title={patientPortal.state.session ? 'Open Patient Portal' : 'Patient Portal'}
+          title="Open Patient Portal"
         />
       </View>
 

@@ -88,6 +88,28 @@ type LocalConfirmationState = {
   value: string;
 };
 
+type JanetFlowMode =
+  | 'field_question'
+  | 'step_transition_confirmation'
+  | 'review_summary'
+  | 'final_submit_confirmation';
+
+const CONTINUE_INTENTS = [
+  'yes',
+  'yeah',
+  'sure',
+  'okay',
+  'ok',
+  'continue',
+  'next',
+  'move on',
+  'lets go',
+  "let's go",
+  'go ahead',
+] as const;
+
+const PAUSE_INTENTS = ['no', 'not yet', 'wait', 'hold on', 'stop'] as const;
+
 type PastMedicalHistoryVoiceField =
   | 'pastMedicalHistoryChronicConditions'
   | 'pastMedicalHistoryOtherRelevantHistory'
@@ -536,6 +558,259 @@ function transcriptIsNegative(value: string, language: 'en' | 'es') {
   return ['no', 'nope', 'incorrect', 'not right'].includes(normalized);
 }
 
+function transcriptMatchesIntent(value: string, intents: readonly string[]) {
+  const normalized = normalizeTranscriptText(value).toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return intents.some((intent) => normalized === intent || normalized.includes(intent));
+}
+
+function getNextStep(step: IntakeStepKey) {
+  const index = intakeFlowSteps.findIndex((entry) => entry.key === step);
+  if (index < 0) {
+    return null;
+  }
+
+  return intakeFlowSteps[index + 1]?.key ?? null;
+}
+
+function getStepTransitionPrompt(
+  currentStep: IntakeStepKey,
+  language: 'en' | 'es',
+) {
+  const nextStep = getNextStep(currentStep);
+
+  if (!nextStep) {
+    return '';
+  }
+
+  if (language === 'es') {
+    if (currentStep === 'basicInfo') {
+      return 'Hemos completado la información del paciente. ¿Pasamos a la información médica?';
+    }
+    if (currentStep === 'symptoms') {
+      return 'Hemos completado la información médica. ¿Pasamos a los antecedentes médicos?';
+    }
+    if (currentStep === 'pastMedicalHistory') {
+      return 'Hemos completado los antecedentes médicos. ¿Pasamos a los documentos?';
+    }
+    if (currentStep === 'documents') {
+      return 'Hemos completado los documentos. ¿Pasamos a revisar y confirmar?';
+    }
+    return '¿Quieres continuar al siguiente paso?';
+  }
+
+  if (currentStep === 'basicInfo') {
+    return 'We’ve completed patient information. Shall we move on to medical info?';
+  }
+  if (currentStep === 'symptoms') {
+    return 'We’ve completed medical info. Shall we move on to past medical history?';
+  }
+  if (currentStep === 'pastMedicalHistory') {
+    return 'We’ve completed past medical history. Shall we move on to documents?';
+  }
+  if (currentStep === 'documents') {
+    return 'We’ve completed documents. Shall we move on to review and confirm?';
+  }
+  return 'Would you like to continue to the next step?';
+}
+
+function getStepTransitionDeclinedPrompt(language: 'en' | 'es') {
+  return language === 'es'
+    ? 'Está bien. ¿Quieres revisar este paso, editar manualmente o repetir el último campo?'
+    : 'Okay. Would you like to review this step, edit manually, or repeat the last field?';
+}
+
+function buildStepReviewPrompt(options: {
+  language: 'en' | 'es';
+  previewRows: readonly (readonly [string, string])[];
+  step: IntakeStepKey;
+}) {
+  const { language, previewRows, step } = options;
+  const visibleRows = previewRows.filter(([, value]) => value.trim().length > 0);
+
+  if (visibleRows.length === 0) {
+    return language === 'es'
+      ? `Todavía no hay detalles guardados para ${step}.`
+      : `There are no saved details for ${step} yet.`;
+  }
+
+  const summary = visibleRows
+    .map(([label, value]) => `${label}: ${value}.`)
+    .join(' ');
+
+  return language === 'es'
+    ? `Esto es lo que tengo para este paso. ${summary}`
+    : `Here is what I have for this step. ${summary}`;
+}
+
+function formatVoiceList(values: string[]) {
+  if (values.length === 0) {
+    return '';
+  }
+
+  if (values.length === 1) {
+    return values[0];
+  }
+
+  return `${values.slice(0, -1).join(', ')}, and ${values[values.length - 1]}`;
+}
+
+function buildReviewSummaryPrompt(options: {
+  form: IntakeFormData;
+  hasGovernmentIdUpload: boolean;
+  hasInsuranceUpload: boolean;
+  language: 'en' | 'es';
+}) {
+  const { form, hasGovernmentIdUpload, hasInsuranceUpload, language } = options;
+  const patientName = [form.firstName, form.lastName].filter(Boolean).join(' ').trim();
+  const height = form.heightFt || form.heightIn
+    ? `${form.heightFt || '0'} foot ${form.heightIn || '0'}`
+    : '';
+  const allergies = formatVoiceList(buildMedicalInfoAllergyEntries(form));
+  const immunizations = formatVoiceList(buildMedicalInfoImmunizationEntries(form));
+  const pmh = buildPastMedicalHistoryEntries(form);
+  const pmhValues = formatVoiceList([
+    ...pmh.chronic,
+    ...pmh.surgical,
+    ...pmh.otherRelevant,
+  ]);
+
+  if (language === 'es') {
+    return [
+      'Vamos a revisar tu registro antes de enviarlo.',
+      patientName
+        ? `La información del paciente dice ${patientName}.`
+        : 'No tengo un nombre completo todavía.',
+      form.dateOfBirth ? `La fecha de nacimiento es ${form.dateOfBirth}.` : '',
+      height ? `La altura registrada es ${height}.` : '',
+      form.weightLb ? `El peso registrado es ${form.weightLb} libras.` : '',
+      form.chiefConcern
+        ? `La razón de la visita es ${form.chiefConcern}${form.symptomDuration ? ` por ${form.symptomDuration}` : ''}${form.painLevel ? `, severidad ${form.painLevel}` : ''}.`
+        : 'No se registró un motivo de visita.',
+      allergies ? `Las alergias registradas son ${allergies}.` : '',
+      form.medications ? `Los medicamentos son ${form.medications}.` : '',
+      immunizations ? `Las inmunizaciones registradas son ${immunizations}.` : '',
+      pmhValues
+        ? `Los antecedentes médicos registrados son ${pmhValues}.`
+        : 'No se proporcionaron antecedentes médicos.',
+      hasInsuranceUpload || hasGovernmentIdUpload
+        ? `Documentos: tarjeta de seguro ${hasInsuranceUpload ? 'agregada' : 'no agregada'} y identificación ${hasGovernmentIdUpload ? 'agregada' : 'no agregada'}.`
+        : 'No se agregaron documentos todavía.',
+      '¿Todo suena correcto?',
+    ]
+      .filter(Boolean)
+      .join(' ');
+  }
+
+  return [
+    'Let’s review your check-in before submitting.',
+    patientName ? `Your name is ${patientName}.` : 'I do not have your full name yet.',
+    form.dateOfBirth ? `Your date of birth is ${form.dateOfBirth}.` : '',
+    height ? `Your height is ${height}.` : '',
+    form.weightLb ? `Your weight is ${form.weightLb} pounds.` : '',
+    form.chiefConcern
+      ? `Your reason for visit is ${form.chiefConcern}${form.symptomDuration ? ` for ${form.symptomDuration}` : ''}${form.painLevel ? `, severity ${form.painLevel}` : ''}.`
+      : 'No reason for visit was provided.',
+    allergies ? `Your allergies are ${allergies}.` : '',
+    form.medications ? `Your medications are ${form.medications}.` : '',
+    immunizations ? `Your immunizations are ${immunizations}.` : '',
+    pmhValues
+      ? `Your past medical history includes ${pmhValues}.`
+      : 'No past medical history was provided.',
+    hasInsuranceUpload || hasGovernmentIdUpload
+      ? `Documents: insurance card ${hasInsuranceUpload ? 'added' : 'not added'} and photo ID ${hasGovernmentIdUpload ? 'added' : 'not added'}.`
+      : 'No documents were added yet.',
+    'Does everything sound correct?',
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+function getSubmitConfirmationPrompt(language: 'en' | 'es') {
+  return language === 'es'
+    ? 'Perfecto. ¿Quieres que envíe tu registro ahora?'
+    : 'Great. Shall I submit your check-in?';
+}
+
+function getReviewSectionChoicePrompt(language: 'en' | 'es') {
+  return language === 'es'
+    ? 'Está bien. ¿Qué sección quieres cambiar: información del paciente, información médica, antecedentes médicos o documentos?'
+    : 'Okay. Which section would you like to change: patient information, medical info, past medical history, or documents?';
+}
+
+function getSubmitSuccessPrompt(language: 'en' | 'es') {
+  return language === 'es'
+    ? 'Tu registro se envió correctamente.'
+    : 'Your check-in was submitted successfully.';
+}
+
+function getSubmitCancelledPrompt(language: 'en' | 'es') {
+  return language === 'es'
+    ? 'Está bien. Puedes revisar los detalles antes de enviarlo.'
+    : 'Okay. You can review the details before submitting.';
+}
+
+function resolveReviewSectionStep(
+  transcript: string,
+  language: 'en' | 'es',
+): IntakeStepKey | null {
+  const normalized = normalizeTranscriptText(transcript).toLowerCase();
+
+  if (
+    normalized.includes('patient') ||
+    normalized.includes('basic') ||
+    normalized.includes('paciente')
+  ) {
+    return 'basicInfo';
+  }
+  if (
+    normalized.includes('medical info') ||
+    normalized.includes('medical') ||
+    normalized.includes('symptom') ||
+    normalized.includes('médica')
+  ) {
+    return 'symptoms';
+  }
+  if (
+    normalized.includes('past medical') ||
+    normalized.includes('history') ||
+    normalized.includes('antecedentes')
+  ) {
+    return 'pastMedicalHistory';
+  }
+  if (
+    normalized.includes('document') ||
+    normalized.includes('insurance') ||
+    normalized.includes('id')
+  ) {
+    return 'documents';
+  }
+
+  return null;
+}
+
+function isVoiceStepComplete(options: {
+  activeField: string | null;
+  form: IntakeFormData;
+  pastMedicalHistoryField: PastMedicalHistoryVoiceField | null;
+  step: IntakeStepKey;
+}) {
+  const { activeField, form, pastMedicalHistoryField, step } = options;
+
+  if (step === 'pastMedicalHistory') {
+    return pastMedicalHistoryField === null;
+  }
+
+  if (step === 'review') {
+    return true;
+  }
+
+  return getFirstIncompleteJanetField(step, form) === null && activeField === null;
+}
+
 function getCanonicalVoicePrompt(options: {
   field: string | null;
   language: 'en' | 'es';
@@ -568,6 +843,7 @@ export function VoiceExperience({
     closeJanetMode,
     setJanetLanguage,
     setJanetModeStep,
+    setIntakeStep,
     setVoiceEditing,
     setVoiceHandoff,
     setVoiceListening,
@@ -575,6 +851,7 @@ export function VoiceExperience({
     setVoiceTranscript,
     startNewIntake,
     state,
+    submitCurrentIntake,
     syncCurrentDraft,
     syncVoiceHandoff,
     updateIntakeFields,
@@ -626,6 +903,11 @@ export function VoiceExperience({
   );
   const [localConfirmation, setLocalConfirmation] =
     useState<LocalConfirmationState | null>(null);
+  const [janetFlowMode, setJanetFlowMode] =
+    useState<JanetFlowMode>('field_question');
+  const [pendingNextStep, setPendingNextStep] = useState<IntakeStepKey | null>(null);
+  const [awaitingReviewSectionChoice, setAwaitingReviewSectionChoice] =
+    useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [scanningDocumentType, setScanningDocumentType] = useState<
     DocumentScanResult['documentType'] | null
@@ -686,6 +968,11 @@ export function VoiceExperience({
       ),
     [janetStep, state.intake.form],
   );
+  const hasInsuranceUpload =
+    Boolean(state.uploads.insurance) ||
+    state.backend.uploads.insurance.status === 'uploaded';
+  const hasGovernmentIdUpload =
+    Boolean(state.uploads.id) || state.backend.uploads.id.status === 'uploaded';
   const livePillLabel = getLivePillLabel({
     isBootstrapping,
     isProcessing,
@@ -1158,12 +1445,233 @@ export function VoiceExperience({
     [autoListenEnabled, session?.sessionId, state.janetMode.language, voiceOutputEnabled],
   );
 
+  const queuePrompt = useCallback(
+    async (prompt: string, options?: { autoListenAfter?: boolean }) => {
+      setReplyText(prompt);
+      await playPrompt(prompt, options);
+    },
+    [playPrompt],
+  );
+
+  const beginVoiceStep = useCallback(
+    async (step: IntakeStepKey) => {
+      bootstrapKeyRef.current = '';
+      autoPlayedSessionRef.current = '';
+      autoListenRef.current = '';
+      setPendingNextStep(null);
+      setAwaitingReviewSectionChoice(false);
+      setJanetFlowMode(step === 'review' ? 'review_summary' : 'field_question');
+      setConfirmation(EMPTY_CONFIRMATION);
+      setLocalConfirmation(null);
+      setSession(null);
+      setIntakeStep(step);
+      setJanetModeStep(step);
+
+      if (step === 'review') {
+        const reviewPrompt = buildReviewSummaryPrompt({
+          form: state.intake.form,
+          hasGovernmentIdUpload,
+          hasInsuranceUpload,
+          language: state.janetMode.language,
+        });
+        setConfirmation({
+          choices: [],
+          field: null,
+          prompt: reviewPrompt,
+          required: true,
+        });
+        await queuePrompt(reviewPrompt, { autoListenAfter: false });
+        return;
+      }
+
+      if (step === 'pastMedicalHistory') {
+        const nextField = getNextPastMedicalHistoryField(state.intake.form);
+        setPastMedicalHistoryField(nextField);
+        const prompt = buildPastMedicalHistoryPrompt(
+          nextField,
+          state.janetMode.language,
+        );
+        await queuePrompt(prompt);
+        return;
+      }
+
+      const prompt = getCanonicalVoicePrompt({
+        field: getFirstIncompleteJanetField(step, state.intake.form),
+        language: state.janetMode.language,
+        pastMedicalHistoryField: null,
+        step,
+      });
+      if (prompt.trim()) {
+        await queuePrompt(prompt);
+      }
+    },
+    [
+      hasGovernmentIdUpload,
+      hasInsuranceUpload,
+      queuePrompt,
+      setIntakeStep,
+      setJanetModeStep,
+      state.intake.form,
+      state.janetMode.language,
+    ],
+  );
+
+  const queueStepTransitionPrompt = useCallback(
+    async (step: IntakeStepKey) => {
+      const nextStep = getNextStep(step);
+      if (!nextStep) {
+        return;
+      }
+
+      const prompt = getStepTransitionPrompt(step, state.janetMode.language);
+      setPendingNextStep(nextStep);
+      setJanetFlowMode('step_transition_confirmation');
+      setAwaitingReviewSectionChoice(false);
+      setConfirmation({
+        choices: [],
+        field: null,
+        prompt,
+        required: true,
+      });
+      await queuePrompt(prompt, { autoListenAfter: false });
+    },
+    [queuePrompt, state.janetMode.language],
+  );
+
   const handleJanetTurn = useCallback(
     async (
       transcript: string,
       confidence: number | null,
       interactionMode: 'correction' | 'normal' | 'spell' = 'normal',
     ) => {
+      const normalizedTranscript = normalizeTranscriptText(transcript).toLowerCase();
+
+      if (janetFlowMode === 'step_transition_confirmation') {
+        if (pendingNextStep && transcriptMatchesIntent(transcript, CONTINUE_INTENTS)) {
+          await beginVoiceStep(pendingNextStep);
+          return;
+        }
+
+        if (transcriptMatchesIntent(transcript, PAUSE_INTENTS)) {
+          const prompt = getStepTransitionDeclinedPrompt(state.janetMode.language);
+          setAwaitingReviewSectionChoice(false);
+          setConfirmation(EMPTY_CONFIRMATION);
+          await queuePrompt(prompt, { autoListenAfter: false });
+          return;
+        }
+
+        if (
+          normalizedTranscript.includes('edit') ||
+          normalizedTranscript.includes('manual') ||
+          normalizedTranscript.includes('editar')
+        ) {
+          await queuePrompt(
+            state.janetMode.language === 'es'
+              ? 'Está bien. Usa editar manualmente para hacer cambios en este paso.'
+              : 'Okay. Use edit manually to make changes in this step.',
+            { autoListenAfter: false },
+          );
+          return;
+        }
+
+        if (
+          normalizedTranscript.includes('review') ||
+          normalizedTranscript.includes('revis')
+        ) {
+          await queuePrompt(
+            buildStepReviewPrompt({
+              language: state.janetMode.language,
+              previewRows,
+              step: janetStep,
+            }),
+            { autoListenAfter: false },
+          );
+          return;
+        }
+
+        if (
+          normalizedTranscript.includes('repeat') ||
+          normalizedTranscript.includes('repet')
+        ) {
+          const repeatPrompt = getCanonicalVoicePrompt({
+            field: activeManagedField,
+            language: state.janetMode.language,
+            pastMedicalHistoryField,
+            step: janetStep,
+          });
+          if (repeatPrompt.trim()) {
+            await queuePrompt(repeatPrompt);
+          }
+          return;
+        }
+      }
+
+      if (janetFlowMode === 'review_summary') {
+        if (awaitingReviewSectionChoice) {
+          const targetStep = resolveReviewSectionStep(
+            transcript,
+            state.janetMode.language,
+          );
+          if (targetStep) {
+            await beginVoiceStep(targetStep);
+            return;
+          }
+
+          await queuePrompt(getReviewSectionChoicePrompt(state.janetMode.language), {
+            autoListenAfter: false,
+          });
+          return;
+        }
+
+        if (transcriptMatchesIntent(transcript, CONTINUE_INTENTS)) {
+          const prompt = getSubmitConfirmationPrompt(state.janetMode.language);
+          setJanetFlowMode('final_submit_confirmation');
+          setConfirmation({
+            choices: [],
+            field: null,
+            prompt,
+            required: true,
+          });
+          await queuePrompt(prompt, { autoListenAfter: false });
+          return;
+        }
+
+        if (transcriptMatchesIntent(transcript, PAUSE_INTENTS)) {
+          const prompt = getReviewSectionChoicePrompt(state.janetMode.language);
+          setAwaitingReviewSectionChoice(true);
+          setConfirmation(EMPTY_CONFIRMATION);
+          await queuePrompt(prompt, { autoListenAfter: false });
+          return;
+        }
+      }
+
+      if (janetFlowMode === 'final_submit_confirmation') {
+        if (transcriptMatchesIntent(transcript, CONTINUE_INTENTS)) {
+          setIsProcessing(true);
+          const didSubmit = await submitCurrentIntake();
+          setIsProcessing(false);
+          setConfirmation(EMPTY_CONFIRMATION);
+          await queuePrompt(
+            didSubmit
+              ? getSubmitSuccessPrompt(state.janetMode.language)
+              : state.janetMode.language === 'es'
+                ? 'No pude enviar el registro todavía.'
+                : 'I could not submit the check-in yet.',
+            { autoListenAfter: false },
+          );
+          return;
+        }
+
+        if (transcriptMatchesIntent(transcript, PAUSE_INTENTS)) {
+          setJanetFlowMode('review_summary');
+          setConfirmation(EMPTY_CONFIRMATION);
+          await queuePrompt(getSubmitCancelledPrompt(state.janetMode.language), {
+            autoListenAfter: false,
+          });
+          return;
+        }
+      }
+
       if (localConfirmation) {
         if (
           interactionMode === 'correction' ||
@@ -1226,14 +1734,12 @@ export function VoiceExperience({
         setVoiceTranscript(confirmedValue);
 
         const nextBasicField = getFirstIncompleteJanetField('basicInfo', mergedForm);
-        const nextStep = nextBasicField ? 'basicInfo' : 'symptoms';
-        const nextField =
-          nextBasicField ?? getFirstIncompleteJanetField('symptoms', mergedForm);
+        const nextField = nextBasicField;
         const nextPrompt = getCanonicalVoicePrompt({
           field: nextField,
           language: state.janetMode.language,
           pastMedicalHistoryField: null,
-          step: nextStep,
+          step: 'basicInfo',
         });
 
         setSession((currentSession) =>
@@ -1241,7 +1747,7 @@ export function VoiceExperience({
             ? {
                 ...currentSession,
                 currentField: nextField,
-                currentStep: nextStep,
+                currentStep: 'basicInfo',
                 draftPatch: {
                   ...currentSession.draftPatch,
                   ...updates,
@@ -1250,11 +1756,15 @@ export function VoiceExperience({
               }
             : currentSession,
         );
-        setJanetModeStep(nextStep);
-        setReplyText(nextPrompt);
+        setJanetModeStep('basicInfo');
         setTimeout(() => {
           void syncCurrentDraft();
         }, 0);
+        if (!nextBasicField) {
+          await queueStepTransitionPrompt('basicInfo');
+          return;
+        }
+        setReplyText(nextPrompt);
         if (nextPrompt.trim()) {
           await playPrompt(nextPrompt);
         }
@@ -1319,12 +1829,7 @@ export function VoiceExperience({
             getNextPastMedicalHistoryField(state.intake.form);
 
           if (!targetField) {
-            setJanetModeStep('documents');
-            setReplyText(
-              state.janetMode.language === 'es'
-                ? 'Los antecedentes médicos están completos. Ahora pasemos a los documentos.'
-                : 'Past medical history is complete. Next, let’s look at documents.',
-            );
+            await queueStepTransitionPrompt('pastMedicalHistory');
             return;
           }
 
@@ -1399,13 +1904,7 @@ export function VoiceExperience({
               ),
             );
           } else {
-            setJanetModeStep('documents');
-            const nextPrompt =
-              state.janetMode.language === 'es'
-                ? 'Los antecedentes médicos ya están guardados. Ahora pasemos a los documentos.'
-                : 'Past medical history is saved. Next, let’s move to documents.';
-            setReplyText(nextPrompt);
-            await playPrompt(nextPrompt);
+            await queueStepTransitionPrompt('pastMedicalHistory');
           }
         } catch (error) {
           setMicError(
@@ -1462,27 +1961,61 @@ export function VoiceExperience({
           transcript,
         });
         setVoiceHandoff(nextHandoff);
+        const resolvedField = resolveJanetFieldForStep(
+          result.extraction.updatedStep,
+          mergedForm,
+          result.extraction.currentField,
+        );
+        const backendAdvancedStep = result.extraction.updatedStep !== janetStep;
+        const shouldOfferStepTransition =
+          janetStep !== 'review' &&
+          !result.confirmation.required &&
+          !result.lowConfidence &&
+          (backendAdvancedStep ||
+            isVoiceStepComplete({
+              activeField: backendAdvancedStep ? null : resolvedField,
+              form: mergedForm,
+              pastMedicalHistoryField,
+              step: janetStep,
+            }));
+
+        if (shouldOfferStepTransition) {
+          setSession((currentSession) =>
+            currentSession
+              ? {
+                ...currentSession,
+                confirmation: EMPTY_CONFIRMATION,
+                currentField: null,
+                currentStep: currentSession.currentStep,
+                draftPatch: result.extraction.draftPatch,
+                missingFields: result.extraction.missingFields,
+              }
+              : currentSession,
+          );
+          setConfirmation(EMPTY_CONFIRMATION);
+          setWarnings(result.warnings);
+          setLowConfidence(result.lowConfidence);
+          setTimeout(() => {
+            void syncCurrentDraft();
+            void syncVoiceHandoff();
+          }, 0);
+          await queueStepTransitionPrompt(janetStep);
+          setIsProcessing(false);
+          return;
+        }
 
         setSession((currentSession) =>
           currentSession
             ? {
                 ...currentSession,
                 confirmation: result.confirmation,
-                currentField: resolveJanetFieldForStep(
-                  result.extraction.updatedStep,
-                  mergedForm,
-                  result.extraction.currentField,
-                ),
+                currentField: resolvedField,
                 currentStep: result.extraction.updatedStep,
                 draftPatch: result.extraction.draftPatch,
                 firstPrompt:
                   !result.confirmation.required
                     ? getCanonicalVoicePrompt({
-                        field: resolveJanetFieldForStep(
-                          result.extraction.updatedStep,
-                          mergedForm,
-                          result.extraction.currentField,
-                        ),
+                        field: resolvedField,
                         language: state.janetMode.language,
                         pastMedicalHistoryField: null,
                         step: result.extraction.updatedStep,
@@ -1494,11 +2027,6 @@ export function VoiceExperience({
         );
         setConfirmation(result.confirmation);
         setReplyText(() => {
-          const resolvedField = resolveJanetFieldForStep(
-            result.extraction.updatedStep,
-            mergedForm,
-            result.extraction.currentField,
-          );
           const canonicalPrompt = getCanonicalVoicePrompt({
             field: resolvedField,
             language: state.janetMode.language,
@@ -1522,11 +2050,6 @@ export function VoiceExperience({
         }, 0);
 
         if (result.janet.shouldSpeak) {
-          const resolvedField = resolveJanetFieldForStep(
-            result.extraction.updatedStep,
-            mergedForm,
-            result.extraction.currentField,
-          );
           const canonicalPrompt =
             !result.confirmation.required
               ? getCanonicalVoicePrompt({
@@ -1552,10 +2075,17 @@ export function VoiceExperience({
     [
       backendJanetStep,
       activeManagedField,
+      awaitingReviewSectionChoice,
+      beginVoiceStep,
       janetStep,
+      janetFlowMode,
       localConfirmation,
       pastMedicalHistoryField,
+      pendingNextStep,
       playPrompt,
+      previewRows,
+      queuePrompt,
+      queueStepTransitionPrompt,
       session,
       setJanetModeStep,
       setVoiceHandoff,
@@ -1565,6 +2095,7 @@ export function VoiceExperience({
       state.returningPatient.form,
       state.voice.handoff,
       state.voice.spellModeEnabled,
+      submitCurrentIntake,
       syncCurrentDraft,
       syncVoiceHandoff,
       updateIntakeFields,
@@ -1919,6 +2450,9 @@ export function VoiceExperience({
     let cancelled = false;
 
     async function bootstrap() {
+      if (janetFlowMode !== 'field_question') {
+        return;
+      }
       const nextSession = await bootstrapSession();
       if (cancelled || !nextSession?.sessionId) {
         return;
@@ -1930,10 +2464,11 @@ export function VoiceExperience({
     return () => {
       cancelled = true;
     };
-  }, [bootstrapSession]);
+  }, [bootstrapSession, janetFlowMode]);
 
   useEffect(() => {
     if (
+      janetFlowMode !== 'field_question' ||
       !session?.sessionId ||
       !resolvedSpeechText.trim() ||
       state.voice.isListening ||
@@ -1952,6 +2487,7 @@ export function VoiceExperience({
   }, [
     isBootstrapping,
     isProcessing,
+    janetFlowMode,
     playPrompt,
     resolvedSpeechText,
     session?.sessionId,
@@ -1960,6 +2496,7 @@ export function VoiceExperience({
 
   useEffect(() => {
     if (
+      janetFlowMode !== 'field_question' ||
       janetStep !== 'pastMedicalHistory' ||
       !replyText.trim() ||
       isBootstrapping ||
@@ -1980,6 +2517,7 @@ export function VoiceExperience({
     isBootstrapping,
     isProcessing,
     isRecording,
+    janetFlowMode,
     janetStep,
     playPrompt,
     replyText,
@@ -1997,7 +2535,11 @@ export function VoiceExperience({
       state.janetMode.language,
     ].join(':');
 
-    if (bootstrapKeyRef.current === nextBootstrapKey || isBootstrapping) {
+    if (
+      janetFlowMode !== 'field_question' ||
+      bootstrapKeyRef.current === nextBootstrapKey ||
+      isBootstrapping
+    ) {
       return;
     }
 
@@ -2005,6 +2547,7 @@ export function VoiceExperience({
   }, [
     bootstrapSession,
     isBootstrapping,
+    janetFlowMode,
     state.backend.draft.draftId,
     state.backend.draft.patientId,
     state.backend.draft.visitId,
@@ -2132,6 +2675,9 @@ export function VoiceExperience({
     setSession(null);
     setReplyText('');
     setLocalConfirmation(null);
+    setJanetFlowMode('field_question');
+    setPendingNextStep(null);
+    setAwaitingReviewSectionChoice(false);
     setConfirmation(EMPTY_CONFIRMATION);
     setWarnings([]);
     setLowConfidence(false);
@@ -2159,6 +2705,12 @@ export function VoiceExperience({
     startNewIntake,
     stopPlayback,
   ]);
+
+  useEffect(() => {
+    if (janetStep === 'review' && janetFlowMode === 'field_question') {
+      void beginVoiceStep('review');
+    }
+  }, [beginVoiceStep, janetFlowMode, janetStep]);
 
   const content = (
     <>

@@ -701,6 +701,10 @@ function parseStructuredMedicalInfoCapture(
     return null;
   }
 
+  if (transcriptIsBareAffirmativeIntent(normalizedTranscript)) {
+    return null;
+  }
+
   const fieldLabel =
     field === 'immunizationCoreSelections'
       ? 'core vaccines'
@@ -823,6 +827,10 @@ function parseMedicationAllergyVoiceCapture(
     return null;
   }
 
+  if (transcriptIsBareAffirmativeIntent(normalizedTranscript)) {
+    return null;
+  }
+
   if (transcriptMeansUnsure(normalizedTranscript)) {
     return {
       acknowledgementMessage:
@@ -910,6 +918,10 @@ function parseAllergyFieldVoiceCapture(
 
   const fieldLabel = getAllergyFieldLabelForSpeech(field);
 
+  if (transcriptIsBareAffirmativeIntent(normalizedTranscript)) {
+    return null;
+  }
+
   if (transcriptMeansUnsure(normalizedTranscript)) {
     return {
       acknowledgementMessage: `I heard I don't know. I'll mark ${fieldLabel} as unsure.`,
@@ -976,6 +988,10 @@ function parseLocalSymptomTextCapture(
   const normalizedTranscript = normalizeTranscriptText(transcript);
 
   if (!normalizedTranscript) {
+    return null;
+  }
+
+  if (transcriptIsBareAffirmativeIntent(normalizedTranscript)) {
     return null;
   }
 
@@ -1066,6 +1082,29 @@ function transcriptMatchesIntent(value: string, intents: readonly string[]) {
   }
 
   return intents.some((intent) => normalized === intent || normalized.includes(intent));
+}
+
+function transcriptIsBareAffirmativeIntent(value: string) {
+  const normalized = normalizeTranscriptText(value).toLowerCase();
+
+  if (!normalized) {
+    return false;
+  }
+
+  return [
+    'yes',
+    'yeah',
+    'yep',
+    'ok',
+    'okay',
+    'sure',
+    'correct',
+    'right',
+    'continue',
+    'next',
+    'move on',
+    'go ahead',
+  ].includes(normalized);
 }
 
 
@@ -1281,6 +1320,46 @@ function getSanitizedJanetPrompt(options: {
   });
 }
 
+function isTransitionPromptText(value: string, language: 'en' | 'es') {
+  const normalized = normalizeTranscriptText(value);
+
+  if (!normalized) {
+    return false;
+  }
+
+  return intakeFlowSteps.some(
+    (step) => getStepTransitionPrompt(step.key, language) === normalized,
+  );
+}
+
+function getActiveFieldPromptOrFallback(options: {
+  activeField: string | null;
+  candidatePrompt: string;
+  janetFlowMode: JanetFlowMode;
+  language: 'en' | 'es';
+  pastMedicalHistoryField: PastMedicalHistoryVoiceField | null;
+  step: IntakeStepKey;
+}) {
+  const candidatePrompt = options.candidatePrompt.trim();
+
+  if (
+    options.janetFlowMode !== 'field_question' ||
+    options.step === 'review' ||
+    !options.activeField ||
+    !candidatePrompt ||
+    !isTransitionPromptText(candidatePrompt, options.language)
+  ) {
+    return candidatePrompt;
+  }
+
+  return getCanonicalJanetPrompt({
+    field: options.activeField,
+    language: options.language,
+    pastMedicalHistoryField: options.pastMedicalHistoryField,
+    step: options.step,
+  });
+}
+
 
 export function VoiceExperience({
   embedded = false,
@@ -1429,14 +1508,29 @@ export function VoiceExperience({
     pastMedicalHistoryField,
     step: janetStep,
   });
+  const sanitizedReplyText = getActiveFieldPromptOrFallback({
+    activeField: activeManagedField,
+    candidatePrompt: getSanitizedJanetPrompt({
+      candidatePrompt: replyText,
+      field: activeManagedField,
+      isStepComplete: resolvedVoiceStepState.isStepComplete,
+      language: state.janetMode.language,
+      pastMedicalHistoryField,
+      step: janetStep,
+    }),
+    janetFlowMode,
+    language: state.janetMode.language,
+    pastMedicalHistoryField,
+    step: janetStep,
+  });
   const currentSpeechText = buildJanetSpeechText({
     confirmation,
     handoff: state.voice.handoff,
-    replyText,
+    replyText: sanitizedReplyText,
     spellModeEnabled: state.voice.spellModeEnabled,
   });
-  const resolvedSpeechText = replyText.trim().length > 0
-    ? replyText
+  const resolvedSpeechText = sanitizedReplyText.trim().length > 0
+    ? sanitizedReplyText
     : !confirmation.required && canonicalVoicePrompt.trim().length > 0
       ? canonicalVoicePrompt
       : currentSpeechText;

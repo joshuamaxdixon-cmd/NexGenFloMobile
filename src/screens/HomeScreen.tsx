@@ -167,10 +167,6 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
     });
   };
 
-  const openResumeCheckIn = () => {
-    navigation.getParent()?.navigate('ResumeCheckIn' as never);
-  };
-
   const openPatientPortal = () => {
     patientPortal.openPortalLogin();
     navigation
@@ -245,11 +241,10 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
       <View style={styles.actionsSection}>
         <JanetHelperCard
           actionLabel="Open Janet"
-          avatarSize="md"
+          avatarSize="sm"
           onPress={openJanetAssistant}
-          statusLabel="Voice guide"
           style={styles.janetCard}
-          subtitle="Speak with Janet to move through check-in without losing your place."
+          subtitle="Voice-guided check-in"
           title="Janet's Assistant"
         />
         <PrimaryButton
@@ -257,14 +252,6 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
           style={styles.primaryAction}
           title="Start Check-In"
         />
-        <View style={styles.resumeSection}>
-          <SecondaryButton
-            onPress={openResumeCheckIn}
-            style={styles.secondaryAction}
-            title="Resume Check-In"
-          />
-          <Text style={styles.resumeHelper}>Continue a saved check-in</Text>
-        </View>
         <SecondaryButton
           onPress={openPatientPortal}
           style={styles.secondaryAction}
@@ -360,25 +347,17 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   actionsSection: {
-    gap: spacing.md,
-    marginTop: spacing.lg,
+    gap: spacing.sm,
+    marginTop: spacing.md,
   },
   janetCard: {
-    marginBottom: spacing.xs,
+    marginBottom: spacing.xxs,
   },
   primaryAction: {
     minHeight: 48,
   },
   secondaryAction: {
     minHeight: 42,
-  },
-  resumeSection: {
-    gap: spacing.xs,
-  },
-  resumeHelper: {
-    ...typography.caption,
-    color: colors.textTertiary,
-    textAlign: 'center',
   },
   devSection: {
     marginTop: spacing.xxl,

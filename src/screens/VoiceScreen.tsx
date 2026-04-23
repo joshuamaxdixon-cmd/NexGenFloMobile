@@ -76,6 +76,7 @@ type PendingScanResult = DocumentScanResult & {
 const LOCAL_CONFIRMATION_FIELDS = [
   'firstName',
   'lastName',
+  'gender',
   'phoneNumber',
   'email',
   'emergencyContactName',
@@ -506,9 +507,36 @@ function normalizeLocalConfirmationValue(
       .replace(/\s+/g, '');
   }
 
+  if (field === 'gender') {
+    const normalizedGender = normalized.toLowerCase();
+    if (normalizedGender.includes('female')) {
+      return 'female';
+    }
+    if (normalizedGender.includes('male')) {
+      return 'male';
+    }
+    if (normalizedGender.includes('other')) {
+      return 'other';
+    }
+    return '';
+  }
+
   if (field === 'phoneNumber' || field === 'emergencyContactPhone') {
+    const spokenDigits = normalized
+      .toLowerCase()
+      .replace(/\boh\b/g, '0')
+      .replace(/\bzero\b/g, '0')
+      .replace(/\bone\b/g, '1')
+      .replace(/\btwo\b/g, '2')
+      .replace(/\bthree\b/g, '3')
+      .replace(/\bfour\b/g, '4')
+      .replace(/\bfive\b/g, '5')
+      .replace(/\bsix\b/g, '6')
+      .replace(/\bseven\b/g, '7')
+      .replace(/\beight\b/g, '8')
+      .replace(/\bnine\b/g, '9');
     const normalizedField = normalizeIntakeFormFields({
-      [field]: normalized,
+      [field]: spokenDigits,
     } as Partial<IntakeFormData>)[field];
 
     return typeof normalizedField === 'string' ? normalizedField : '';
@@ -528,6 +556,24 @@ function buildLocalConfirmationPrompt(options: {
   }
 
   return `I heard ${value}. Is that right?`;
+}
+
+function buildLocalRetryPrompt(options: {
+  field: LocalConfirmationField;
+  language: 'en' | 'es';
+}) {
+  const fieldPrompt = getCanonicalVoicePrompt({
+    field: options.field,
+    language: options.language,
+    pastMedicalHistoryField: null,
+    step: 'basicInfo',
+  });
+
+  if (options.language === 'es') {
+    return `No pude confirmar ese detalle. Intentémoslo otra vez. ${fieldPrompt}`;
+  }
+
+  return `I could not confirm that detail. Let's try again. ${fieldPrompt}`;
 }
 
 function transcriptIsAffirmative(value: string, language: 'en' | 'es') {
@@ -1718,11 +1764,9 @@ export function VoiceExperience({
           : correctedValue;
 
         if (!confirmedValue) {
-          const retryPrompt = getCanonicalVoicePrompt({
+          const retryPrompt = buildLocalRetryPrompt({
             field: localConfirmation.field,
             language: state.janetMode.language,
-            pastMedicalHistoryField: null,
-            step: 'basicInfo',
           });
           setConfirmation(EMPTY_CONFIRMATION);
           setLocalConfirmation(null);
@@ -1774,9 +1818,7 @@ export function VoiceExperience({
             : currentSession,
         );
         setJanetModeStep('basicInfo');
-        setTimeout(() => {
-          void syncCurrentDraft();
-        }, 0);
+        void syncCurrentDraft();
         if (!nextBasicField) {
           await queueStepTransitionPrompt('basicInfo');
           return;
@@ -1799,11 +1841,17 @@ export function VoiceExperience({
         );
 
         if (!normalizedValue) {
+          const retryPrompt = buildLocalRetryPrompt({
+            field: activeManagedField,
+            language: state.janetMode.language,
+          });
           setMicError(
             state.janetMode.language === 'es'
               ? 'Janet no pudo confirmar ese detalle. Inténtalo otra vez.'
               : 'Janet could not confirm that detail. Please try again.',
           );
+          setReplyText(retryPrompt);
+          await queuePrompt(retryPrompt);
           return;
         }
 

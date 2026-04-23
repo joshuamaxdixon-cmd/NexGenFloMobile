@@ -1,6 +1,7 @@
 export * from './api';
 export * from './documentScan';
 export * from './draftStore';
+export * from './draftSession';
 export * from './intake';
 export * from './janet';
 export * from './janetFlow';

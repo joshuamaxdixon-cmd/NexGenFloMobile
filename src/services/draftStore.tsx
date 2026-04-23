@@ -55,6 +55,12 @@ import {
   type UploadDocumentAsset,
   type UploadDocumentType,
 } from './uploads';
+import {
+  clearDraftSession,
+  isDraftExpired,
+  loadDraftSession,
+  saveDraftSession,
+} from './draftSession';
 
 export type DraftSource =
   | 'home'
@@ -179,12 +185,17 @@ export type DraftStoreState = {
   hydrated: boolean;
   intake: IntakeDraftSlice;
   janetMode: JanetModeState;
+  resumeCandidate: null | {
+    description: string;
+    draftId: string;
+    updatedAt: string;
+  };
   returningPatient: ReturningPatientDraftSlice;
   uploads: UploadDraftSlice;
   voice: JanetVoiceDraft;
 };
 
-type PersistedDraftStoreState = Omit<DraftStoreState, 'hydrated'>;
+type PersistedDraftStoreState = Omit<DraftStoreState, 'hydrated' | 'resumeCandidate'>;
 
 type DraftStoreAction =
   | {
@@ -216,7 +227,10 @@ type DraftStoreAction =
     }
   | {
       type: 'hydrate';
-      payload: PersistedDraftStoreState | null;
+      payload: {
+        persisted: PersistedDraftStoreState | null;
+        resumeCandidate?: DraftStoreState['resumeCandidate'];
+      };
     }
   | {
       type: 'open_returning_flow';
@@ -258,6 +272,10 @@ type DraftStoreAction =
         documentType: UploadDocumentType;
         value: Partial<BackendUploadEntryState>;
       };
+    }
+  | {
+      type: 'set_resume_candidate';
+      payload: DraftStoreState['resumeCandidate'];
     }
   | {
       type: 'set_intake_step';
@@ -310,6 +328,10 @@ type DraftStoreAction =
   | {
       type: 'set_voice_transcript';
       payload: string;
+    }
+  | {
+      type: 'resume_saved_draft';
+      payload: PersistedDraftStoreState;
     }
   | {
       type: 'start_new_intake';
@@ -702,6 +724,7 @@ function createInitialDraftState(): DraftStoreState {
   return {
     ...createInitialPersistedState(),
     hydrated: false,
+    resumeCandidate: null,
   };
 }
 
@@ -742,6 +765,7 @@ function mergePersistedState(
     return {
       ...initial,
       hydrated: true,
+      resumeCandidate: null,
     };
   }
 
@@ -841,6 +865,7 @@ function mergePersistedState(
       currentStep: normalizedPersistedStep ?? payload.janetMode?.currentStep ?? initial.janetMode.currentStep,
       returnStep: payload.janetMode?.returnStep ?? null,
     },
+    resumeCandidate: null,
     uploads: {
       ...initial.uploads,
       ...payload.uploads,
@@ -921,6 +946,16 @@ function getPersistableState(state: DraftStoreState): PersistedDraftStoreState {
     uploads: state.uploads,
     voice: state.voice,
   };
+}
+
+async function deletePersistedDraftFile() {
+  try {
+    if (draftFile.exists) {
+      await draftFile.delete();
+    }
+  } catch {
+    // ignore local cleanup errors
+  }
 }
 
 function applyRemoteDraftToState(
@@ -1004,7 +1039,15 @@ function reducer(
 ): DraftStoreState {
   switch (action.type) {
     case 'hydrate':
-      return mergePersistedState(action.payload);
+      return {
+        ...mergePersistedState(action.payload.persisted),
+        resumeCandidate: action.payload.resumeCandidate ?? null,
+      };
+    case 'resume_saved_draft':
+      return {
+        ...mergePersistedState(action.payload),
+        resumeCandidate: null,
+      };
     case 'start_new_intake': {
       const timestamp = nowIso();
       const initial = createInitialPersistedState();
@@ -1049,11 +1092,17 @@ function reducer(
           active: false,
           currentStep: action.payload?.step ?? 'basicInfo',
         },
+        resumeCandidate: null,
         returningPatient: initial.returningPatient,
         uploads: initial.uploads,
         voice: initial.voice,
       };
     }
+    case 'set_resume_candidate':
+      return {
+        ...state,
+        resumeCandidate: action.payload,
+      };
     case 'set_active_flow_mode':
       return {
         ...state,
@@ -1466,6 +1515,7 @@ function reducer(
             ...state,
             activeFlowMode: 'intake',
             intake: initial.intake,
+            resumeCandidate: null,
             backend: {
               ...state.backend,
               draft: initial.backend.draft,
@@ -1506,6 +1556,7 @@ function reducer(
           return {
             ...initial,
             hydrated: state.hydrated,
+            resumeCandidate: null,
           };
       }
     }
@@ -1598,6 +1649,7 @@ function buildRemoteDraftPayload(
 export function DraftStoreProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, undefined, createInitialDraftState);
   const stateRef = useRef(state);
+  const pendingResumeDraftRef = useRef<PersistedDraftStoreState | null>(null);
 
   useEffect(() => {
     stateRef.current = state;
@@ -1608,15 +1660,70 @@ export function DraftStoreProvider({ children }: { children: ReactNode }) {
 
     async function hydrateDraft() {
       const persistedDraft = await readPersistedDraft();
+      let draftSession = await loadDraftSession();
+
+      if (!draftSession && persistedDraft) {
+        const migratedState = mergePersistedState(persistedDraft);
+        if (hasResumableIntakeDraft(migratedState)) {
+          const migratedUpdatedAt =
+            persistedDraft.intake.lastUpdatedAt ??
+            persistedDraft.voice.lastUpdatedAt ??
+            persistedDraft.returningPatient.lastUpdatedAt;
+
+          if (migratedUpdatedAt && !isDraftExpired({ updatedAt: migratedUpdatedAt })) {
+            draftSession = await saveDraftSession({
+              currentStep:
+                intakeFlowSteps.findIndex(
+                  (step) => step.key === persistedDraft.intake.currentStep,
+                ) + 1,
+              formData: persistedDraft.intake.form,
+              janetContext: {
+                currentQuestionKey: persistedDraft.janetMode.currentStep,
+                enabled: persistedDraft.janetMode.active,
+              },
+              updatedAt: migratedUpdatedAt,
+            });
+          }
+        }
+      }
+
+      if (!draftSession || isDraftExpired(draftSession) || !persistedDraft) {
+        pendingResumeDraftRef.current = null;
+
+        if (!draftSession && persistedDraft) {
+          await deletePersistedDraftFile();
+        } else if (draftSession && !persistedDraft) {
+          await clearDraftSession();
+        } else if (draftSession && isDraftExpired(draftSession)) {
+          await clearDraftSession();
+          await deletePersistedDraftFile();
+        }
+      }
 
       if (!isMounted) {
         return;
       }
 
+      const resumeCandidate =
+        persistedDraft && draftSession && !isDraftExpired(draftSession)
+          ? {
+              description: `Continue at ${
+                intakeFlowSteps[draftSession.currentStep - 1]?.title ?? 'Patient Information'
+              }. ${formatLastSaved(draftSession.updatedAt)}`,
+              draftId: draftSession.draftId,
+              updatedAt: draftSession.updatedAt,
+            }
+          : null;
+
+      pendingResumeDraftRef.current = resumeCandidate ? persistedDraft : null;
+
       startTransition(() => {
         dispatch({
           type: 'hydrate',
-          payload: persistedDraft,
+          payload: {
+            persisted: null,
+            resumeCandidate: resumeCandidate ?? undefined,
+          },
         });
       });
     }
@@ -1634,7 +1741,35 @@ export function DraftStoreProvider({ children }: { children: ReactNode }) {
     }
 
     const timeoutId = setTimeout(() => {
-      writePersistedDraft(getPersistableState(state));
+      if (state.backend.submit.status === 'submitted') {
+        void clearDraftSession();
+        void deletePersistedDraftFile();
+        pendingResumeDraftRef.current = null;
+        return;
+      }
+
+      if (!hasResumableIntakeDraft(state)) {
+        if (state.resumeCandidate || pendingResumeDraftRef.current) {
+          return;
+        }
+        void clearDraftSession();
+        void deletePersistedDraftFile();
+        pendingResumeDraftRef.current = null;
+        return;
+      }
+
+      const persistableState = getPersistableState(state);
+      writePersistedDraft(persistableState);
+      pendingResumeDraftRef.current = persistableState;
+      void saveDraftSession({
+        currentStep:
+          intakeFlowSteps.findIndex((step) => step.key === state.intake.currentStep) + 1,
+        formData: state.intake.form,
+        janetContext: {
+          currentQuestionKey: state.janetMode.active ? state.janetMode.currentStep : undefined,
+          enabled: state.janetMode.active,
+        },
+      });
     }, 150);
 
     return () => clearTimeout(timeoutId);
@@ -2447,6 +2582,9 @@ export function DraftStoreProvider({ children }: { children: ReactNode }) {
     clearDraft: (scope) => {
       if ((scope ?? 'all') === 'all') {
         clearLastApiExchange();
+        pendingResumeDraftRef.current = null;
+        void clearDraftSession();
+        void deletePersistedDraftFile();
       }
       dispatch({
         type: 'clear_draft',
@@ -2480,6 +2618,14 @@ export function DraftStoreProvider({ children }: { children: ReactNode }) {
       });
     },
     resumeSavedDraft: () => {
+      if (pendingResumeDraftRef.current) {
+        dispatch({
+          type: 'resume_saved_draft',
+          payload: pendingResumeDraftRef.current,
+        });
+        pendingResumeDraftRef.current = null;
+        return;
+      }
       dispatch({
         type: 'set_active_flow_mode',
         payload: 'intake',
@@ -2549,6 +2695,9 @@ export function DraftStoreProvider({ children }: { children: ReactNode }) {
       });
     },
     startNewIntake: (options) => {
+      pendingResumeDraftRef.current = null;
+      void clearDraftSession();
+      void deletePersistedDraftFile();
       dispatch({
         type: 'start_new_intake',
         payload: options,
@@ -2674,6 +2823,10 @@ export function hasResumeableDraft(state: DraftStoreState) {
 }
 
 export function hasResumableIntakeDraft(state: DraftStoreState) {
+  if (state.backend.submit.status === 'submitted') {
+    return false;
+  }
+
   const intakeHasData = Object.values(state.intake.form).some((value) =>
     hasIntakeFieldValue(value),
   );

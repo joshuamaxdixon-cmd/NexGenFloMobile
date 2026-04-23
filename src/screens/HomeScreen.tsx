@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
 
 import { DevPreviewPanel } from '../components/DevPreviewPanel';
@@ -11,6 +11,8 @@ import { ScreenContainer } from '../components/ScreenContainer';
 import type { RootTabParamList } from '../navigation/types';
 import {
   buildPortalIntakePrefill,
+  hasResumableIntakeDraft,
+  isDraftExpired,
   type IntakeFormData,
   useDraftStore,
   usePatientPortal,
@@ -131,6 +133,7 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
     clearBackendDebugState,
     clearDraft,
     openJanetMode,
+    resumeSavedDraft,
     startNewIntake,
     state,
   } = useDraftStore();
@@ -149,47 +152,142 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
   }, [state.backend.connectivity.status, state.hydrated]);
 
   const openCheckIn = () => {
-    clearDraft('all');
-    const portalPrefill =
-      patientPortal.state.session && patientPortal.state.portal
-        ? buildPortalIntakePrefill(patientPortal.state.portal)
-        : null;
-    startNewIntake({
-      prefill: portalPrefill
-        ? { ...createFreshIntakePrefill(), ...portalPrefill }
-        : createFreshIntakePrefill(),
-      source: 'home',
-      step: portalPrefill ? 'symptoms' : 'basicInfo',
-    });
-    navigation.navigate('Intake', {
-      mode: 'intake',
-      resetKey: `home-intake-${Date.now()}`,
-      startStep: portalPrefill ? 'symptoms' : 'basicInfo',
-    });
+    const startFresh = () => {
+      clearDraft('all');
+      const portalPrefill =
+        patientPortal.state.session && patientPortal.state.portal
+          ? buildPortalIntakePrefill(patientPortal.state.portal)
+          : null;
+      startNewIntake({
+        prefill: portalPrefill
+          ? { ...createFreshIntakePrefill(), ...portalPrefill }
+          : createFreshIntakePrefill(),
+        source: 'home',
+        step: portalPrefill ? 'symptoms' : 'basicInfo',
+      });
+      navigation.navigate('Intake', {
+        mode: 'intake',
+        resetKey: `home-intake-${Date.now()}`,
+        startStep: portalPrefill ? 'symptoms' : 'basicInfo',
+      });
+    };
+
+    const hasValidResumeCandidate =
+      state.resumeCandidate && !isDraftExpired({ updatedAt: state.resumeCandidate.updatedAt });
+    const hasValidInMemoryDraft =
+      hasResumableIntakeDraft(state) &&
+      state.intake.lastUpdatedAt &&
+      !isDraftExpired({ updatedAt: state.intake.lastUpdatedAt });
+
+    if (!hasValidResumeCandidate && state.resumeCandidate) {
+      startFresh();
+      return;
+    }
+
+    if (!hasValidInMemoryDraft && hasResumableIntakeDraft(state)) {
+      startFresh();
+      return;
+    }
+
+    if (hasValidResumeCandidate || hasValidInMemoryDraft) {
+      Alert.alert(
+        'Resume your check-in?',
+        'We found a check-in started recently.',
+        [
+          {
+            text: 'Start New',
+            style: 'destructive',
+            onPress: startFresh,
+          },
+          {
+            text: 'Resume',
+            onPress: () => {
+              resumeSavedDraft();
+              navigation.navigate('Intake', {
+                mode: 'intake',
+                resetKey: `resume-intake-${Date.now()}`,
+                startStep: state.intake.currentStep,
+              });
+            },
+          },
+        ],
+      );
+      return;
+    }
+
+    startFresh();
   };
 
   const openJanetAssistant = () => {
-    clearDraft('all');
-    const portalPrefill =
-      patientPortal.state.session && patientPortal.state.portal
-        ? buildPortalIntakePrefill(patientPortal.state.portal)
-        : null;
-    startNewIntake({
-      prefill: portalPrefill
-        ? { ...createFreshIntakePrefill(), ...portalPrefill }
-        : createFreshIntakePrefill(),
-      source: 'voice',
-      step: portalPrefill ? 'symptoms' : 'basicInfo',
-    });
-    openJanetMode({
-      step: portalPrefill ? 'symptoms' : 'basicInfo',
-    });
-    navigation.navigate('Intake', {
-      launchSource: 'voice',
-      mode: 'intake',
-      resetKey: `voice-intake-${Date.now()}`,
-      startStep: portalPrefill ? 'symptoms' : 'basicInfo',
-    });
+    const startFresh = () => {
+      clearDraft('all');
+      const portalPrefill =
+        patientPortal.state.session && patientPortal.state.portal
+          ? buildPortalIntakePrefill(patientPortal.state.portal)
+          : null;
+      startNewIntake({
+        prefill: portalPrefill
+          ? { ...createFreshIntakePrefill(), ...portalPrefill }
+          : createFreshIntakePrefill(),
+        source: 'voice',
+        step: portalPrefill ? 'symptoms' : 'basicInfo',
+      });
+      openJanetMode({
+        step: portalPrefill ? 'symptoms' : 'basicInfo',
+      });
+      navigation.navigate('Intake', {
+        launchSource: 'voice',
+        mode: 'intake',
+        resetKey: `voice-intake-${Date.now()}`,
+        startStep: portalPrefill ? 'symptoms' : 'basicInfo',
+      });
+    };
+
+    const hasValidResumeCandidate =
+      state.resumeCandidate && !isDraftExpired({ updatedAt: state.resumeCandidate.updatedAt });
+    const hasValidInMemoryDraft =
+      hasResumableIntakeDraft(state) &&
+      state.intake.lastUpdatedAt &&
+      !isDraftExpired({ updatedAt: state.intake.lastUpdatedAt });
+
+    if (!hasValidResumeCandidate && state.resumeCandidate) {
+      startFresh();
+      return;
+    }
+
+    if (!hasValidInMemoryDraft && hasResumableIntakeDraft(state)) {
+      startFresh();
+      return;
+    }
+
+    if (hasValidResumeCandidate || hasValidInMemoryDraft) {
+      Alert.alert(
+        'Resume your check-in?',
+        'We found a check-in started recently.',
+        [
+          {
+            text: 'Start New',
+            style: 'destructive',
+            onPress: startFresh,
+          },
+          {
+            text: 'Resume',
+            onPress: () => {
+              resumeSavedDraft();
+              navigation.navigate('Intake', {
+                launchSource: 'voice',
+                mode: 'intake',
+                resetKey: `resume-voice-${Date.now()}`,
+                startStep: state.intake.currentStep,
+              });
+            },
+          },
+        ],
+      );
+      return;
+    }
+
+    startFresh();
   };
 
   const openPatientPortal = () => {

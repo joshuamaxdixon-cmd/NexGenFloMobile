@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
-import { Alert, StyleSheet } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { Alert, BackHandler, StyleSheet } from 'react-native';
 
 import { EmptyStateCard } from '../components/EmptyStateCard';
 import { IntakeActionBar } from '../components/IntakeActionBar';
@@ -7,6 +9,7 @@ import { JanetAssistantEntry } from '../components/JanetAssistantEntry';
 import { ProgressBar } from '../components/ProgressBar';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { SectionHeader } from '../components/SectionHeader';
+import type { RootTabParamList } from '../navigation/types';
 import {
   intakeFlowSteps,
   mapApiFieldErrorsToIntakeFields,
@@ -30,6 +33,7 @@ function hasFieldErrors(fieldErrors: IntakeFieldErrors) {
 }
 
 export function IntakeScreen() {
+  const navigation = useNavigation<BottomTabNavigationProp<RootTabParamList>>();
   const {
     closeJanetMode,
     fetchRemoteDraft,
@@ -81,6 +85,44 @@ export function IntakeScreen() {
       setReturnToReviewStep(null);
     }
   }, [returnToReviewStep, state.intake.currentStep]);
+
+  const handleHardwareBack = useCallback(() => {
+    Alert.alert(
+      'Leave check-in?',
+      'Your progress will be saved for 5 minutes.',
+      [
+        {
+          text: 'Stay',
+          style: 'cancel',
+        },
+        {
+          text: 'Leave',
+          style: 'destructive',
+          onPress: () => {
+            void syncCurrentDraft();
+            if (state.janetMode.active) {
+              closeJanetMode();
+            }
+            navigation.navigate('Home');
+          },
+        },
+      ],
+    );
+    return true;
+  }, [closeJanetMode, navigation, state.janetMode.active, syncCurrentDraft]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const subscription = BackHandler.addEventListener(
+        'hardwareBackPress',
+        handleHardwareBack,
+      );
+
+      return () => {
+        subscription.remove();
+      };
+    }, [handleHardwareBack]),
+  );
 
   const currentStepIndex = Math.max(
     0,

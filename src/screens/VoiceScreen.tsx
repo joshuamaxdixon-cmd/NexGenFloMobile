@@ -8,6 +8,7 @@ import { Audio } from 'expo-av';
 
 import { DraftBanner } from '../components/DraftBanner';
 import { EmptyStateCard } from '../components/EmptyStateCard';
+import { JanetAvatar } from '../components/JanetAvatar';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { SecondaryButton } from '../components/SecondaryButton';
@@ -1975,9 +1976,7 @@ export function VoiceExperience({
           </View>
 
           <View style={styles.hero}>
-            <View style={styles.avatarWrap}>
-              <Ionicons color={colors.primaryDeep} name="mic" size={26} />
-            </View>
+            <JanetAvatar containerStyle={styles.avatarWrap} size="lg" />
             <View style={styles.heroCopy}>
               <Text style={styles.heroTitle}>{janetCopy.greetingTitle}</Text>
               <Text style={styles.heroSubtitle}>
@@ -2506,14 +2505,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   avatarWrap: {
-    alignItems: 'center',
-    backgroundColor: colors.surfaceMuted,
-    borderColor: colors.divider,
-    borderWidth: 1,
-    borderRadius: 24,
-    height: 48,
-    justifyContent: 'center',
-    width: 48,
+    flexShrink: 0,
   },
   banner: {
     marginTop: spacing.sm,

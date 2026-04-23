@@ -433,6 +433,7 @@ export function IntakeScreen() {
                 step: state.intake.currentStep,
               });
             }}
+            style={styles.janetEntry}
           />
           {renderCurrentStep()}
           <IntakeActionBar
@@ -460,6 +461,10 @@ export function IntakeScreen() {
 
 const styles = StyleSheet.create({
   banner: {
+    marginBottom: spacing.md,
+  },
+  janetEntry: {
+    marginTop: spacing.md,
     marginBottom: spacing.md,
   },
   resetButton: {

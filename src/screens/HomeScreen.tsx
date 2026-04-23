@@ -9,6 +9,7 @@ import {
 
 import { DevPreviewPanel } from '../components/DevPreviewPanel';
 import { DevQaPanel } from '../components/DevQaPanel';
+import { JanetHelperCard } from '../components/JanetHelperCard';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { SecondaryButton } from '../components/SecondaryButton';
@@ -248,9 +249,13 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
       </Pressable>
 
       <View style={styles.actionsSection}>
-        <SecondaryButton
+        <JanetHelperCard
+          actionLabel="Open Janet"
+          avatarSize="md"
           onPress={openJanetAssistant}
-          style={styles.secondaryAction}
+          statusLabel="Voice guide"
+          style={styles.janetCard}
+          subtitle="Speak with Janet to move through check-in without losing your place."
           title="Janet's Assistant"
         />
         <PrimaryButton
@@ -369,6 +374,9 @@ const styles = StyleSheet.create({
   actionsSection: {
     gap: spacing.md,
     marginTop: spacing.lg,
+  },
+  janetCard: {
+    marginBottom: spacing.xs,
   },
   primaryAction: {
     minHeight: 60,

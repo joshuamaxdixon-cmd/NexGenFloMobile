@@ -1268,8 +1268,8 @@ export function VoiceExperience({
           ? error.message
           : 'We could not finish the voice capture.',
       );
-      setIsProcessing(false);
     } finally {
+      setIsProcessing(false);
       resetLiveSpeechCapture();
     }
   }, [
@@ -2170,6 +2170,7 @@ export function VoiceExperience({
           ? error.message
           : 'We could not finish the voice capture.',
       );
+    } finally {
       setIsProcessing(false);
     }
   }, [

@@ -4,7 +4,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { InfoCard } from '../components/InfoCard';
 import { InputField } from '../components/InputField';
 import { PrimaryButton } from '../components/PrimaryButton';
-import { SecondaryButton } from '../components/SecondaryButton';
+import { PortalScreenLayout } from '../components/portal/PortalScreenLayout';
 import type { PatientPortalMedicalHistory } from '../services/patientPortal';
 import { colors, spacing, typography } from '../theme';
 
@@ -33,88 +33,80 @@ export function PatientPortalMedicalHistoryScreen({
   };
 
   return (
-    <View style={styles.container}>
-      <InfoCard
-        subtitle="Keep your chart details current before today’s visit."
-        title="Update Medical History"
-      >
-        <InputField label="Sex" onChangeText={(value) => update('sex', value)} value={form.sex} />
-        <InputField
-          label="Emergency contact name"
-          onChangeText={(value) => update('emergencyContactName', value)}
-          value={form.emergencyContactName}
-        />
-        <InputField
-          label="Emergency contact phone"
-          onChangeText={(value) => update('emergencyContactPhone', value)}
-          value={form.emergencyContactPhone}
-        />
-        <InputField
-          label="Allergies"
-          multiline
-          onChangeText={(value) => update('allergies', value)}
-          value={form.allergies}
-        />
-        <InputField
-          label="Medications"
-          multiline
-          onChangeText={(value) => update('medications', value)}
-          value={form.medications}
-        />
-        <InputField
-          label="Medical Conditions / History"
-          multiline
-          onChangeText={(value) => update('medicalConditions', value)}
-          value={form.medicalConditions}
-        />
-        <InputField
-          label="Surgeries"
-          multiline
-          onChangeText={(value) => update('surgeries', value)}
-          value={form.surgeries}
-        />
-        <InputField
-          label="Immunizations"
-          multiline
-          onChangeText={(value) => update('immunizations', value)}
-          value={form.immunizations}
-        />
-        <InputField
-          label="Current visit reason"
-          multiline
-          onChangeText={(value) => update('currentVisitReason', value)}
-          value={form.currentVisitReason}
-        />
-        {message ? <Text style={styles.message}>{message}</Text> : null}
-      </InfoCard>
+    <PortalScreenLayout
+      onBack={onBack}
+      subtitle="Update the medical details tied to your portal profile."
+      title="Medical History"
+    >
+      <View style={styles.content}>
+        <InfoCard title="Current Medical Information">
+          <View style={styles.form}>
+            <InputField label="Sex" onChangeText={(value) => update('sex', value)} value={form.sex} />
+            <InputField
+              label="Emergency contact name"
+              onChangeText={(value) => update('emergencyContactName', value)}
+              value={form.emergencyContactName}
+            />
+            <InputField
+              label="Emergency contact phone"
+              onChangeText={(value) => update('emergencyContactPhone', value)}
+              value={form.emergencyContactPhone}
+            />
+            <InputField
+              label="Allergies"
+              multiline
+              onChangeText={(value) => update('allergies', value)}
+              value={form.allergies}
+            />
+            <InputField
+              label="Medications"
+              multiline
+              onChangeText={(value) => update('medications', value)}
+              value={form.medications}
+            />
+            <InputField
+              label="Medical conditions / history"
+              multiline
+              onChangeText={(value) => update('medicalConditions', value)}
+              value={form.medicalConditions}
+            />
+            <InputField
+              label="Surgeries"
+              multiline
+              onChangeText={(value) => update('surgeries', value)}
+              value={form.surgeries}
+            />
+            <InputField
+              label="Immunizations"
+              multiline
+              onChangeText={(value) => update('immunizations', value)}
+              value={form.immunizations}
+            />
+          </View>
+        </InfoCard>
 
-      <View style={styles.actions}>
-        <SecondaryButton onPress={onBack} style={styles.action} title="Back" />
+        {message ? <Text style={styles.message}>{message}</Text> : null}
+
         <PrimaryButton
           loading={busyAction === 'medicalHistory'}
           onPress={() => onSave(form)}
-          style={styles.action}
           title="Save Medical History"
         />
       </View>
-    </View>
+    </PortalScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  content: {
     gap: spacing.lg,
   },
-  actions: {
-    flexDirection: 'row',
+  form: {
     gap: spacing.sm,
-  },
-  action: {
-    flex: 1,
   },
   message: {
     ...typography.caption,
     color: colors.textSecondary,
-    marginTop: spacing.sm,
+    textAlign: 'center',
   },
 });

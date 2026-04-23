@@ -19,6 +19,7 @@ export type RootStackParamList = {
   Tabs: NavigatorScreenParams<RootTabParamList> | undefined;
   PortalLogin: undefined;
   PortalHome: undefined;
+  PortalCheckInStart: undefined;
   PortalProfile: undefined;
   PortalMedicalHistory: undefined;
   PortalDocuments: undefined;

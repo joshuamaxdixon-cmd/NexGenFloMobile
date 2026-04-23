@@ -6,8 +6,9 @@ import { InfoCard } from '../components/InfoCard';
 import { InputField } from '../components/InputField';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { SecondaryButton } from '../components/SecondaryButton';
+import { PortalScreenLayout } from '../components/portal/PortalScreenLayout';
 import type { PatientPortalPatient } from '../services/patientPortal';
-import { spacing, typography, colors } from '../theme';
+import { colors, spacing, typography } from '../theme';
 
 type Props = {
   busyAction?: string | null;
@@ -70,50 +71,68 @@ export function PatientPortalProfileScreen({
   };
 
   return (
-    <View style={styles.container}>
-      <InfoCard subtitle="Update the contact details used for your patient portal." title="Edit Profile">
-        <View style={styles.identityRow}>
-          {avatarUri ? (
-            <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
-          ) : (
-            <View style={styles.avatarFallback}>
-              <Text style={styles.avatarInitials}>
-                {patient.avatarInitials || 'PT'}
+    <PortalScreenLayout
+      onBack={onBack}
+      subtitle="Update the patient profile used across your portal and check-in."
+      title="Edit Profile"
+    >
+      <View style={styles.content}>
+        <InfoCard>
+          <View style={styles.identityRow}>
+            {avatarUri ? (
+              <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
+            ) : (
+              <View style={styles.avatarFallback}>
+                <Text style={styles.avatarInitials}>
+                  {patient.avatarInitials || 'PT'}
+                </Text>
+              </View>
+            )}
+            <View style={styles.identityCopy}>
+              <Text style={styles.identityName}>
+                {patient.fullName || 'Patient'}
+              </Text>
+              <Text style={styles.identityMeta}>
+                Keep your portal profile current.
               </Text>
             </View>
-          )}
-          <View style={styles.identityText}>
-            <Text style={styles.identityName}>{patient.fullName || 'Patient'}</Text>
-            <Text style={styles.identityMeta}>
-              Profile image changes are saved to your patient account.
-            </Text>
           </View>
-        </View>
-        <InputField label="Phone" onChangeText={setPhone} value={phone} />
-        <InputField
-          autoCapitalize="none"
-          keyboardType="email-address"
-          label="Email"
-          onChangeText={setEmail}
-          value={email}
-        />
-        <InputField label="Address line 1" onChangeText={setAddressLine1} value={addressLine1} />
-        <InputField label="Address line 2" onChangeText={setAddressLine2} optional value={addressLine2} />
-        <InputField label="City" onChangeText={setCity} value={city} />
-        <InputField label="State" onChangeText={setStateValue} value={stateValue} />
-        <InputField label="ZIP code" onChangeText={setZipCode} value={zipCode} />
+          <SecondaryButton
+            loading={busyAction === 'photo'}
+            onPress={() => void pickPhoto()}
+            title="Add / Change Profile Picture"
+          />
+        </InfoCard>
 
-        <SecondaryButton
-          loading={busyAction === 'photo'}
-          onPress={() => void pickPhoto()}
-          style={styles.photoButton}
-          title="Add / Change Profile Picture"
-        />
+        <InfoCard title="Contact Details">
+          <View style={styles.form}>
+            <InputField label="Phone" onChangeText={setPhone} value={phone} />
+            <InputField
+              autoCapitalize="none"
+              keyboardType="email-address"
+              label="Email"
+              onChangeText={setEmail}
+              value={email}
+            />
+            <InputField
+              label="Address line 1"
+              onChangeText={setAddressLine1}
+              value={addressLine1}
+            />
+            <InputField
+              label="Address line 2"
+              onChangeText={setAddressLine2}
+              optional
+              value={addressLine2}
+            />
+            <InputField label="City" onChangeText={setCity} value={city} />
+            <InputField label="State" onChangeText={setStateValue} value={stateValue} />
+            <InputField label="ZIP code" onChangeText={setZipCode} value={zipCode} />
+          </View>
+        </InfoCard>
+
         {message ? <Text style={styles.message}>{message}</Text> : null}
-      </InfoCard>
 
-      <View style={styles.actions}>
-        <SecondaryButton onPress={onBack} style={styles.action} title="Back" />
         <PrimaryButton
           loading={busyAction === 'profile'}
           onPress={() =>
@@ -127,43 +146,16 @@ export function PatientPortalProfileScreen({
               zipCode,
             })
           }
-          style={styles.action}
           title="Save Profile"
         />
       </View>
-    </View>
+    </PortalScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  avatarFallback: {
-    alignItems: 'center',
-    backgroundColor: colors.primarySoft,
-    borderRadius: 32,
-    height: 64,
-    justifyContent: 'center',
-    width: 64,
-  },
-  avatarImage: {
-    borderRadius: 32,
-    height: 64,
-    width: 64,
-  },
-  avatarInitials: {
-    ...typography.headline,
-    color: colors.primary,
-    fontWeight: '700',
-  },
-  container: {
+  content: {
     gap: spacing.lg,
-  },
-  identityMeta: {
-    ...typography.caption,
-    color: colors.textSecondary,
-  },
-  identityName: {
-    ...typography.sectionTitle,
-    color: colors.textPrimary,
   },
   identityRow: {
     alignItems: 'center',
@@ -171,23 +163,42 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     marginBottom: spacing.md,
   },
-  identityText: {
+  avatarFallback: {
+    alignItems: 'center',
+    backgroundColor: colors.primarySoft,
+    borderRadius: 30,
+    height: 60,
+    justifyContent: 'center',
+    width: 60,
+  },
+  avatarImage: {
+    borderRadius: 30,
+    height: 60,
+    width: 60,
+  },
+  avatarInitials: {
+    ...typography.headline,
+    color: colors.primaryDeep,
+    fontWeight: '700',
+  },
+  identityCopy: {
     flex: 1,
     gap: spacing.xxs,
   },
-  actions: {
-    flexDirection: 'row',
+  identityName: {
+    ...typography.sectionTitle,
+    color: colors.textPrimary,
+  },
+  identityMeta: {
+    ...typography.caption,
+    color: colors.textSecondary,
+  },
+  form: {
     gap: spacing.sm,
-  },
-  action: {
-    flex: 1,
-  },
-  photoButton: {
-    marginTop: spacing.sm,
   },
   message: {
     ...typography.caption,
     color: colors.textSecondary,
-    marginTop: spacing.sm,
+    textAlign: 'center',
   },
 });

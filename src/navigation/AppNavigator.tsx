@@ -9,9 +9,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyStateCard } from '../components/EmptyStateCard';
 import { ScreenContainer } from '../components/ScreenContainer';
-import { SectionHeader } from '../components/SectionHeader';
 import { HomeScreen } from '../screens/HomeScreen';
 import { IntakeScreen } from '../screens/IntakeScreen';
+import { PatientPortalCheckInStartScreen } from '../screens/PatientPortalCheckInStartScreen';
 import { PatientPortalDocumentsScreen } from '../screens/PatientPortalDocumentsScreen';
 import { PatientPortalHomeScreen } from '../screens/PatientPortalHomeScreen';
 import { PatientPortalLoginScreen } from '../screens/PatientPortalLoginScreen';
@@ -113,10 +113,6 @@ function PortalLoginRoute() {
   if (!patientPortal.state.hydrated) {
     return (
       <ScreenContainer>
-        <SectionHeader
-          subtitle="Restoring your patient session."
-          title="Patient Portal"
-        />
         <EmptyStateCard
           icon="time-outline"
           message="Checking for a saved patient portal session."
@@ -127,31 +123,26 @@ function PortalLoginRoute() {
   }
 
   return (
-    <ScreenContainer>
-      <SectionHeader
-        subtitle="Sign in to manage your profile, documents, medical history, and visits."
-        title="Patient Portal Login"
-      />
-      <PatientPortalLoginScreen
-        busy={patientPortal.state.busyAction === 'login'}
-        dateOfBirth={patientPortal.state.loginForm.dateOfBirth}
-        email={patientPortal.state.loginForm.email}
-        message={patientPortal.state.message}
-        onChangeDateOfBirth={(value) =>
-          patientPortal.updateLoginField('dateOfBirth', value)
+    <PatientPortalLoginScreen
+      busy={patientPortal.state.busyAction === 'login'}
+      dateOfBirth={patientPortal.state.loginForm.dateOfBirth}
+      email={patientPortal.state.loginForm.email}
+      message={patientPortal.state.message}
+      onBack={() => navigation.goBack()}
+      onChangeDateOfBirth={(value) =>
+        patientPortal.updateLoginField('dateOfBirth', value)
+      }
+      onChangeEmail={(value) => patientPortal.updateLoginField('email', value)}
+      onContinue={async () => {
+        const didLogin = await patientPortal.login();
+        if (didLogin) {
+          navigation.reset({
+            index: 1,
+            routes: [{ name: 'Tabs' as never }, { name: 'PortalHome' as never }],
+          });
         }
-        onChangeEmail={(value) => patientPortal.updateLoginField('email', value)}
-        onContinue={async () => {
-          const didLogin = await patientPortal.login();
-          if (didLogin) {
-            navigation.reset({
-              index: 1,
-              routes: [{ name: 'Tabs' as never }, { name: 'PortalHome' as never }],
-            });
-          }
-        }}
-      />
-    </ScreenContainer>
+      }}
+    />
   );
 }
 
@@ -178,7 +169,6 @@ function PortalHomeRoute() {
     reset: (state: { index: number; routes: { name: string }[] }) => void;
   };
   const patientPortal = useRequirePortalSession();
-  const { clearDraft, startNewIntake } = useDraftStore();
   const portal = patientPortal.state.portal;
 
   if (!portal || !patientPortal.state.session) {
@@ -186,49 +176,65 @@ function PortalHomeRoute() {
   }
 
   return (
-    <ScreenContainer>
-      <SectionHeader
-        subtitle="Manage your patient account and today’s check-in."
-        title="Patient Portal"
-      />
-      <PatientPortalHomeScreen
-        busyAction={patientPortal.state.busyAction}
-        message={patientPortal.state.message}
-        onContinueCheckIn={() => {
-          clearDraft('all');
-          startNewIntake({
-            prefill: buildPortalIntakePrefill(portal),
-            source: 'resume',
-            step: 'symptoms',
-          });
-          stackNavigation.navigate('Tabs', {
-            screen: 'Intake',
-            params: {
-              launchSource: 'resume',
-              mode: 'intake',
-              resetKey: `portal-intake-${Date.now()}`,
-              startStep: 'symptoms',
-            },
-          } as never);
-        }}
-        onEditProfile={() => stackNavigation.navigate('PortalProfile')}
-        onOpenAppHome={() => stackNavigation.navigate('Tabs', { screen: 'Home' })}
-        onOpenDocuments={() => stackNavigation.navigate('PortalDocuments')}
-        onOpenVisits={() => stackNavigation.navigate('PortalVisits')}
-        onSignOut={async () => {
-          await patientPortal.signOut();
-          stackNavigation.reset({
-            index: 0,
-            routes: [{ name: 'Tabs' }],
-          });
-        }}
-        onUpdateMedicalHistory={() =>
-          stackNavigation.navigate('PortalMedicalHistory')
-        }
-        portal={portal}
-        session={patientPortal.state.session}
-      />
-    </ScreenContainer>
+    <PatientPortalHomeScreen
+      busyAction={patientPortal.state.busyAction}
+      message={patientPortal.state.message}
+      onContinueCheckIn={() => stackNavigation.navigate('PortalCheckInStart')}
+      onEditProfile={() => stackNavigation.navigate('PortalProfile')}
+      onOpenDocuments={() => stackNavigation.navigate('PortalDocuments')}
+      onOpenVisits={() => stackNavigation.navigate('PortalVisits')}
+      onSignOut={async () => {
+        await patientPortal.signOut();
+        stackNavigation.reset({
+          index: 0,
+          routes: [{ name: 'Tabs' }],
+        });
+      }}
+      onUpdateMedicalHistory={() =>
+        stackNavigation.navigate('PortalMedicalHistory')
+      }
+      portal={portal}
+      session={patientPortal.state.session}
+    />
+  );
+}
+
+function PortalCheckInStartRoute() {
+  const navigation = useNavigation();
+  const stackNavigation = navigation as unknown as {
+    goBack: () => void;
+    navigate: (name: string, params?: object) => void;
+  };
+  const patientPortal = useRequirePortalSession();
+  const { clearDraft, startNewIntake } = useDraftStore();
+  const portal = patientPortal.state.portal;
+
+  if (!portal) {
+    return null;
+  }
+
+  return (
+    <PatientPortalCheckInStartScreen
+      onBack={() => stackNavigation.goBack()}
+      onContinue={() => {
+        clearDraft('all');
+        startNewIntake({
+          prefill: buildPortalIntakePrefill(portal),
+          source: 'resume',
+          step: 'symptoms',
+        });
+        stackNavigation.navigate('Tabs', {
+          screen: 'Intake',
+          params: {
+            launchSource: 'resume',
+            mode: 'intake',
+            resetKey: `portal-intake-${Date.now()}`,
+            startStep: 'symptoms',
+          },
+        } as never);
+      }}
+      portal={portal}
+    />
   );
 }
 
@@ -242,25 +248,19 @@ function PortalProfileRoute() {
   }
 
   return (
-    <ScreenContainer>
-      <SectionHeader
-        subtitle="Update the patient profile used across the app."
-        title="Edit Profile"
-      />
-      <PatientPortalProfileScreen
-        busyAction={patientPortal.state.busyAction}
-        message={patientPortal.state.message}
-        onBack={() => navigation.goBack()}
-        onSave={(payload: PatientPortalProfileUpdate) =>
-          void patientPortal.saveProfile(payload)
-        }
-        onUploadPhoto={(asset: PatientPortalPhotoAsset) =>
-          void patientPortal.uploadProfilePhoto(asset)
-        }
-        patient={portal.patient}
-        profileImageVersion={patientPortal.state.session.avatarVersion}
-      />
-    </ScreenContainer>
+    <PatientPortalProfileScreen
+      busyAction={patientPortal.state.busyAction}
+      message={patientPortal.state.message}
+      onBack={() => navigation.goBack()}
+      onSave={(payload: PatientPortalProfileUpdate) =>
+        void patientPortal.saveProfile(payload)
+      }
+      onUploadPhoto={(asset: PatientPortalPhotoAsset) =>
+        void patientPortal.uploadProfilePhoto(asset)
+      }
+      patient={portal.patient}
+      profileImageVersion={patientPortal.state.session.avatarVersion}
+    />
   );
 }
 
@@ -274,21 +274,15 @@ function PortalMedicalHistoryRoute() {
   }
 
   return (
-    <ScreenContainer>
-      <SectionHeader
-        subtitle="Keep your chart details current."
-        title="Medical History"
-      />
-      <PatientPortalMedicalHistoryScreen
-        busyAction={patientPortal.state.busyAction}
-        history={portal.medicalHistory}
-        message={patientPortal.state.message}
-        onBack={() => navigation.goBack()}
-        onSave={(payload: PatientPortalMedicalHistory) =>
-          void patientPortal.saveMedicalHistory(payload)
-        }
-      />
-    </ScreenContainer>
+    <PatientPortalMedicalHistoryScreen
+      busyAction={patientPortal.state.busyAction}
+      history={portal.medicalHistory}
+      message={patientPortal.state.message}
+      onBack={() => navigation.goBack()}
+      onSave={(payload: PatientPortalMedicalHistory) =>
+        void patientPortal.saveMedicalHistory(payload)
+      }
+    />
   );
 }
 
@@ -302,22 +296,16 @@ function PortalDocumentsRoute() {
   }
 
   return (
-    <ScreenContainer>
-      <SectionHeader
-        subtitle="Manage the documents tied to your patient account."
-        title="Documents"
-      />
-      <PatientPortalDocumentsScreen
-        busyAction={patientPortal.state.busyAction}
-        message={patientPortal.state.message}
-        onBack={() => navigation.goBack()}
-        onUploadPhoto={(asset: PatientPortalPhotoAsset) =>
-          void patientPortal.uploadProfilePhoto(asset)
-        }
-        patient={portal.patient}
-        profileImageVersion={patientPortal.state.session.avatarVersion}
-      />
-    </ScreenContainer>
+    <PatientPortalDocumentsScreen
+      busyAction={patientPortal.state.busyAction}
+      message={patientPortal.state.message}
+      onBack={() => navigation.goBack()}
+      onUploadPhoto={(asset: PatientPortalPhotoAsset) =>
+        void patientPortal.uploadProfilePhoto(asset)
+      }
+      patient={portal.patient}
+      profileImageVersion={patientPortal.state.session.avatarVersion}
+    />
   );
 }
 
@@ -331,16 +319,10 @@ function PortalVisitsRoute() {
   }
 
   return (
-    <ScreenContainer>
-      <SectionHeader
-        subtitle="Review recent patient visit activity."
-        title="Visits"
-      />
-      <PatientPortalVisitsScreen
-        onBack={() => navigation.goBack()}
-        portal={portal}
-      />
-    </ScreenContainer>
+    <PatientPortalVisitsScreen
+      onBack={() => navigation.goBack()}
+      portal={portal}
+    />
   );
 }
 
@@ -356,6 +338,7 @@ export function AppNavigator() {
       <Stack.Screen component={MainTabsNavigator} name="Tabs" />
       <Stack.Screen component={PortalLoginRoute} name="PortalLogin" />
       <Stack.Screen component={PortalHomeRoute} name="PortalHome" />
+      <Stack.Screen component={PortalCheckInStartRoute} name="PortalCheckInStart" />
       <Stack.Screen component={PortalProfileRoute} name="PortalProfile" />
       <Stack.Screen
         component={PortalMedicalHistoryRoute}

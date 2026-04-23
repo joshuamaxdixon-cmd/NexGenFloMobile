@@ -1,7 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 import { InfoCard } from '../components/InfoCard';
-import { SecondaryButton } from '../components/SecondaryButton';
+import { PortalScreenLayout } from '../components/portal/PortalScreenLayout';
 import type { PatientPortalSummary } from '../services';
 import { colors, spacing, typography } from '../theme';
 
@@ -10,56 +10,61 @@ type Props = {
   portal: PatientPortalSummary;
 };
 
+function valueOrFallback(value: string) {
+  return value.trim().length > 0 ? value : 'Not provided';
+}
+
 export function PatientPortalVisitsScreen({ onBack, portal }: Props) {
   return (
-    <View style={styles.container}>
-      <InfoCard
-        subtitle="Review the visit tied to your patient account."
-        title="Recent Visits"
-      >
-        {portal.activeVisit ? (
-          <View style={styles.summaryList}>
-            <View style={styles.summaryRow}>
-              <Text style={styles.label}>Visit ID</Text>
-              <Text style={styles.value}>{portal.activeVisit.id}</Text>
+    <PortalScreenLayout
+      onBack={onBack}
+      subtitle="Review the recent visit activity connected to your portal account."
+      title="Recent Visits"
+    >
+      <View style={styles.content}>
+        <InfoCard>
+          {portal.activeVisit ? (
+            <View style={styles.summaryList}>
+              <View style={styles.summaryRow}>
+                <Text style={styles.label}>Visit ID</Text>
+                <Text style={styles.value}>{portal.activeVisit.id}</Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Text style={styles.label}>Status</Text>
+                <Text style={styles.value}>
+                  {valueOrFallback(portal.activeVisit.statusLabel)}
+                </Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Text style={styles.label}>Reason</Text>
+                <Text style={styles.value}>
+                  {valueOrFallback(portal.activeVisit.reasonForVisit)}
+                </Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Text style={styles.label}>Duration</Text>
+                <Text style={styles.value}>
+                  {valueOrFallback(portal.activeVisit.symptomDuration)}
+                </Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Text style={styles.label}>Severity</Text>
+                <Text style={styles.value}>
+                  {valueOrFallback(portal.activeVisit.symptomSeverity)}
+                </Text>
+              </View>
             </View>
-            <View style={styles.summaryRow}>
-              <Text style={styles.label}>Status</Text>
-              <Text style={styles.value}>{portal.activeVisit.statusLabel}</Text>
-            </View>
-            <View style={styles.summaryRow}>
-              <Text style={styles.label}>Reason</Text>
-              <Text style={styles.value}>
-                {portal.activeVisit.reasonForVisit || 'Not provided'}
-              </Text>
-            </View>
-            <View style={styles.summaryRow}>
-              <Text style={styles.label}>Duration</Text>
-              <Text style={styles.value}>
-                {portal.activeVisit.symptomDuration || 'Not provided'}
-              </Text>
-            </View>
-            <View style={styles.summaryRow}>
-              <Text style={styles.label}>Severity</Text>
-              <Text style={styles.value}>
-                {portal.activeVisit.symptomSeverity || 'Not provided'}
-              </Text>
-            </View>
-          </View>
-        ) : (
-          <Text style={styles.emptyCopy}>
-            No recent visits are available for this patient account yet.
-          </Text>
-        )}
-      </InfoCard>
-
-      <SecondaryButton onPress={onBack} title="Back" />
-    </View>
+          ) : (
+            <Text style={styles.emptyCopy}>No recent visits are available yet.</Text>
+          )}
+        </InfoCard>
+      </View>
+    </PortalScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  content: {
     gap: spacing.lg,
   },
   emptyCopy: {
@@ -68,6 +73,7 @@ const styles = StyleSheet.create({
   },
   label: {
     ...typography.caption,
+    color: colors.textTertiary,
   },
   summaryList: {
     borderTopColor: colors.divider,
@@ -77,7 +83,7 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.divider,
     borderBottomWidth: 1,
     gap: spacing.xxs,
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.sm,
   },
   value: {
     ...typography.body,

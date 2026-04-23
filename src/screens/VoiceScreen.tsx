@@ -24,8 +24,6 @@ import {
   configureJanetPlaybackAudioMode,
   configureJanetRecordingAudioMode,
   getJanetFieldLabel,
-  getFirstIncompleteJanetField,
-  getJanetFieldPrompt,
   getJanetFieldTitle,
   getJanetRecognitionHints,
   hydratePastMedicalHistoryFromLegacy,
@@ -39,13 +37,25 @@ import {
   requestJanetLiveSpeechPermissions,
   playJanetReplyAudio,
   requestJanetResponse,
-  resolveJanetFieldForStep,
+  resolveJanetVoiceFieldState,
   scanDocumentWithTextract,
   startJanetLiveSpeech,
   stopJanetLiveSpeech,
   stopJanetReplyAudio,
   transcribeJanetAudio,
   useDraftStore,
+  buildLocalConfirmationPrompt,
+  buildLocalRetryPrompt,
+  buildNoSpeechRetryPrompt,
+  buildPastMedicalHistoryPrompt,
+  getCanonicalJanetPrompt,
+  getNextPastMedicalHistoryField,
+  getPastMedicalHistoryFieldAfter,
+  getStepTransitionDeclinedPrompt,
+  getStepTransitionPrompt,
+  getNextVoiceStep,
+  type JanetFlowMode,
+  type PastMedicalHistoryVoiceField,
   type DocumentScanResult,
   type IntakeFormData,
   type IntakeStepKey,
@@ -107,12 +117,6 @@ function isOptionalBasicInfoField(
   return OPTIONAL_BASIC_INFO_FIELDS.includes(field as (typeof OPTIONAL_BASIC_INFO_FIELDS)[number]);
 }
 
-type JanetFlowMode =
-  | 'field_question'
-  | 'step_transition_confirmation'
-  | 'review_summary'
-  | 'final_submit_confirmation';
-
 const CONTINUE_INTENTS = [
   'yes',
   'yeah',
@@ -128,11 +132,6 @@ const CONTINUE_INTENTS = [
 ] as const;
 
 const PAUSE_INTENTS = ['no', 'not yet', 'wait', 'hold on', 'stop'] as const;
-
-type PastMedicalHistoryVoiceField =
-  | 'pastMedicalHistoryChronicConditions'
-  | 'pastMedicalHistoryOtherRelevantHistory'
-  | 'pastMedicalHistorySurgicalHistory';
 
 const JANET_UI_COPY = {
   en: {
@@ -398,71 +397,6 @@ function isBackendManagedJanetStep(step: IntakeStepKey) {
   );
 }
 
-function getNextPastMedicalHistoryField(
-  form: IntakeFormData,
-): PastMedicalHistoryVoiceField | null {
-  if (
-    form.pastMedicalHistoryChronicConditions.length === 0 &&
-    form.pastMedicalHistoryOtherMentalHealthCondition.trim().length === 0
-  ) {
-    return 'pastMedicalHistoryChronicConditions';
-  }
-
-  if (
-    form.pastMedicalHistorySurgicalHistory.length === 0 &&
-    form.pastMedicalHistoryOtherSurgery.trim().length === 0
-  ) {
-    return 'pastMedicalHistorySurgicalHistory';
-  }
-
-  if (form.pastMedicalHistoryOtherRelevantHistory.length === 0) {
-    return 'pastMedicalHistoryOtherRelevantHistory';
-  }
-
-  return null;
-}
-
-function getPastMedicalHistoryFieldAfter(
-  field: PastMedicalHistoryVoiceField,
-): PastMedicalHistoryVoiceField | null {
-  const fieldOrder: PastMedicalHistoryVoiceField[] = [
-    'pastMedicalHistoryChronicConditions',
-    'pastMedicalHistorySurgicalHistory',
-    'pastMedicalHistoryOtherRelevantHistory',
-  ];
-  const currentIndex = fieldOrder.indexOf(field);
-  return currentIndex >= 0 ? fieldOrder[currentIndex + 1] ?? null : null;
-}
-
-function buildPastMedicalHistoryPrompt(
-  field: PastMedicalHistoryVoiceField | null,
-  language: 'en' | 'es',
-) {
-  if (language === 'es') {
-    switch (field) {
-      case 'pastMedicalHistoryChronicConditions':
-        return 'Dime cualquier condición crónica o antecedente de salud mental que aplique. También puedes decir ninguna.';
-      case 'pastMedicalHistorySurgicalHistory':
-        return 'Dime cualquier cirugía previa que aplique. También puedes decir ninguna.';
-      case 'pastMedicalHistoryOtherRelevantHistory':
-        return 'Dime cualquier otro antecedente relevante, como fumar o embarazo. También puedes decir ninguna.';
-      default:
-        return 'Vamos a revisar los antecedentes médicos pasados.';
-    }
-  }
-
-  switch (field) {
-    case 'pastMedicalHistoryChronicConditions':
-      return 'Tell me any chronic conditions or mental health history that apply. You can also say none.';
-    case 'pastMedicalHistorySurgicalHistory':
-      return 'Tell me any surgical history that applies. You can also say none.';
-    case 'pastMedicalHistoryOtherRelevantHistory':
-      return 'Tell me any other relevant history, like smoking or pregnancy. You can also say none.';
-    default:
-      return 'Let’s review past medical history.';
-  }
-}
-
 function transcriptMeansNone(value: string) {
   const normalized = value.toLowerCase();
   return (
@@ -568,22 +502,6 @@ function normalizeLocalConfirmationValue(
   return normalized;
 }
 
-function buildNoSpeechRetryPrompt(options: {
-  fallbackPrompt: string;
-  language: 'en' | 'es';
-}) {
-  const trimmedPrompt = options.fallbackPrompt.trim();
-
-  if (!trimmedPrompt) {
-    return options.language === 'es'
-      ? 'No escuché una respuesta clara. Inténtalo otra vez.'
-      : 'I did not catch a clear answer. Please try again.';
-  }
-
-  return options.language === 'es'
-    ? `No escuché una respuesta clara. ${trimmedPrompt}`
-    : `I did not catch a clear answer. ${trimmedPrompt}`;
-}
 
 function parseSpokenDigits(value: string) {
   return value
@@ -673,36 +591,6 @@ function parseBasicInfoLocalCapture(
   };
 }
 
-function buildLocalConfirmationPrompt(options: {
-  field: LocalConfirmationField;
-  language: 'en' | 'es';
-  value: string;
-}) {
-  const { language, value } = options;
-  if (language === 'es') {
-    return `Escuché ${value}. ¿Es correcto?`;
-  }
-
-  return `I heard ${value}. Is that right?`;
-}
-
-function buildLocalRetryPrompt(options: {
-  field: LocalConfirmationField;
-  language: 'en' | 'es';
-}) {
-  const fieldPrompt = getCanonicalVoicePrompt({
-    field: options.field,
-    language: options.language,
-    pastMedicalHistoryField: null,
-    step: 'basicInfo',
-  });
-
-  if (options.language === 'es') {
-    return `No pude confirmar ese detalle. Intentémoslo otra vez. ${fieldPrompt}`;
-  }
-
-  return `I could not confirm that detail. Let's try again. ${fieldPrompt}`;
-}
 
 function transcriptIsAffirmative(value: string, language: 'en' | 'es') {
   const normalized = normalizeTranscriptText(value).toLowerCase();
@@ -754,61 +642,6 @@ function transcriptMatchesIntent(value: string, intents: readonly string[]) {
   return intents.some((intent) => normalized === intent || normalized.includes(intent));
 }
 
-function getNextStep(step: IntakeStepKey) {
-  const index = intakeFlowSteps.findIndex((entry) => entry.key === step);
-  if (index < 0) {
-    return null;
-  }
-
-  return intakeFlowSteps[index + 1]?.key ?? null;
-}
-
-function getStepTransitionPrompt(
-  currentStep: IntakeStepKey,
-  language: 'en' | 'es',
-) {
-  const nextStep = getNextStep(currentStep);
-
-  if (!nextStep) {
-    return '';
-  }
-
-  if (language === 'es') {
-    if (currentStep === 'basicInfo') {
-      return 'Hemos completado la información del paciente. ¿Pasamos a la información médica?';
-    }
-    if (currentStep === 'symptoms') {
-      return 'Hemos completado la información médica. ¿Pasamos a los antecedentes médicos?';
-    }
-    if (currentStep === 'pastMedicalHistory') {
-      return 'Hemos completado los antecedentes médicos. ¿Pasamos a los documentos?';
-    }
-    if (currentStep === 'documents') {
-      return 'Hemos completado los documentos. ¿Pasamos a revisar y confirmar?';
-    }
-    return '¿Quieres continuar al siguiente paso?';
-  }
-
-  if (currentStep === 'basicInfo') {
-    return 'We’ve completed patient information. Shall we move on to medical info?';
-  }
-  if (currentStep === 'symptoms') {
-    return 'We’ve completed medical info. Shall we move on to past medical history?';
-  }
-  if (currentStep === 'pastMedicalHistory') {
-    return 'We’ve completed past medical history. Shall we move on to documents?';
-  }
-  if (currentStep === 'documents') {
-    return 'We’ve completed documents. Shall we move on to review and confirm?';
-  }
-  return 'Would you like to continue to the next step?';
-}
-
-function getStepTransitionDeclinedPrompt(language: 'en' | 'es') {
-  return language === 'es'
-    ? 'Está bien. ¿Quieres revisar este paso, editar manualmente o repetir el último campo?'
-    : 'Okay. Would you like to review this step, edit manually, or repeat the last field?';
-}
 
 function buildStepReviewPrompt(options: {
   language: 'en' | 'es';
@@ -979,46 +812,6 @@ function resolveReviewSectionStep(
   return null;
 }
 
-function isVoiceStepComplete(options: {
-  activeField: string | null;
-  form: IntakeFormData;
-  pastMedicalHistoryField: PastMedicalHistoryVoiceField | null;
-  step: IntakeStepKey;
-}) {
-  const { activeField, form, pastMedicalHistoryField, step } = options;
-
-  if (step === 'pastMedicalHistory') {
-    return pastMedicalHistoryField === null;
-  }
-
-  if (step === 'review') {
-    return true;
-  }
-
-  return getFirstIncompleteJanetField(step, form) === null && activeField === null;
-}
-
-function getCanonicalVoicePrompt(options: {
-  field: string | null;
-  language: 'en' | 'es';
-  pastMedicalHistoryField: PastMedicalHistoryVoiceField | null;
-  step: IntakeStepKey;
-}) {
-  const { field, language, pastMedicalHistoryField, step } = options;
-
-  if (step === 'pastMedicalHistory') {
-    return buildPastMedicalHistoryPrompt(pastMedicalHistoryField, language);
-  }
-
-  if (!field) {
-    return '';
-  }
-
-  return getJanetFieldPrompt(
-    field as Parameters<typeof getJanetFieldPrompt>[0],
-    language,
-  );
-}
 
 export function VoiceExperience({
   embedded = false,
@@ -1060,6 +853,7 @@ export function VoiceExperience({
       interactionMode?: 'correction' | 'normal' | 'spell',
     ) => Promise<void>) | null
   >(null);
+  const draftSyncQueueRef = useRef(Promise.resolve());
   const liveSpeechTranscriptRef = useRef('');
   const liveSpeechConfidenceRef = useRef<number | null>(null);
   const liveSpeechAudioUriRef = useRef<string | null>(null);
@@ -1106,6 +900,39 @@ export function VoiceExperience({
     [],
   );
 
+  const queueDraftSync = useCallback(
+    (options?: { formOverride?: IntakeFormData }) => {
+      draftSyncQueueRef.current = draftSyncQueueRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          try {
+            await syncCurrentDraft(options);
+          } catch {
+            return;
+          }
+        });
+      return draftSyncQueueRef.current;
+    },
+    [syncCurrentDraft],
+  );
+
+  const queueDraftAndHandoffSync = useCallback(
+    (options?: { formOverride?: IntakeFormData }) => {
+      draftSyncQueueRef.current = draftSyncQueueRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          try {
+            await syncCurrentDraft(options);
+            await syncVoiceHandoff();
+          } catch {
+            return;
+          }
+        });
+      return draftSyncQueueRef.current;
+    },
+    [syncCurrentDraft, syncVoiceHandoff],
+  );
+
   const janetStep = state.janetMode.active
     ? state.janetMode.currentStep
     : state.intake.currentStep;
@@ -1113,14 +940,13 @@ export function VoiceExperience({
   const backendJanetStep = isBackendManagedJanetStep(janetStep)
     ? inferJanetConversationStep(janetStep)
     : 'symptoms';
-  const activeManagedField =
-    janetStep === 'pastMedicalHistory'
-      ? pastMedicalHistoryField
-      : resolveJanetFieldForStep(
-          janetStep,
-          state.intake.form,
-          session?.currentField ?? null,
-        );
+  const resolvedVoiceStepState = resolveJanetVoiceFieldState({
+    form: state.intake.form,
+    pastMedicalHistoryField,
+    proposedField: session?.currentField ?? null,
+    step: janetStep,
+  });
+  const activeManagedField = resolvedVoiceStepState.activeField;
   const currentFieldLabel = janetStep === 'pastMedicalHistory'
     ? getJanetFieldLabel(pastMedicalHistoryField)
     : getJanetFieldLabel(activeManagedField);
@@ -1128,7 +954,7 @@ export function VoiceExperience({
     janetStep,
     janetStep === 'pastMedicalHistory' ? pastMedicalHistoryField : activeManagedField,
   );
-  const canonicalVoicePrompt = getCanonicalVoicePrompt({
+  const canonicalVoicePrompt = getCanonicalJanetPrompt({
     field: activeManagedField,
     language: state.janetMode.language,
     pastMedicalHistoryField,
@@ -1260,16 +1086,17 @@ export function VoiceExperience({
           ...(options?.formOverride ?? state.intake.form),
           ...nextSession.draftPatch,
         };
-        const resolvedField = resolveJanetFieldForStep(
-          nextSession.currentStep,
-          mergedForm,
-          nextSession.currentField,
-        );
+        const resolvedField = resolveJanetVoiceFieldState({
+          form: mergedForm,
+          pastMedicalHistoryField: null,
+          proposedField: nextSession.currentField,
+          step: nextSession.currentStep,
+        }).activeField;
         const useFallbackPrompt =
           !isJanetFieldActiveForStep(nextSession.currentStep, nextSession.currentField) &&
           Boolean(resolvedField);
 
-        const canonicalPrompt = getCanonicalVoicePrompt({
+        const canonicalPrompt = getCanonicalJanetPrompt({
           field: resolvedField,
           language: state.janetMode.language,
           pastMedicalHistoryField: null,
@@ -1283,7 +1110,12 @@ export function VoiceExperience({
         setConfirmation(nextSession.confirmation);
         setReplyText(
           useFallbackPrompt && resolvedField
-            ? getJanetFieldPrompt(resolvedField, state.janetMode.language)
+            ? getCanonicalJanetPrompt({
+                field: resolvedField,
+                language: state.janetMode.language,
+                pastMedicalHistoryField: null,
+                step: nextSession.currentStep,
+              })
             : canonicalPrompt || nextSession.firstPrompt,
         );
 
@@ -1687,8 +1519,13 @@ export function VoiceExperience({
         return;
       }
 
-      const prompt = getCanonicalVoicePrompt({
-        field: getFirstIncompleteJanetField(step, state.intake.form),
+      const prompt = getCanonicalJanetPrompt({
+        field: resolveJanetVoiceFieldState({
+          form: state.intake.form,
+          pastMedicalHistoryField: null,
+          proposedField: null,
+          step,
+        }).activeField,
         language: state.janetMode.language,
         pastMedicalHistoryField: null,
         step,
@@ -1710,7 +1547,7 @@ export function VoiceExperience({
 
   const queueStepTransitionPrompt = useCallback(
     async (step: IntakeStepKey) => {
-      const nextStep = getNextStep(step);
+      const nextStep = getNextVoiceStep(step);
       if (!nextStep) {
         return;
       }
@@ -1785,7 +1622,7 @@ export function VoiceExperience({
           normalizedTranscript.includes('repeat') ||
           normalizedTranscript.includes('repet')
         ) {
-          const repeatPrompt = getCanonicalVoicePrompt({
+          const repeatPrompt = getCanonicalJanetPrompt({
             field: activeManagedField,
             language: state.janetMode.language,
             pastMedicalHistoryField,
@@ -1869,7 +1706,7 @@ export function VoiceExperience({
           interactionMode === 'correction' ||
           transcriptIsNegative(transcript, state.janetMode.language)
         ) {
-          const retryPrompt = getCanonicalVoicePrompt({
+          const retryPrompt = getCanonicalJanetPrompt({
             field: localConfirmation.field,
             language: state.janetMode.language,
             pastMedicalHistoryField: null,
@@ -1929,9 +1766,14 @@ export function VoiceExperience({
         setFinalTranscript(confirmedValue);
         setVoiceTranscript(confirmedValue);
 
-        const nextBasicField = getFirstIncompleteJanetField('basicInfo', mergedForm);
+        const nextBasicField = resolveJanetVoiceFieldState({
+          form: mergedForm,
+          pastMedicalHistoryField: null,
+          proposedField: null,
+          step: 'basicInfo',
+        }).activeField;
         const nextField = nextBasicField;
-        const nextPrompt = getCanonicalVoicePrompt({
+        const nextPrompt = getCanonicalJanetPrompt({
           field: nextField,
           language: state.janetMode.language,
           pastMedicalHistoryField: null,
@@ -1953,7 +1795,7 @@ export function VoiceExperience({
             : currentSession,
         );
         setJanetModeStep('basicInfo');
-        void syncCurrentDraft({
+        void queueDraftSync({
           formOverride: mergedForm,
         });
         if (!nextBasicField) {
@@ -1983,8 +1825,13 @@ export function VoiceExperience({
               ? { heightFt: '', heightIn: '' }
               : { [activeManagedField]: '' }),
           }) as IntakeFormData;
-          const nextBasicField = getFirstIncompleteJanetField('basicInfo', baseForm);
-          const nextPrompt = getCanonicalVoicePrompt({
+          const nextBasicField = resolveJanetVoiceFieldState({
+            form: baseForm,
+            pastMedicalHistoryField: null,
+            proposedField: null,
+            step: 'basicInfo',
+          }).activeField;
+          const nextPrompt = getCanonicalJanetPrompt({
             field: nextBasicField,
             language: state.janetMode.language,
             pastMedicalHistoryField: null,
@@ -2047,7 +1894,6 @@ export function VoiceExperience({
           choices: [],
           field: activeManagedField,
           prompt: buildLocalConfirmationPrompt({
-            field: activeManagedField,
             language: state.janetMode.language,
             value: localCapture.value,
           }),
@@ -2059,7 +1905,6 @@ export function VoiceExperience({
         setVoiceTranscript(localCapture.value);
         await playPrompt(
           buildLocalConfirmationPrompt({
-            field: activeManagedField,
             language: state.janetMode.language,
             value: localCapture.value,
           }),
@@ -2209,23 +2054,25 @@ export function VoiceExperience({
           transcript,
         });
         setVoiceHandoff(nextHandoff);
-        const resolvedField = resolveJanetFieldForStep(
-          result.extraction.updatedStep,
-          mergedForm,
-          result.extraction.currentField,
-        );
+        const resolvedFieldState = resolveJanetVoiceFieldState({
+          form: mergedForm,
+          pastMedicalHistoryField,
+          proposedField: result.extraction.currentField,
+          step: result.extraction.updatedStep,
+        });
+        const resolvedField = resolvedFieldState.activeField;
         const backendAdvancedStep = result.extraction.updatedStep !== janetStep;
         const shouldOfferStepTransition =
           janetStep !== 'review' &&
           !result.confirmation.required &&
           !result.lowConfidence &&
           (backendAdvancedStep ||
-            isVoiceStepComplete({
-              activeField: backendAdvancedStep ? null : resolvedField,
+            resolveJanetVoiceFieldState({
               form: mergedForm,
               pastMedicalHistoryField,
+              proposedField: backendAdvancedStep ? null : resolvedField,
               step: janetStep,
-            }));
+            }).isStepComplete);
 
         if (shouldOfferStepTransition) {
           setSession((currentSession) =>
@@ -2243,10 +2090,7 @@ export function VoiceExperience({
           setConfirmation(EMPTY_CONFIRMATION);
           setWarnings(result.warnings);
           setLowConfidence(result.lowConfidence);
-          setTimeout(() => {
-            void syncCurrentDraft();
-            void syncVoiceHandoff();
-          }, 0);
+          void queueDraftAndHandoffSync();
           await queueStepTransitionPrompt(janetStep);
           setIsProcessing(false);
           return;
@@ -2262,7 +2106,7 @@ export function VoiceExperience({
                 draftPatch: result.extraction.draftPatch,
                 firstPrompt:
                   !result.confirmation.required
-                    ? getCanonicalVoicePrompt({
+                    ? getCanonicalJanetPrompt({
                         field: resolvedField,
                         language: state.janetMode.language,
                         pastMedicalHistoryField: null,
@@ -2275,7 +2119,7 @@ export function VoiceExperience({
         );
         setConfirmation(result.confirmation);
         setReplyText(() => {
-          const canonicalPrompt = getCanonicalVoicePrompt({
+          const canonicalPrompt = getCanonicalJanetPrompt({
             field: resolvedField,
             language: state.janetMode.language,
             pastMedicalHistoryField: null,
@@ -2292,15 +2136,12 @@ export function VoiceExperience({
         setLowConfidence(result.lowConfidence);
         setJanetModeStep(result.extraction.updatedStep);
 
-        setTimeout(() => {
-          void syncCurrentDraft();
-          void syncVoiceHandoff();
-        }, 0);
+        void queueDraftAndHandoffSync();
 
         if (result.janet.shouldSpeak) {
           const canonicalPrompt =
             !result.confirmation.required
-              ? getCanonicalVoicePrompt({
+              ? getCanonicalJanetPrompt({
                   field: resolvedField,
                   language: state.janetMode.language,
                   pastMedicalHistoryField: null,
@@ -2344,8 +2185,8 @@ export function VoiceExperience({
       state.voice.handoff,
       state.voice.spellModeEnabled,
       submitCurrentIntake,
-      syncCurrentDraft,
-      syncVoiceHandoff,
+      queueDraftAndHandoffSync,
+      queueDraftSync,
       updateIntakeFields,
     ],
   );
@@ -2522,9 +2363,9 @@ export function VoiceExperience({
     setFinalTranscript('');
     setVoiceTranscript('');
 
-    setTimeout(() => {
-      void syncCurrentDraft();
-    }, 0);
+    void queueDraftSync({
+      formOverride: mergedForm,
+    });
 
     await bootstrapSession({
       currentStepOverride: backendJanetStep,
@@ -2535,9 +2376,9 @@ export function VoiceExperience({
     backendJanetStep,
     bootstrapSession,
     pendingScanResult,
+    queueDraftSync,
     setVoiceTranscript,
     state.intake.form,
-    syncCurrentDraft,
     updateIntakeFields,
   ]);
 

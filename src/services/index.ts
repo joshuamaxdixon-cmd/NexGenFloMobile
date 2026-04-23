@@ -3,6 +3,7 @@ export * from './documentScan';
 export * from './draftStore';
 export * from './intake';
 export * from './janet';
+export * from './janetFlow';
 export * from './janetLiveSpeech';
 export * from './patients';
 export * from './patientPortal';

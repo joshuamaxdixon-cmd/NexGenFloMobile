@@ -35,7 +35,6 @@ import {
   inferJanetConversationStep,
   isJanetFieldActiveForStep,
   intakeFlowSteps,
-  janetAssistant,
   pickDocumentFromSource,
   requestJanetLiveSpeechPermissions,
   playJanetReplyAudio,
@@ -447,6 +446,28 @@ function buildRecognitionContext(
   return getJanetRecognitionHints(field, form);
 }
 
+function getCanonicalVoicePrompt(options: {
+  field: string | null;
+  language: 'en' | 'es';
+  pastMedicalHistoryField: PastMedicalHistoryVoiceField | null;
+  step: IntakeStepKey;
+}) {
+  const { field, language, pastMedicalHistoryField, step } = options;
+
+  if (step === 'pastMedicalHistory') {
+    return buildPastMedicalHistoryPrompt(pastMedicalHistoryField, language);
+  }
+
+  if (!field) {
+    return '';
+  }
+
+  return getJanetFieldPrompt(
+    field as Parameters<typeof getJanetFieldPrompt>[0],
+    language,
+  );
+}
+
 export function VoiceExperience({
   embedded = false,
   onClose,
@@ -491,7 +512,7 @@ export function VoiceExperience({
   const liveSpeechActiveRef = useRef(false);
   const liveSpeechFinalizingRef = useRef(false);
   const [session, setSession] = useState<JanetSessionState | null>(null);
-  const [replyText, setReplyText] = useState<string>(janetAssistant.greetingText);
+  const [replyText, setReplyText] = useState<string>('');
   const [partialTranscript, setPartialTranscript] = useState('');
   const [finalTranscript, setFinalTranscript] = useState('');
   const [confirmation, setConfirmation] =
@@ -550,12 +571,22 @@ export function VoiceExperience({
     janetStep,
     janetStep === 'pastMedicalHistory' ? pastMedicalHistoryField : activeManagedField,
   );
+  const canonicalVoicePrompt = getCanonicalVoicePrompt({
+    field: activeManagedField,
+    language: state.janetMode.language,
+    pastMedicalHistoryField,
+    step: janetStep,
+  });
   const currentSpeechText = buildJanetSpeechText({
     confirmation,
     handoff: state.voice.handoff,
     replyText,
     spellModeEnabled: state.voice.spellModeEnabled,
   });
+  const resolvedSpeechText =
+    !confirmation.required && canonicalVoicePrompt.trim().length > 0
+      ? canonicalVoicePrompt
+      : currentSpeechText;
   const previewRows = useMemo(
     () =>
       buildPreviewRows(janetStep, state.intake.form).filter(
@@ -676,15 +707,22 @@ export function VoiceExperience({
           !isJanetFieldActiveForStep(nextSession.currentStep, nextSession.currentField) &&
           Boolean(resolvedField);
 
+        const canonicalPrompt = getCanonicalVoicePrompt({
+          field: resolvedField,
+          language: state.janetMode.language,
+          pastMedicalHistoryField: null,
+          step: nextSession.currentStep,
+        });
         setSession({
           ...nextSession,
           currentField: resolvedField,
+          firstPrompt: canonicalPrompt || nextSession.firstPrompt,
         });
         setConfirmation(nextSession.confirmation);
         setReplyText(
           useFallbackPrompt && resolvedField
             ? getJanetFieldPrompt(resolvedField, state.janetMode.language)
-            : nextSession.firstPrompt,
+            : canonicalPrompt || nextSession.firstPrompt,
         );
 
         if (Object.keys(nextSession.draftPatch).length > 0) {
@@ -1200,6 +1238,19 @@ export function VoiceExperience({
                 ),
                 currentStep: result.extraction.updatedStep,
                 draftPatch: result.extraction.draftPatch,
+                firstPrompt:
+                  !result.confirmation.required
+                    ? getCanonicalVoicePrompt({
+                        field: resolveJanetFieldForStep(
+                          result.extraction.updatedStep,
+                          mergedForm,
+                          result.extraction.currentField,
+                        ),
+                        language: state.janetMode.language,
+                        pastMedicalHistoryField: null,
+                        step: result.extraction.updatedStep,
+                      }) || currentSession.firstPrompt
+                    : currentSession.firstPrompt,
                 missingFields: result.extraction.missingFields,
               }
             : currentSession,
@@ -1211,16 +1262,15 @@ export function VoiceExperience({
             mergedForm,
             result.extraction.currentField,
           );
+          const canonicalPrompt = getCanonicalVoicePrompt({
+            field: resolvedField,
+            language: state.janetMode.language,
+            pastMedicalHistoryField: null,
+            step: result.extraction.updatedStep,
+          });
 
-          if (
-            !result.confirmation.required &&
-            resolvedField &&
-            !isJanetFieldActiveForStep(
-              result.extraction.updatedStep,
-              result.extraction.currentField,
-            )
-          ) {
-            return getJanetFieldPrompt(resolvedField, state.janetMode.language);
+          if (!result.confirmation.required && canonicalPrompt.trim().length > 0) {
+            return canonicalPrompt;
           }
 
           return result.janet.text;
@@ -1235,8 +1285,22 @@ export function VoiceExperience({
         }, 0);
 
         if (result.janet.shouldSpeak) {
+          const resolvedField = resolveJanetFieldForStep(
+            result.extraction.updatedStep,
+            mergedForm,
+            result.extraction.currentField,
+          );
+          const canonicalPrompt =
+            !result.confirmation.required
+              ? getCanonicalVoicePrompt({
+                  field: resolvedField,
+                  language: state.janetMode.language,
+                  pastMedicalHistoryField: null,
+                  step: result.extraction.updatedStep,
+                })
+              : '';
           await wait(JANET_TIMING.postResponseDelayMs);
-          await playPrompt(result.janet.speakText);
+          await playPrompt(canonicalPrompt || result.janet.speakText);
         }
       } catch (error) {
         setMicError(
@@ -1633,7 +1697,7 @@ export function VoiceExperience({
   useEffect(() => {
     if (
       !session?.sessionId ||
-      !session.firstPrompt.trim() ||
+      !resolvedSpeechText.trim() ||
       state.voice.isListening ||
       isBootstrapping ||
       isProcessing
@@ -1646,12 +1710,12 @@ export function VoiceExperience({
     }
 
     autoPlayedSessionRef.current = session.sessionId;
-    void playPrompt(session.firstPrompt);
+    void playPrompt(resolvedSpeechText);
   }, [
     isBootstrapping,
     isProcessing,
     playPrompt,
-    session?.firstPrompt,
+    resolvedSpeechText,
     session?.sessionId,
     state.voice.isListening,
   ]);
@@ -1787,10 +1851,10 @@ export function VoiceExperience({
         )
     : isScanning
       ? `Janet is reading your ${getDocumentTypeLabel(scanningDocumentType ?? 'id')}.`
-    : currentSpeechText.trim()
-      ? currentSpeechText
+    : resolvedSpeechText.trim()
+      ? resolvedSpeechText
       : `Janet is working on ${currentFieldLabel}.`;
-  const canReplay = currentSpeechText.trim().length > 0;
+  const canReplay = resolvedSpeechText.trim().length > 0;
   const displayTranscript = transcriptPreview;
   const shouldShowEmbeddedPromptButton = !embedded;
   const shouldShowConfirmationActions =
@@ -1828,7 +1892,7 @@ export function VoiceExperience({
     setPendingScanResult(null);
     setScanningDocumentType(null);
     setSession(null);
-    setReplyText(janetAssistant.greetingText);
+    setReplyText('');
     setConfirmation(EMPTY_CONFIRMATION);
     setWarnings([]);
     setLowConfidence(false);
@@ -2051,7 +2115,7 @@ export function VoiceExperience({
         <PrimaryButton
           disabled={isBootstrapping || isProcessing || isScanning || showListeningState}
           onPress={() => {
-            void playPrompt(currentSpeechText);
+            void playPrompt(resolvedSpeechText);
           }}
           style={styles.primaryActionButton}
           title={speechState === 'speaking' ? 'Janet Speaking…' : janetCopy.playPrompt}
@@ -2371,7 +2435,7 @@ export function VoiceExperience({
             <SecondaryButton
               disabled={!canReplay || isBootstrapping || isProcessing}
               onPress={() => {
-                void playPrompt(currentSpeechText);
+                void playPrompt(resolvedSpeechText);
               }}
               style={[styles.utilityButton, styles.inlineButtonLeft]}
               title={janetCopy.repeat}
@@ -2390,7 +2454,7 @@ export function VoiceExperience({
             <SecondaryButton
               disabled={!canReplay || isBootstrapping || isProcessing || isScanning || showListeningState}
               onPress={() => {
-                void playPrompt(currentSpeechText);
+                void playPrompt(resolvedSpeechText);
               }}
               style={[styles.utilityButton, styles.inlineButtonLeft]}
               title={janetCopy.repeat}

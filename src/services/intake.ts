@@ -741,6 +741,8 @@ export const medicalInfoCategoryOptions = {
   allergyMaterial: MEDICAL_INFO_ALLERGY_OPTIONS.material,
   allergyMedication: MEDICAL_INFO_ALLERGY_OPTIONS.medication,
   immunizationCore: [
+    'Influenza (yearly)',
+    'COVID-19 vaccine',
     'Tetanus / Tdap (within 10 years)',
     'MMR (Measles, Mumps, Rubella)',
     'Varicella (Chickenpox)',
@@ -753,8 +755,6 @@ export const medicalInfoCategoryOptions = {
     'Unknown / Unsure',
   ],
   immunizationRoutine: [
-    'Influenza (yearly)',
-    'COVID-19 vaccine',
     'Pneumococcal',
     'Shingles',
     'Shingrix - age 50+',

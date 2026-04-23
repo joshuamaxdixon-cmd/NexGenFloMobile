@@ -2556,26 +2556,6 @@ export function VoiceExperience({
   }, [clearSilenceTimeout, stopPlayback]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function bootstrap() {
-      if (janetFlowMode !== 'field_question') {
-        return;
-      }
-      const nextSession = await bootstrapSession();
-      if (cancelled || !nextSession?.sessionId) {
-        return;
-      }
-    }
-
-    void bootstrap();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [bootstrapSession, janetFlowMode]);
-
-  useEffect(() => {
     if (
       janetFlowMode !== 'field_question' ||
       !session?.sessionId ||

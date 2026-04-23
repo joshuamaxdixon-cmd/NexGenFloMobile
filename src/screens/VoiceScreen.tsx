@@ -645,8 +645,10 @@ function parseBasicInfoLocalCapture(
   }
 
   if (field === 'weightLb') {
+    const weightSource =
+      parseSpokenDigits(normalized).match(/\d+(?:\.\d+)?/)?.[0] ?? normalized;
     const normalizedWeight = normalizeIntakeFormFields({
-      weightLb: normalized,
+      weightLb: weightSource,
     }).weightLb;
     if (typeof normalizedWeight !== 'string' || !normalizedWeight) {
       return null;

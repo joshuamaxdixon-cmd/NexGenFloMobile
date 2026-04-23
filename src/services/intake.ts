@@ -1624,11 +1624,15 @@ function normalizeWeightInput(value: string) {
   const fraction = rest.join('').slice(0, 1);
   const normalizedWhole = whole.slice(0, 4);
 
+  if (!normalizedWhole) {
+    return '';
+  }
+
   if (!sanitized.includes('.')) {
     return normalizedWhole;
   }
 
-  return fraction.length > 0 ? `${normalizedWhole}.${fraction}` : `${normalizedWhole}.`;
+  return fraction.length > 0 ? `${normalizedWhole}.${fraction}` : normalizedWhole;
 }
 
 export function formatDateInput(value: string) {

@@ -126,7 +126,6 @@ const JANET_UI_COPY = {
     language: 'English',
     listening: 'Listening…',
     noisyRoom: 'Noisy Room',
-    playPrompt: 'Play prompt',
     processing: 'Processing your answer…',
     repeat: 'Repeat',
     soundOff: 'Sound: Off',
@@ -146,7 +145,6 @@ const JANET_UI_COPY = {
     language: 'Español',
     listening: 'Escuchando…',
     noisyRoom: 'Lugar ruidoso',
-    playPrompt: 'Repetir pregunta',
     processing: 'Procesando tu respuesta…',
     repeat: 'Repetir',
     soundOff: 'Sound: Off',
@@ -2651,7 +2649,6 @@ export function VoiceExperience({
       : `Janet is working on ${currentFieldLabel}.`;
   const canReplay = resolvedSpeechText.trim().length > 0;
   const displayTranscript = transcriptPreview;
-  const shouldShowEmbeddedPromptButton = !embedded;
   const shouldShowConfirmationActions =
     !shouldShowScanConfirmation &&
     confirmation.required &&
@@ -2915,17 +2912,6 @@ export function VoiceExperience({
         <Text style={styles.questionKicker}>{janetCopy.currentQuestion}</Text>
         <Text style={styles.questionText}>{currentQuestionText}</Text>
       </View>
-
-      {shouldShowEmbeddedPromptButton ? (
-        <PrimaryButton
-          disabled={isBootstrapping || isProcessing || isScanning || showListeningState}
-          onPress={() => {
-            void playPrompt(resolvedSpeechText);
-          }}
-          style={styles.primaryActionButton}
-          title={speechState === 'speaking' ? 'Janet Speaking…' : janetCopy.playPrompt}
-        />
-      ) : null}
 
       {canOfferIdScan || canOfferInsuranceScan ? (
         <View style={styles.scanAssistCard}>

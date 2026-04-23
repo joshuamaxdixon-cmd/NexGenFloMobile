@@ -665,7 +665,14 @@ const STRUCTURED_ALLERGY_FIELDS = [
   'allergyEnvironmentalSelections',
 ] as const;
 type StructuredAllergyField = (typeof STRUCTURED_ALLERGY_FIELDS)[number];
-const LOCAL_SYMPTOM_TEXT_FIELDS = ['medications', 'lastDose'] as const;
+const LOCAL_SYMPTOM_TEXT_FIELDS = [
+  'medications',
+  'lastDose',
+  'chiefConcern',
+  'symptomDuration',
+  'painLevel',
+  'symptomNotes',
+] as const;
 type LocalSymptomTextField = (typeof LOCAL_SYMPTOM_TEXT_FIELDS)[number];
 
 function isStructuredMedicalInfoField(
@@ -1013,6 +1020,71 @@ function parseLocalSymptomTextCapture(
       acknowledgementMessage: `I heard ${value}. I'll record that as your last dose timing.`,
       updates: {
         lastDose: value,
+      },
+      value,
+    };
+  }
+
+  if (field === 'chiefConcern') {
+    const value = formatSentenceCase(normalizedTranscript.replace(/[.,!?]+$/g, ''));
+    if (!value) {
+      return null;
+    }
+
+    return {
+      acknowledgementMessage: `I heard ${value}. I'll record that as your reason for visit.`,
+      updates: {
+        chiefConcern: value,
+      },
+      value,
+    };
+  }
+
+  if (field === 'symptomDuration') {
+    const value = formatSentenceCase(normalizedTranscript.replace(/[.,!?]+$/g, ''));
+    if (!value) {
+      return null;
+    }
+
+    return {
+      acknowledgementMessage: `I heard ${value}. I'll record that as your symptom duration.`,
+      updates: {
+        symptomDuration: value,
+      },
+      value,
+    };
+  }
+
+  if (field === 'painLevel') {
+    const value = formatSentenceCase(normalizedTranscript.replace(/[.,!?]+$/g, ''));
+    if (!value) {
+      return null;
+    }
+
+    return {
+      acknowledgementMessage: `I heard ${value}. I'll record that as your symptom severity.`,
+      updates: {
+        painLevel: value,
+      },
+      value,
+    };
+  }
+
+  if (field === 'symptomNotes') {
+    const value = transcriptMeansNone(normalizedTranscript)
+      ? 'None'
+      : formatSentenceCase(normalizedTranscript.replace(/[.,!?]+$/g, ''));
+    if (!value) {
+      return null;
+    }
+
+    return {
+      acknowledgementMessage:
+        value.toLowerCase() === 'none'
+          ? "I heard none. I'll record no additional symptom notes."
+          : `I heard ${value}. I'll record that in your symptom notes.`,
+      updates: {
+        symptomNotes: value,
       },
       value,
     };
@@ -1390,6 +1462,7 @@ export function VoiceExperience({
     ) => Promise<void>) | null
   >(null);
   const draftSyncQueueRef = useRef(Promise.resolve());
+  const setVoiceListeningRef = useRef(setVoiceListening);
   const liveSpeechTranscriptRef = useRef('');
   const liveSpeechConfidenceRef = useRef<number | null>(null);
   const liveSpeechAudioUriRef = useRef<string | null>(null);
@@ -1468,6 +1541,10 @@ export function VoiceExperience({
     },
     [syncCurrentDraft, syncVoiceHandoff],
   );
+
+  useEffect(() => {
+    setVoiceListeningRef.current = setVoiceListening;
+  }, [setVoiceListening]);
 
   const janetStep = state.janetMode.active
     ? state.janetMode.currentStep
@@ -3326,6 +3403,17 @@ export function VoiceExperience({
       void stopPlayback();
     };
   }, [clearSilenceTimeout, stopPlayback]);
+
+  useEffect(() => {
+    bootstrapKeyRef.current = '';
+    autoPlayedSessionRef.current = '';
+    autoListenRef.current = '';
+    setVoiceListeningRef.current(false);
+
+    return () => {
+      setVoiceListeningRef.current(false);
+    };
+  }, []);
 
   useEffect(() => {
     if (

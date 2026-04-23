@@ -303,6 +303,16 @@ function wait(ms: number) {
   });
 }
 
+function isLegacyJanetOpeningPrompt(value: string) {
+  const normalized = normalizeTranscriptText(value).toLowerCase();
+
+  return (
+    normalized.includes('to get started') &&
+    normalized.includes('new patient') &&
+    normalized.includes('returning patient')
+  );
+}
+
 function isMeaningfulTranscript(value: string) {
   const normalized = normalizeTranscriptText(value);
   if (!normalized) {
@@ -1145,6 +1155,32 @@ function resolveReviewSectionStep(
   return null;
 }
 
+function getSanitizedJanetPrompt(options: {
+  candidatePrompt: string | null | undefined;
+  field: string | null;
+  isStepComplete: boolean;
+  language: 'en' | 'es';
+  pastMedicalHistoryField: PastMedicalHistoryVoiceField | null;
+  step: IntakeStepKey;
+}) {
+  const candidatePrompt = options.candidatePrompt?.trim() ?? '';
+
+  if (!isLegacyJanetOpeningPrompt(candidatePrompt)) {
+    return candidatePrompt;
+  }
+
+  if (options.isStepComplete) {
+    return getStepTransitionPrompt(options.step, options.language);
+  }
+
+  return getCanonicalJanetPrompt({
+    field: options.field,
+    language: options.language,
+    pastMedicalHistoryField: options.pastMedicalHistoryField,
+    step: options.step,
+  });
+}
+
 
 export function VoiceExperience({
   embedded = false,
@@ -1438,21 +1474,49 @@ export function VoiceExperience({
           pastMedicalHistoryField: null,
           step: nextSession.currentStep,
         });
+        const sanitizedBootstrapPrompt = getSanitizedJanetPrompt({
+          candidatePrompt: canonicalPrompt || nextSession.firstPrompt,
+          field: resolvedField,
+          isStepComplete:
+            resolveJanetVoiceFieldState({
+              form: mergedForm,
+              pastMedicalHistoryField: null,
+              proposedField: resolvedField,
+              step: nextSession.currentStep,
+            }).isStepComplete,
+          language: state.janetMode.language,
+          pastMedicalHistoryField: null,
+          step: nextSession.currentStep,
+        });
         setSession({
           ...nextSession,
           currentField: resolvedField,
-          firstPrompt: canonicalPrompt || nextSession.firstPrompt,
+          firstPrompt: sanitizedBootstrapPrompt,
         });
         setConfirmation(nextSession.confirmation);
         setReplyText(
-          useFallbackPrompt && resolvedField
-            ? getCanonicalJanetPrompt({
-                field: resolvedField,
-                language: state.janetMode.language,
+          getSanitizedJanetPrompt({
+            candidatePrompt:
+              useFallbackPrompt && resolvedField
+                ? getCanonicalJanetPrompt({
+                    field: resolvedField,
+                    language: state.janetMode.language,
+                    pastMedicalHistoryField: null,
+                    step: nextSession.currentStep,
+                  })
+                : canonicalPrompt || nextSession.firstPrompt,
+            field: resolvedField,
+            isStepComplete:
+              resolveJanetVoiceFieldState({
+                form: mergedForm,
                 pastMedicalHistoryField: null,
+                proposedField: resolvedField,
                 step: nextSession.currentStep,
-              })
-            : canonicalPrompt || nextSession.firstPrompt,
+              }).isStepComplete,
+            language: state.janetMode.language,
+            pastMedicalHistoryField: null,
+            step: nextSession.currentStep,
+          }),
         );
 
         if (Object.keys(nextSession.draftPatch).length > 0) {
@@ -2656,6 +2720,38 @@ export function VoiceExperience({
           step: resolvedUpdatedStep,
         });
         const resolvedField = resolvedFieldState.activeField;
+        const sanitizedReplyPrompt = getSanitizedJanetPrompt({
+          candidatePrompt:
+            !result.confirmation.required
+              ? getCanonicalJanetPrompt({
+                  field: resolvedField,
+                  language: state.janetMode.language,
+                  pastMedicalHistoryField: null,
+                  step: resolvedUpdatedStep,
+                })
+              : result.janet.text,
+          field: resolvedField,
+          isStepComplete: resolvedFieldState.isStepComplete,
+          language: state.janetMode.language,
+          pastMedicalHistoryField: null,
+          step: resolvedUpdatedStep,
+        });
+        const sanitizedSpeakPrompt = getSanitizedJanetPrompt({
+          candidatePrompt:
+            !result.confirmation.required
+              ? getCanonicalJanetPrompt({
+                  field: resolvedField,
+                  language: state.janetMode.language,
+                  pastMedicalHistoryField: null,
+                  step: resolvedUpdatedStep,
+                })
+              : result.janet.speakText,
+          field: resolvedField,
+          isStepComplete: resolvedFieldState.isStepComplete,
+          language: state.janetMode.language,
+          pastMedicalHistoryField: null,
+          step: resolvedUpdatedStep,
+        });
         const backendAdvancedStep = resolvedUpdatedStep !== janetStep;
         const shouldOfferStepTransition =
           janetStep !== 'review' &&
@@ -2701,32 +2797,14 @@ export function VoiceExperience({
                 draftPatch: result.extraction.draftPatch,
                 firstPrompt:
                   !result.confirmation.required
-                    ? getCanonicalJanetPrompt({
-                        field: resolvedField,
-                        language: state.janetMode.language,
-                        pastMedicalHistoryField: null,
-                        step: resolvedUpdatedStep,
-                      }) || currentSession.firstPrompt
+                    ? sanitizedReplyPrompt || currentSession.firstPrompt
                     : currentSession.firstPrompt,
                 missingFields: result.extraction.missingFields,
               }
             : currentSession,
         );
         setConfirmation(result.confirmation);
-        setReplyText(() => {
-          const canonicalPrompt = getCanonicalJanetPrompt({
-            field: resolvedField,
-            language: state.janetMode.language,
-            pastMedicalHistoryField: null,
-            step: resolvedUpdatedStep,
-          });
-
-          if (!result.confirmation.required && canonicalPrompt.trim().length > 0) {
-            return canonicalPrompt;
-          }
-
-          return result.janet.text;
-        });
+        setReplyText(sanitizedReplyPrompt);
         setWarnings(result.warnings);
         setLowConfidence(result.lowConfidence);
         setJanetModeStep(resolvedUpdatedStep);
@@ -2734,17 +2812,8 @@ export function VoiceExperience({
         void queueDraftAndHandoffSync();
 
         if (result.janet.shouldSpeak) {
-          const canonicalPrompt =
-            !result.confirmation.required
-              ? getCanonicalJanetPrompt({
-                  field: resolvedField,
-                  language: state.janetMode.language,
-                  pastMedicalHistoryField: null,
-                  step: resolvedUpdatedStep,
-                })
-              : '';
           await wait(JANET_TIMING.postResponseDelayMs);
-          await playPrompt(canonicalPrompt || result.janet.speakText);
+          await playPrompt(sanitizedSpeakPrompt || sanitizedReplyPrompt);
         }
       } catch (error) {
         setMicError(

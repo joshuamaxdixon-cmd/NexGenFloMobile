@@ -404,20 +404,20 @@ const JANET_FIELD_METADATA = {
     title: 'Symptom Notes',
   },
   pastMedicalHistoryChronicConditions: {
-    hints: ['chronic conditions', 'asthma', 'diabetes', 'anxiety'],
+    hints: ['chronic conditions', 'asthma', 'diabetes', 'anxiety', 'none', 'unsure'],
     label: 'chronic conditions',
     prompt: {
-      en: 'Tell me any chronic conditions or mental health history that apply. You can also say none.',
-      es: 'Dime cualquier condición crónica o antecedente de salud mental que aplique. También puedes decir ninguna.',
+      en: "Tell me any chronic conditions or mental health history that apply. You can also say none or I don't know.",
+      es: 'Dime cualquier condición crónica o antecedente de salud mental que aplique. También puedes decir ninguna o no lo sé.',
     },
     title: 'Chronic Conditions',
   },
   pastMedicalHistorySurgicalHistory: {
-    hints: ['surgical history', 'appendectomy', 'heart surgery'],
+    hints: ['surgical history', 'appendectomy', 'heart surgery', 'none', 'unsure'],
     label: 'surgical history',
     prompt: {
-      en: 'Tell me any surgical history that applies. You can also say none.',
-      es: 'Dime cualquier cirugía previa que aplique. También puedes decir ninguna.',
+      en: "Tell me any surgical history that applies. You can also say none or I don't know.",
+      es: 'Dime cualquier cirugía previa que aplique. También puedes decir ninguna o no lo sé.',
     },
     title: 'Surgical History',
   },
@@ -672,6 +672,8 @@ export function resolveJanetFieldForStep(
 
 export const pastMedicalHistoryOptions = {
   chronicConditions: [
+    'None known',
+    'Unsure',
     'Hypertension',
     'Diabetes (Type 1 / Type 2)',
     'High cholesterol',
@@ -705,6 +707,8 @@ export const pastMedicalHistoryOptions = {
     'None of the above',
   ],
   surgicalHistory: [
+    'None known',
+    'Unsure',
     'Appendectomy',
     'Gallbladder removal',
     'C-section',

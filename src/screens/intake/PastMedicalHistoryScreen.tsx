@@ -18,12 +18,20 @@ type PastMedicalHistorySectionKey =
   | 'otherRelevantHistory'
   | 'surgicalHistory';
 
+const PAST_MEDICAL_HISTORY_STATUS_VALUES = ['None known', 'Unsure'] as const;
+
 function normalizeSelectionLabel(value: string) {
   return value.trim().replace(/\s+/g, ' ');
 }
 
 function normalizeSelectionKey(value: string) {
   return normalizeSelectionLabel(value).toLowerCase();
+}
+
+function isPastMedicalHistoryStatusValue(value: string) {
+  return PAST_MEDICAL_HISTORY_STATUS_VALUES.includes(
+    value as (typeof PAST_MEDICAL_HISTORY_STATUS_VALUES)[number],
+  );
 }
 
 function hasStructuredPastMedicalHistory(
@@ -89,9 +97,19 @@ export function PastMedicalHistoryScreen({
 
   const toggleChronicCondition = (value: string) => {
     const current = form.pastMedicalHistoryChronicConditions;
+    if (isPastMedicalHistoryStatusValue(value)) {
+      const nextValues = current.includes(value) ? [] : [value];
+      onChange('pastMedicalHistoryChronicConditions', nextValues);
+      if (!nextValues.includes(PAST_MEDICAL_HISTORY_OTHER_MENTAL_HEALTH)) {
+        onChange('pastMedicalHistoryOtherMentalHealthCondition', '');
+      }
+      return;
+    }
+
+    const withoutStatus = current.filter((entry) => !isPastMedicalHistoryStatusValue(entry));
     const nextValues = current.includes(value)
-      ? current.filter((entry) => entry !== value)
-      : [...current, value];
+      ? withoutStatus.filter((entry) => entry !== value)
+      : [...withoutStatus, value];
 
     onChange('pastMedicalHistoryChronicConditions', nextValues);
 
@@ -105,9 +123,19 @@ export function PastMedicalHistoryScreen({
 
   const toggleSurgicalHistory = (value: string) => {
     const current = form.pastMedicalHistorySurgicalHistory;
+    if (isPastMedicalHistoryStatusValue(value)) {
+      const nextValues = current.includes(value) ? [] : [value];
+      onChange('pastMedicalHistorySurgicalHistory', nextValues);
+      if (!nextValues.includes(PAST_MEDICAL_HISTORY_OTHER_SURGERY)) {
+        onChange('pastMedicalHistoryOtherSurgery', '');
+      }
+      return;
+    }
+
+    const withoutStatus = current.filter((entry) => !isPastMedicalHistoryStatusValue(entry));
     const nextValues = current.includes(value)
-      ? current.filter((entry) => entry !== value)
-      : [...current, value];
+      ? withoutStatus.filter((entry) => entry !== value)
+      : [...withoutStatus, value];
 
     onChange('pastMedicalHistorySurgicalHistory', nextValues);
 
@@ -171,7 +199,9 @@ export function PastMedicalHistoryScreen({
     }
 
     onChange('pastMedicalHistoryChronicConditions', [
-      ...form.pastMedicalHistoryChronicConditions,
+      ...form.pastMedicalHistoryChronicConditions.filter(
+        (entry) => !isPastMedicalHistoryStatusValue(entry),
+      ),
       canonicalValue,
     ]);
     setSectionSearch('chronicConditions', '');
@@ -198,7 +228,9 @@ export function PastMedicalHistoryScreen({
     }
 
     onChange('pastMedicalHistorySurgicalHistory', [
-      ...form.pastMedicalHistorySurgicalHistory,
+      ...form.pastMedicalHistorySurgicalHistory.filter(
+        (entry) => !isPastMedicalHistoryStatusValue(entry),
+      ),
       canonicalValue,
     ]);
     setSectionSearch('surgicalHistory', '');

@@ -165,11 +165,8 @@ export function IntakeScreen() {
   const reviewReadiness = getReviewReadiness({
     backendDraftStatus: state.backend.draft.status,
     form: state.intake.form,
-    hasGovernmentIdUpload:
-      Boolean(state.uploads.id) || state.backend.uploads.id.status === 'uploaded',
-    hasInsuranceUpload:
-      Boolean(state.uploads.insurance) ||
-      state.backend.uploads.insurance.status === 'uploaded',
+    hasGovernmentIdUpload: state.backend.uploads.id.status === 'uploaded',
+    hasInsuranceUpload: state.backend.uploads.insurance.status === 'uploaded',
   });
 
   const handleNext = async () => {
@@ -289,12 +286,8 @@ export function IntakeScreen() {
         return (
           <ReviewScreen
             form={state.intake.form}
-            hasGovernmentIdUpload={
-              Boolean(state.uploads.id) ||
-              state.backend.uploads.id.status === 'uploaded'
-            }
+            hasGovernmentIdUpload={state.backend.uploads.id.status === 'uploaded'}
             hasInsuranceUpload={
-              Boolean(state.uploads.insurance) ||
               state.backend.uploads.insurance.status === 'uploaded'
             }
             onEditStep={handleEditFromReview}

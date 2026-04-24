@@ -1606,11 +1606,8 @@ export function VoiceExperience({
       ),
     [janetStep, state.intake.form],
   );
-  const hasInsuranceUpload =
-    Boolean(state.uploads.insurance) ||
-    state.backend.uploads.insurance.status === 'uploaded';
-  const hasGovernmentIdUpload =
-    Boolean(state.uploads.id) || state.backend.uploads.id.status === 'uploaded';
+  const hasInsuranceUpload = state.backend.uploads.insurance.status === 'uploaded';
+  const hasGovernmentIdUpload = state.backend.uploads.id.status === 'uploaded';
   const livePillLabel = getLivePillLabel({
     isBootstrapping,
     isProcessing,

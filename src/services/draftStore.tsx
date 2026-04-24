@@ -436,6 +436,17 @@ function getErrorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
+function getUploadFailureMessage(
+  documentType: UploadDocumentType,
+  error: unknown,
+) {
+  if (error instanceof ApiError && error.status === 413) {
+    return `That ${documentType === 'insurance' ? 'insurance card' : 'photo ID'} image is too large to upload. Take a closer photo or crop it tighter, then try again.`;
+  }
+
+  return getErrorMessage(error, 'That document could not be uploaded right now.');
+}
+
 function isDraftMissingError(error: unknown) {
   return error instanceof ApiError && error.status === 404;
 }
@@ -2378,10 +2389,7 @@ export function DraftStoreProvider({ children }: { children: ReactNode }) {
         );
       }
 
-      const message = getErrorMessage(
-        error,
-        'That document could not be uploaded right now.',
-      );
+      const message = getUploadFailureMessage(documentType, error);
       dispatch({
         type: 'set_backend_upload',
         payload: {
@@ -2457,26 +2465,6 @@ export function DraftStoreProvider({ children }: { children: ReactNode }) {
       missingUploadedDocuments.push('photo ID');
     }
 
-    if (missingUploadedDocuments.length > 0) {
-      const message = `We couldn't finish sending your ${missingUploadedDocuments.join(
-        ' and ',
-      )}. Retry the upload or remove the document before finishing check-in.`;
-      dispatch({
-        type: 'set_backend_submit',
-        payload: {
-          fieldErrors: null,
-          message,
-          status: 'error',
-        },
-      });
-      recordQaEvent('final_submit', 'error', message, {
-        draftId: stateRef.current.backend.draft.draftId,
-        patientId: stateRef.current.backend.draft.patientId,
-        visitId: stateRef.current.backend.draft.visitId,
-      });
-      return false;
-    }
-
     try {
       const latestState = stateRef.current;
       const submitPayload = {
@@ -2486,8 +2474,14 @@ export function DraftStoreProvider({ children }: { children: ReactNode }) {
         patientId: latestState.backend.draft.patientId,
         returningPatient: latestState.returningPatient.form,
         uploads: {
-          insurance: latestState.uploads.insurance?.uri ?? null,
-          id: latestState.uploads.id?.uri ?? null,
+          insurance:
+            latestState.backend.uploads.insurance.status === 'uploaded'
+              ? latestState.uploads.insurance?.uri ?? null
+              : null,
+          id:
+            latestState.backend.uploads.id.status === 'uploaded'
+              ? latestState.uploads.id?.uri ?? null
+              : null,
         },
         visitId: latestState.backend.draft.visitId,
       };
@@ -2519,7 +2513,12 @@ export function DraftStoreProvider({ children }: { children: ReactNode }) {
         payload: {
           confirmationCode: response.confirmationCode,
           fieldErrors: null,
-          message: response.message,
+          message:
+            missingUploadedDocuments.length > 0
+              ? `${response.message} The check-in was submitted without the ${missingUploadedDocuments.join(
+                  ' and ',
+                )} because the upload did not finish.`
+              : response.message,
           status: 'submitted',
           submittedAt: response.submittedAt,
         },
@@ -2539,6 +2538,7 @@ export function DraftStoreProvider({ children }: { children: ReactNode }) {
       recordQaEvent('final_submit', 'success', response.message, {
         confirmationCode: response.confirmationCode,
         draftId: response.draftId ?? latestState.backend.draft.draftId,
+        missingUploadedDocuments,
         patientId: response.patientId,
         visitId: response.visitId,
       });

@@ -83,13 +83,13 @@ export async function pickDocumentFromSource(
       ? await ImagePicker.launchCameraAsync({
           mediaTypes: ['images'],
           allowsEditing: true,
-          quality: 0.85,
+          quality: 0.35,
           cameraType: ImagePicker.CameraType.back,
         })
       : await ImagePicker.launchImageLibraryAsync({
           mediaTypes: ['images'],
           allowsEditing: true,
-          quality: 0.85,
+          quality: 0.35,
           selectionLimit: 1,
         });
 

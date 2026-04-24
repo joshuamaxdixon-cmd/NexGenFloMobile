@@ -62,6 +62,25 @@ const checkboxEditorOrder: CheckboxEditorKey[] = [
 
 const searchEnabledEditors = new Set<CheckboxEditorKey>(checkboxEditorOrder);
 const immunizationStatusValues = ['None known', 'Unsure'] as const;
+const commonMedicationOptions = [
+  'Aspirin',
+  'Ibuprofen',
+  'Acetaminophen',
+  'Albuterol inhaler',
+  'Lisinopril',
+  'Metformin',
+  'Levothyroxine',
+  'Atorvastatin',
+] as const;
+const lastDoseQuickOptions = [
+  'Today',
+  'Yesterday',
+  'This morning',
+  'This afternoon',
+  'Last night',
+  'I do not know',
+  'Not taking now',
+] as const;
 
 const editorTitles: Record<MedicalInfoEditorKey, string> = {
   allergyEnvironmentalSelections: 'Environmental Allergies',
@@ -94,6 +113,13 @@ function arraysEqual(left: string[], right: string[]) {
     left.length === right.length &&
     left.every((value, index) => value === right[index])
   );
+}
+
+function parseCommaSeparatedValues(value: string) {
+  return value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
 }
 
 function EditorSheet({
@@ -364,6 +390,23 @@ export function SymptomsScreen({
     }));
   };
 
+  const addMedicationOption = (value: string) => {
+    const currentValues = parseCommaSeparatedValues(form.medications);
+
+    if (
+      currentValues.some(
+        (entry) => entry.toLowerCase() === value.trim().toLowerCase(),
+      )
+    ) {
+      return;
+    }
+
+    onChange(
+      'medications',
+      [...currentValues, value].join(', ') as IntakeFormData['medications'],
+    );
+  };
+
   const addCustomSelection = (field: CheckboxEditorKey, rawValue: string) => {
     const normalizedValue = normalizeSelectionLabel(rawValue);
     if (!normalizedValue) {
@@ -521,20 +564,56 @@ export function SymptomsScreen({
               optional: true,
               placeholder: 'Enter current medications',
             })}
+            <View style={styles.editorGroup}>
+              <Text style={styles.quickPickLabel}>Common choices</Text>
+              <View style={styles.quickPickWrap}>
+                {commonMedicationOptions.map((option) => (
+                  <Pressable
+                    key={option}
+                    onPress={() => addMedicationOption(option)}
+                    style={({ pressed }) => [
+                      styles.quickPickChip,
+                      pressed ? styles.quickPickChipPressed : null,
+                    ]}
+                  >
+                    <Text style={styles.quickPickChipLabel}>{option}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
           </EditorSheet>
         );
       case 'lastDose':
         return (
           <EditorSheet
             onClose={() => setActiveEditor(null)}
-            subtitle="Capture when the patient last took their medication."
+            subtitle="Capture when the patient last took any current medication."
             title={editorTitles.lastDose}
             visible
           >
             {renderTextEditor('lastDose', {
               optional: true,
-              placeholder: 'Enter last dose',
+              placeholder: 'Example: Today, yesterday, this morning, last night',
             })}
+            <View style={styles.editorGroup}>
+              <Text style={styles.quickPickLabel}>Quick choices</Text>
+              <View style={styles.quickPickWrap}>
+                {lastDoseQuickOptions.map((option) => (
+                  <Pressable
+                    key={option}
+                    onPress={() =>
+                      onChange('lastDose', option as IntakeFormData['lastDose'])
+                    }
+                    style={({ pressed }) => [
+                      styles.quickPickChip,
+                      pressed ? styles.quickPickChipPressed : null,
+                    ]}
+                  >
+                    <Text style={styles.quickPickChipLabel}>{option}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
           </EditorSheet>
         );
       case 'chiefConcern':
@@ -775,5 +854,30 @@ const styles = StyleSheet.create({
   },
   editorGroup: {
     gap: spacing.sm,
+  },
+  quickPickLabel: {
+    ...typography.label,
+    color: colors.textSecondary,
+  },
+  quickPickWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  quickPickChip: {
+    backgroundColor: colors.surfaceSoft,
+    borderColor: colors.divider,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  quickPickChipPressed: {
+    opacity: 0.78,
+  },
+  quickPickChipLabel: {
+    ...typography.label,
+    color: colors.primaryDeep,
+    fontWeight: '600',
   },
 });

@@ -1648,7 +1648,7 @@ function buildRemoteDraftPayload(
     janetHandoff: state.voice.handoff,
     patientId: state.backend.draft.patientId,
     returningPatient: state.returningPatient.form,
-    source: state.intake.source,
+    source: 'mobile',
     uploads: {
       insurance: state.uploads.insurance?.uri ?? null,
       id: state.uploads.id?.uri ?? null,

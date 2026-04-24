@@ -1,4 +1,5 @@
 import * as ImagePicker from 'expo-image-picker';
+import { SaveFormat, manipulateAsync } from 'expo-image-manipulator';
 
 import { api } from './api';
 
@@ -38,6 +39,19 @@ type UploadPickerResult =
       source: 'camera' | 'gallery';
     };
 
+const MAX_DOCUMENT_DIMENSION = 1600;
+const DOCUMENT_UPLOAD_QUALITY = 0.25;
+
+function buildNormalizedFileName(fileName: string | null | undefined) {
+  const trimmed = String(fileName ?? '').trim();
+
+  if (!trimmed) {
+    return `document-${new Date().toISOString().replace(/[:.]/g, '-')}.jpg`;
+  }
+
+  return trimmed.replace(/\.[^.]+$/, '') + '.jpg';
+}
+
 function buildAsset(
   source: 'camera' | 'gallery',
   asset: ImagePicker.ImagePickerAsset,
@@ -53,6 +67,33 @@ function buildAsset(
     source,
     updatedAt: new Date().toISOString(),
   };
+}
+
+async function normalizeDocumentAsset(
+  source: 'camera' | 'gallery',
+  asset: ImagePicker.ImagePickerAsset,
+) {
+  const largestDimension = Math.max(asset.width, asset.height);
+  const shouldResize = largestDimension > MAX_DOCUMENT_DIMENSION;
+  const resizeAction = shouldResize
+    ? asset.width >= asset.height
+      ? [{ resize: { width: MAX_DOCUMENT_DIMENSION } }]
+      : [{ resize: { height: MAX_DOCUMENT_DIMENSION } }]
+    : [];
+
+  const normalized = await manipulateAsync(asset.uri, resizeAction, {
+    compress: DOCUMENT_UPLOAD_QUALITY,
+    format: SaveFormat.JPEG,
+  });
+
+  return buildAsset(source, {
+    ...asset,
+    fileName: buildNormalizedFileName(asset.fileName),
+    height: normalized.height,
+    mimeType: 'image/jpeg',
+    uri: normalized.uri,
+    width: normalized.width,
+  });
 }
 
 export async function pickDocumentFromSource(
@@ -99,7 +140,7 @@ export async function pickDocumentFromSource(
 
   return {
     status: 'success',
-    asset: buildAsset(source, result.assets[0]),
+    asset: await normalizeDocumentAsset(source, result.assets[0]),
   };
 }
 

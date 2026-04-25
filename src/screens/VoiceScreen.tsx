@@ -2621,9 +2621,11 @@ export function VoiceExperience({
           }
 
           if (targetField === 'pastMedicalHistoryOtherRelevantHistory') {
-            nextUpdates.pastMedicalHistoryOtherRelevantHistory = explicitNone
-              ? []
-              : hydrated.pastMedicalHistoryOtherRelevantHistory ?? [];
+            nextUpdates.pastMedicalHistoryOtherRelevantHistory = explicitUnsure
+              ? ['Unsure']
+              : explicitNone
+                ? ['None known']
+                : hydrated.pastMedicalHistoryOtherRelevantHistory ?? [];
           }
 
           const hasStructuredValue = Object.values(nextUpdates).some((value) =>

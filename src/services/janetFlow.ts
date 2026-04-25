@@ -63,7 +63,7 @@ export function buildPastMedicalHistoryPrompt(
       case 'pastMedicalHistorySurgicalHistory':
         return 'Dime cualquier cirugía previa, como apéndice o vesícula. Puedes decir ninguna o no estoy seguro.';
       case 'pastMedicalHistoryOtherRelevantHistory':
-        return 'Dime cualquier otro antecedente relevante, como fumar o embarazo. También puedes decir ninguna.';
+        return 'Dime cualquier otro antecedente relevante, como fumar o embarazo. Puedes decir ninguna o no estoy seguro.';
       default:
         return 'Vamos a revisar los antecedentes médicos pasados.';
     }
@@ -75,7 +75,7 @@ export function buildPastMedicalHistoryPrompt(
     case 'pastMedicalHistorySurgicalHistory':
       return 'Tell me any past surgeries, like appendix or gallbladder surgery. You can say none or unsure.';
     case 'pastMedicalHistoryOtherRelevantHistory':
-      return 'Tell me any other relevant history, like smoking or pregnancy. You can also say none.';
+      return 'Tell me any other relevant history, like smoking or pregnancy. You can say none or unsure.';
     default:
       return 'Let’s review past medical history.';
   }

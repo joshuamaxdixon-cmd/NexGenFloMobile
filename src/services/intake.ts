@@ -422,11 +422,11 @@ const JANET_FIELD_METADATA = {
     title: 'Surgical History',
   },
   pastMedicalHistoryOtherRelevantHistory: {
-    hints: ['smoker', 'pregnant', 'breastfeeding', 'other relevant history'],
+    hints: ['smoker', 'pregnant', 'breastfeeding', 'other relevant history', 'none', 'unsure'],
     label: 'other relevant history',
     prompt: {
-      en: 'Tell me any other relevant history, like smoking or pregnancy. You can also say none.',
-      es: 'Dime cualquier otro antecedente relevante, como fumar o embarazo. También puedes decir ninguna.',
+      en: 'Tell me any other relevant history, like smoking or pregnancy. You can say none or unsure.',
+      es: 'Dime cualquier otro antecedente relevante, como fumar o embarazo. Puedes decir ninguna o no estoy seguro.',
     },
     title: 'Other Relevant History',
   },
@@ -698,6 +698,8 @@ export const pastMedicalHistoryOptions = {
     'Other mental health condition',
   ],
   otherRelevantHistory: [
+    'None known',
+    'Unsure',
     'Smoker (current)',
     'Former smoker',
     'Alcohol use',

@@ -109,6 +109,15 @@ type LocalConfirmationState = {
   value: string;
 };
 
+const DOCUMENT_VOICE_FIELDS = [
+  'insuranceProvider',
+  'memberId',
+  'groupNumber',
+  'subscriberName',
+] as const;
+
+type DocumentVoiceField = (typeof DOCUMENT_VOICE_FIELDS)[number];
+
 const OPTIONAL_BASIC_INFO_FIELDS = [
   'heightFt',
   'heightIn',
@@ -444,6 +453,12 @@ function isLocalConfirmationField(
   field: string | null | undefined,
 ): field is LocalConfirmationField {
   return LOCAL_CONFIRMATION_FIELDS.includes(field as LocalConfirmationField);
+}
+
+function isDocumentVoiceField(
+  field: string | null | undefined,
+): field is DocumentVoiceField {
+  return DOCUMENT_VOICE_FIELDS.includes(field as DocumentVoiceField);
 }
 
 function normalizeLocalConfirmationValue(
@@ -1091,6 +1106,34 @@ function parseLocalSymptomTextCapture(
   }
 
   return null;
+}
+
+function parseDocumentVoiceCapture(
+  field: DocumentVoiceField,
+  transcript: string,
+): {
+  acknowledgementMessage: string;
+  updates: Partial<IntakeFormData>;
+  value: string;
+} | null {
+  const normalizedTranscript = normalizeTranscriptText(transcript);
+
+  if (!normalizedTranscript || transcriptIsBareAffirmativeIntent(normalizedTranscript)) {
+    return null;
+  }
+
+  const value = formatSentenceCase(normalizedTranscript.replace(/[.,!?]+$/g, ''));
+  if (!value) {
+    return null;
+  }
+
+  return {
+    acknowledgementMessage: `I heard ${value}. I'll record that as your ${getJanetFieldLabel(field)}.`,
+    updates: {
+      [field]: value,
+    } as Partial<IntakeFormData>,
+    value,
+  };
 }
 
 
@@ -2862,6 +2905,83 @@ export function VoiceExperience({
 
           if (!nextField) {
             await queueStepTransitionPrompt('symptoms');
+            return;
+          }
+
+          if (nextPrompt.trim()) {
+            await queuePrompt(nextPrompt);
+          }
+          return;
+        }
+      }
+
+      if (
+        janetStep === 'documents' &&
+        isDocumentVoiceField(activeManagedField) &&
+        interactionMode !== 'correction'
+      ) {
+        const documentCapture = parseDocumentVoiceCapture(
+          activeManagedField,
+          transcript,
+        );
+
+        if (documentCapture) {
+          const mergedForm = reconcileStructuredIntakeForm(
+            normalizeIntakeFormFields({
+              ...state.intake.form,
+              ...(session?.draftPatch ?? {}),
+              ...documentCapture.updates,
+            }) as IntakeFormData,
+          );
+          const nextField = getNextJanetFieldAfter('documents', activeManagedField);
+          const nextPrompt = getCanonicalJanetPrompt({
+            field: nextField,
+            language: state.janetMode.language,
+            pastMedicalHistoryField: null,
+            step: 'documents',
+          });
+          const nextHandoff = buildJanetHandoffFromDraft({
+            existing: state.voice.handoff,
+            form: mergedForm,
+            interpretedAt: new Date().toISOString(),
+            transcript,
+          });
+
+          updateIntakeFields(documentCapture.updates);
+          setVoiceHandoff(nextHandoff);
+          setWarnings([]);
+          setLowConfidence(false);
+          setConfirmation(EMPTY_CONFIRMATION);
+          setPartialTranscript('');
+          setFinalTranscript(documentCapture.value);
+          setVoiceTranscript(documentCapture.value);
+          setSession((currentSession) =>
+            currentSession
+              ? {
+                  ...currentSession,
+                  confirmation: EMPTY_CONFIRMATION,
+                  currentField: nextField,
+                  currentStep: 'documents',
+                  draftPatch: {
+                    ...currentSession.draftPatch,
+                    ...documentCapture.updates,
+                  },
+                  firstPrompt: nextPrompt || currentSession.firstPrompt,
+                }
+              : currentSession,
+          );
+          setReplyText(documentCapture.acknowledgementMessage);
+          setJanetModeStep('documents');
+          void queueDraftAndHandoffSync({
+            formOverride: mergedForm,
+          });
+
+          await playPrompt(documentCapture.acknowledgementMessage, {
+            autoListenAfter: false,
+          });
+
+          if (!nextField) {
+            await queueStepTransitionPrompt('documents');
             return;
           }
 

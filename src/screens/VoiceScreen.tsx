@@ -1246,6 +1246,15 @@ function formatVoiceList(values: string[]) {
   return `${values.slice(0, -1).join(', ')}, and ${values[values.length - 1]}`;
 }
 
+function formatReviewVoiceList(values: string[], maxItems = 4) {
+  const visibleValues = values.filter((value) => value.trim().length > 0);
+  if (visibleValues.length <= maxItems) {
+    return formatVoiceList(visibleValues);
+  }
+
+  return `${formatVoiceList(visibleValues.slice(0, maxItems))}, and ${visibleValues.length - maxItems} more`;
+}
+
 function buildReviewSummaryPrompt(options: {
   form: IntakeFormData;
   hasGovernmentIdUpload: boolean;
@@ -1259,76 +1268,85 @@ function buildReviewSummaryPrompt(options: {
     : '';
   const allergies = formatVoiceList(buildMedicalInfoAllergyEntries(form));
   const medicationAllergySummary = formatMedicationAllergySummary(form, '');
-  const immunizations = formatVoiceList(buildMedicalInfoImmunizationEntries(form));
+  const immunizations = formatReviewVoiceList(
+    buildMedicalInfoImmunizationEntries(form),
+  );
   const pmh = buildPastMedicalHistoryEntries(form);
-  const pmhValues = formatVoiceList([
+  const pmhValues = formatReviewVoiceList([
     ...pmh.chronic,
     ...pmh.surgical,
     ...pmh.otherRelevant,
   ]);
+  const visitDetails = [
+    form.chiefConcern ? `reason ${form.chiefConcern}` : '',
+    form.symptomDuration ? `duration ${form.symptomDuration}` : '',
+    form.painLevel ? `severity ${form.painLevel}` : '',
+  ].filter(Boolean);
 
   if (language === 'es') {
     return [
-      'Vamos a revisar tu registro antes de enviarlo.',
+      'Vamos a revisar los puntos principales antes de enviar.',
       patientName
-        ? `La información del paciente dice ${patientName}.`
+        ? `Paciente: ${patientName}.`
         : 'No tengo un nombre completo todavía.',
-      form.dateOfBirth ? `La fecha de nacimiento es ${form.dateOfBirth}.` : '',
-      height ? `La altura registrada es ${height}.` : '',
-      form.weightLb ? `El peso registrado es ${form.weightLb} libras.` : '',
-      form.chiefConcern
-        ? `La razón de la visita es ${form.chiefConcern}${form.symptomDuration ? ` por ${form.symptomDuration}` : ''}${form.painLevel ? `, severidad ${form.painLevel}` : ''}.`
+      form.dateOfBirth ? `Fecha de nacimiento: ${form.dateOfBirth}.` : '',
+      height || form.weightLb
+        ? `Altura y peso: ${[height, form.weightLb ? `${form.weightLb} libras` : ''].filter(Boolean).join(', ')}.`
+        : '',
+      visitDetails.length > 0
+        ? `Visita: ${visitDetails.join(', ')}.`
         : 'No se registró un motivo de visita.',
       medicationAllergySummary
         ? medicationAllergySummary === 'Unsure'
-          ? 'Las alergias a medicamentos están marcadas como inciertas.'
+          ? 'Alergias a medicamentos: incierto.'
           : medicationAllergySummary === 'None known'
-            ? 'Las alergias a medicamentos están marcadas como ninguna conocida.'
-            : `Las alergias a medicamentos registradas son ${medicationAllergySummary}.`
+            ? 'Alergias a medicamentos: ninguna conocida.'
+            : `Alergias a medicamentos: ${medicationAllergySummary}.`
         : allergies
-          ? `Las alergias registradas son ${allergies}.`
+          ? `Alergias: ${allergies}.`
           : '',
-      form.medications ? `Los medicamentos son ${form.medications}.` : '',
-      immunizations ? `Las inmunizaciones registradas son ${immunizations}.` : '',
+      form.medications ? `Medicamentos: ${form.medications}.` : '',
+      immunizations ? `Inmunizaciones: ${immunizations}.` : '',
       pmhValues
-        ? `Los antecedentes médicos registrados son ${pmhValues}.`
+        ? `Antecedentes: ${pmhValues}.`
         : 'No se proporcionaron antecedentes médicos.',
       hasInsuranceUpload || hasGovernmentIdUpload
-        ? `Documentos: tarjeta de seguro ${hasInsuranceUpload ? 'agregada' : 'no agregada'} y identificación ${hasGovernmentIdUpload ? 'agregada' : 'no agregada'}.`
+        ? `Documentos: seguro ${hasInsuranceUpload ? 'agregado' : 'no agregado'} e identificación ${hasGovernmentIdUpload ? 'agregada' : 'no agregada'}.`
         : 'No se agregaron documentos todavía.',
-      '¿Todo suena correcto?',
+      'Si todo está correcto, di sí. Si algo necesita cambios, di editar.',
     ]
       .filter(Boolean)
       .join(' ');
   }
 
   return [
-    'Let’s review your check-in before submitting.',
-    patientName ? `Your name is ${patientName}.` : 'I do not have your full name yet.',
-    form.dateOfBirth ? `Your date of birth is ${form.dateOfBirth}.` : '',
-    height ? `Your height is ${height}.` : '',
-    form.weightLb ? `Your weight is ${form.weightLb} pounds.` : '',
-    form.chiefConcern
-      ? `Your reason for visit is ${form.chiefConcern}${form.symptomDuration ? ` for ${form.symptomDuration}` : ''}${form.painLevel ? `, severity ${form.painLevel}` : ''}.`
+    'Let’s review the key items before submitting.',
+    patientName ? `Patient: ${patientName}.` : 'I do not have your full name yet.',
+    form.dateOfBirth ? `Date of birth: ${form.dateOfBirth}.` : '',
+    height || form.weightLb
+      ? `Height and weight: ${[height, form.weightLb ? `${form.weightLb} pounds` : ''].filter(Boolean).join(', ')}.`
+      : '',
+    visitDetails.length > 0
+      ? `Visit: ${visitDetails.join(', ')}.`
       : 'No reason for visit was provided.',
     medicationAllergySummary
       ? medicationAllergySummary === 'Unsure'
-        ? 'Your medication allergies are marked as unsure.'
+        ? 'Medication allergies: unsure.'
         : medicationAllergySummary === 'None known'
-          ? 'Your medication allergies are marked as none known.'
-          : `Your medication allergies are ${medicationAllergySummary}.`
+          ? 'Medication allergies: none known.'
+          : `Medication allergies: ${medicationAllergySummary}.`
       : allergies
-        ? `Your allergies are ${allergies}.`
+        ? `Allergies: ${allergies}.`
         : '',
-    form.medications ? `Your medications are ${form.medications}.` : '',
-    immunizations ? `Your immunizations are ${immunizations}.` : '',
+    form.medications ? `Medications: ${form.medications}.` : '',
+    immunizations ? `Immunizations: ${immunizations}.` : '',
     pmhValues
-      ? `Your past medical history includes ${pmhValues}.`
+      ? `Past history: ${pmhValues}.`
       : 'No past medical history was provided.',
     hasInsuranceUpload || hasGovernmentIdUpload
       ? `Documents: insurance card ${hasInsuranceUpload ? 'added' : 'not added'} and photo ID ${hasGovernmentIdUpload ? 'added' : 'not added'}.`
       : 'No documents were added yet.',
-    'Does everything sound correct?',
+    'If everything looks right, say yes. If something needs changes, say edit.',
   ]
     .filter(Boolean)
     .join(' ');
@@ -2375,6 +2393,19 @@ export function VoiceExperience({
         }
 
         if (transcriptMatchesIntent(transcript, PAUSE_INTENTS)) {
+          const prompt = getReviewSectionChoicePrompt(state.janetMode.language);
+          setAwaitingReviewSectionChoice(true);
+          setConfirmation(EMPTY_CONFIRMATION);
+          await queuePrompt(prompt);
+          return;
+        }
+
+        if (
+          normalizedTranscript.includes('edit') ||
+          normalizedTranscript.includes('change') ||
+          normalizedTranscript.includes('fix') ||
+          normalizedTranscript.includes('editar')
+        ) {
           const prompt = getReviewSectionChoicePrompt(state.janetMode.language);
           setAwaitingReviewSectionChoice(true);
           setConfirmation(EMPTY_CONFIRMATION);

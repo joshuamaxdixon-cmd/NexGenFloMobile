@@ -1453,6 +1453,7 @@ export function VoiceExperience({
   const autoListenRef = useRef('');
   const silenceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const detectedSpeechRef = useRef(false);
+  const startRecordingInFlightRef = useRef(false);
   const stopRecordingAndProcessRef = useRef<(() => Promise<void>) | null>(null);
   const handleJanetTurnRef = useRef<
     ((
@@ -2014,10 +2015,18 @@ export function VoiceExperience({
   ]);
 
   const startRecording = useCallback(async () => {
+    if (startRecordingInFlightRef.current) {
+      return;
+    }
+
+    startRecordingInFlightRef.current = true;
     setMicError(null);
     setWarnings([]);
+    setPendingAutoListenToken(null);
 
     try {
+      await stopPlayback();
+
       if (!session?.sessionId) {
         if (isBackendManagedJanetStep(janetStep)) {
           const nextSession = await bootstrapSession({ force: true });
@@ -2049,7 +2058,6 @@ export function VoiceExperience({
           );
         }
 
-        await stopPlayback();
         liveSpeechTranscriptRef.current = '';
         liveSpeechConfidenceRef.current = null;
         liveSpeechAudioUriRef.current = null;
@@ -2079,7 +2087,6 @@ export function VoiceExperience({
         throw new Error('Microphone permission is required for Janet voice intake.');
       }
 
-      await stopPlayback();
       await configureJanetRecordingAudioMode();
 
       const recording = new Audio.Recording();
@@ -2110,6 +2117,8 @@ export function VoiceExperience({
       );
       setIsRecording(false);
       setVoiceListening(false);
+    } finally {
+      startRecordingInFlightRef.current = false;
     }
   }, [
     activeManagedField,
@@ -2586,22 +2595,27 @@ export function VoiceExperience({
           const normalizedTranscript = normalizeTranscriptText(transcript);
           const hydrated = hydratePastMedicalHistoryFromLegacy(normalizedTranscript);
           const explicitNone = transcriptMeansNone(normalizedTranscript);
+          const explicitUnsure = transcriptMeansUnsure(normalizedTranscript);
           const nextUpdates: Partial<IntakeFormData> = {
             pastMedicalHistoryHydrated: true,
           };
 
           if (targetField === 'pastMedicalHistoryChronicConditions') {
-            nextUpdates.pastMedicalHistoryChronicConditions = explicitNone
-              ? []
-              : hydrated.pastMedicalHistoryChronicConditions ?? [];
+            nextUpdates.pastMedicalHistoryChronicConditions = explicitUnsure
+              ? ['Unsure']
+              : explicitNone
+                ? ['None known']
+                : hydrated.pastMedicalHistoryChronicConditions ?? [];
             nextUpdates.pastMedicalHistoryOtherMentalHealthCondition =
               hydrated.pastMedicalHistoryOtherMentalHealthCondition ?? '';
           }
 
           if (targetField === 'pastMedicalHistorySurgicalHistory') {
-            nextUpdates.pastMedicalHistorySurgicalHistory = explicitNone
-              ? []
-              : hydrated.pastMedicalHistorySurgicalHistory ?? [];
+            nextUpdates.pastMedicalHistorySurgicalHistory = explicitUnsure
+              ? ['Unsure']
+              : explicitNone
+                ? ['None known']
+                : hydrated.pastMedicalHistorySurgicalHistory ?? [];
             nextUpdates.pastMedicalHistoryOtherSurgery =
               hydrated.pastMedicalHistoryOtherSurgery ?? '';
           }
@@ -2616,7 +2630,7 @@ export function VoiceExperience({
             Array.isArray(value) ? value.length > 0 : typeof value === 'string' ? value.trim().length > 0 : value === true,
           );
 
-          if (!hasStructuredValue && !explicitNone) {
+          if (!hasStructuredValue && !explicitNone && !explicitUnsure) {
             setMicError(
               state.janetMode.language === 'es'
                 ? 'Janet no pudo encontrar un antecedente claro. Inténtalo otra vez o edítalo manualmente.'
@@ -2635,7 +2649,7 @@ export function VoiceExperience({
             ...state.intake.form,
             ...nextUpdates,
           };
-          const nextField = explicitNone
+          const nextField = explicitNone || explicitUnsure
             ? getPastMedicalHistoryFieldAfter(targetField)
             : getNextPastMedicalHistoryField(mergedForm);
           setPastMedicalHistoryField(nextField);
@@ -3415,6 +3429,7 @@ export function VoiceExperience({
   useEffect(() => {
     if (
       janetFlowMode !== 'field_question' ||
+      !isBackendManagedJanetStep(janetStep) ||
       !session?.sessionId ||
       !resolvedSpeechText.trim() ||
       state.voice.isListening ||
@@ -3433,6 +3448,7 @@ export function VoiceExperience({
   }, [
     isBootstrapping,
     isProcessing,
+    janetStep,
     janetFlowMode,
     playPrompt,
     resolvedSpeechText,
@@ -3458,7 +3474,7 @@ export function VoiceExperience({
     }
 
     autoPlayedSessionRef.current = autoPlayKey;
-    void playPrompt(replyText, { autoListenAfter: false });
+    void playPrompt(replyText, { autoListenAfter: true });
   }, [
     isBootstrapping,
     isProcessing,

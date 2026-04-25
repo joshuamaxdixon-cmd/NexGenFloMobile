@@ -59,9 +59,9 @@ export function buildPastMedicalHistoryPrompt(
   if (language === 'es') {
     switch (field) {
       case 'pastMedicalHistoryChronicConditions':
-        return 'Dime cualquier condición crónica o antecedente de salud mental que aplique. También puedes decir ninguna.';
+        return 'Dime cualquier condición crónica, como asma o diabetes. Puedes decir ninguna o no estoy seguro.';
       case 'pastMedicalHistorySurgicalHistory':
-        return 'Dime cualquier cirugía previa que aplique. También puedes decir ninguna.';
+        return 'Dime cualquier cirugía previa, como apéndice o vesícula. Puedes decir ninguna o no estoy seguro.';
       case 'pastMedicalHistoryOtherRelevantHistory':
         return 'Dime cualquier otro antecedente relevante, como fumar o embarazo. También puedes decir ninguna.';
       default:
@@ -71,9 +71,9 @@ export function buildPastMedicalHistoryPrompt(
 
   switch (field) {
     case 'pastMedicalHistoryChronicConditions':
-      return 'Tell me any chronic conditions or mental health history that apply. You can also say none.';
+      return 'Tell me any chronic conditions, like asthma or diabetes. You can say none or unsure.';
     case 'pastMedicalHistorySurgicalHistory':
-      return 'Tell me any surgical history that applies. You can also say none.';
+      return 'Tell me any past surgeries, like appendix or gallbladder surgery. You can say none or unsure.';
     case 'pastMedicalHistoryOtherRelevantHistory':
       return 'Tell me any other relevant history, like smoking or pregnancy. You can also say none.';
     default:

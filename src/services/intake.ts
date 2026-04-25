@@ -407,8 +407,8 @@ const JANET_FIELD_METADATA = {
     hints: ['chronic conditions', 'asthma', 'diabetes', 'anxiety', 'none', 'unsure'],
     label: 'chronic conditions',
     prompt: {
-      en: "Tell me any chronic conditions or mental health history that apply. You can also say none or I don't know.",
-      es: 'Dime cualquier condición crónica o antecedente de salud mental que aplique. También puedes decir ninguna o no lo sé.',
+      en: 'Tell me any chronic conditions, like asthma or diabetes. You can say none or unsure.',
+      es: 'Dime cualquier condición crónica, como asma o diabetes. Puedes decir ninguna o no estoy seguro.',
     },
     title: 'Chronic Conditions',
   },
@@ -416,8 +416,8 @@ const JANET_FIELD_METADATA = {
     hints: ['surgical history', 'appendectomy', 'heart surgery', 'none', 'unsure'],
     label: 'surgical history',
     prompt: {
-      en: "Tell me any surgical history that applies. You can also say none or I don't know.",
-      es: 'Dime cualquier cirugía previa que aplique. También puedes decir ninguna o no lo sé.',
+      en: 'Tell me any past surgeries, like appendix or gallbladder surgery. You can say none or unsure.',
+      es: 'Dime cualquier cirugía previa, como apéndice o vesícula. Puedes decir ninguna o no estoy seguro.',
     },
     title: 'Surgical History',
   },

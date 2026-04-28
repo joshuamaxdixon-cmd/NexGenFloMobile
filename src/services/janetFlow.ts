@@ -228,13 +228,13 @@ export function buildNoSpeechRetryPrompt(options: {
 
   if (!trimmedPrompt) {
     return options.language === 'es'
-      ? 'No escuché una respuesta clara. Inténtalo otra vez.'
-      : 'I did not catch a clear answer. Please try again.';
+      ? 'Sigo escuchando. Tómate tu tiempo y responde cuando estés listo.'
+      : "I'm still listening. Take your time and answer when you're ready.";
   }
 
   return options.language === 'es'
-    ? `No escuché una respuesta clara. ${trimmedPrompt}`
-    : `I did not catch a clear answer. ${trimmedPrompt}`;
+    ? `Sigo escuchando. Tómate tu tiempo y responde cuando estés listo. ${trimmedPrompt}`
+    : `I'm still listening. Take your time and answer when you're ready. ${trimmedPrompt}`;
 }
 
 export function buildLocalConfirmationPrompt(options: {

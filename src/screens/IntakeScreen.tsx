@@ -216,7 +216,9 @@ export function IntakeScreen() {
     }
 
     setShowStepValidation(false);
-    await syncCurrentDraft();
+    if (!isSubmitted) {
+      await syncCurrentDraft();
+    }
 
     if (returnToReviewStep) {
       setIntakeStep('review');
@@ -343,11 +345,10 @@ export function IntakeScreen() {
         ? 'Saving...'
         : stepActionTitles[currentConfig.key];
   const canAdvance =
-    !isSubmitted &&
     !isSubmitting &&
     !isSaving &&
     (currentConfig.key === 'review'
-      ? reviewReadiness.isReady && reviewConfirmed
+      ? !isSubmitted && reviewReadiness.isReady && reviewConfirmed
       : currentConfig.key === 'documents' || currentConfig.key === 'pastMedicalHistory'
         ? true
         : !hasFieldErrors(localStepErrors));

@@ -746,13 +746,16 @@ const MEDICAL_INFO_ALLERGY_OPTIONS = {
     'Unknown / Unsure',
   ],
   food: [
+    'None known',
     'Shellfish',
+    'Fish',
     'Peanuts',
     'Tree nuts',
     'Eggs',
     'Milk / dairy',
     'Wheat / gluten',
     'Soy',
+    'Sesame',
     'Other',
     'Unknown / Unsure',
   ],
@@ -791,13 +794,16 @@ const MEDICAL_INFO_ALLERGY_ALIASES: Record<string, string[]> = {
   'Fragrances / perfumes': ['scent', 'fragrance', 'perfume', 'cologne'],
   'Cleaning products': ['cleaners', 'bleach'],
   Other: ['other'],
-  Shellfish: ['shrimp', 'crab', 'lobster'],
-  Peanuts: ['peanut', 'peanut allergy'],
-  'Tree nuts': ['almond', 'walnut', 'cashew', 'nut allergy'],
+  'None known': ['none', 'no', 'none known', 'none of them', 'no allergies', 'no food allergies'],
+  Shellfish: ['shellfish allergy', 'shrimp', 'crab', 'lobster'],
+  Fish: ['fish allergy'],
+  Peanuts: ['peanut', 'peanut allergy', 'peanuts allergy'],
+  'Tree nuts': ['tree nut', 'almond', 'walnut', 'cashew', 'nuts', 'nut', 'nut allergy'],
   Eggs: ['egg'],
   'Milk / dairy': ['milk', 'dairy', 'lactose'],
   'Wheat / gluten': ['wheat', 'gluten'],
   Soy: ['soya'],
+  Sesame: ['sesame seed', 'sesame seeds'],
   Pollen: ['seasonal allergy', 'hay fever'],
   'Dust mites': ['dust'],
   Mold: ['mould'],
@@ -1625,7 +1631,7 @@ export function buildMedicalInfoAllergyEntries(form: MedicalInfoForm) {
     ...form.allergyMaterialSelections,
     ...form.allergyFoodSelections,
     ...form.allergyEnvironmentalSelections,
-  ]);
+  ].filter((item) => item !== 'None known'));
 }
 
 export function buildMedicalInfoImmunizationEntries(form: MedicalInfoForm) {
@@ -2209,6 +2215,7 @@ export type IntakeSubmitPayload = {
   janetHandoff?: JanetHandoff | null;
   patientId?: number | null;
   returningPatient?: ReturningPatientFormData;
+  source?: string;
   uploads?: Partial<Record<UploadDocumentType, string | null>>;
   visitId?: number | null;
 };
@@ -2361,6 +2368,7 @@ function toSubmitPayload(payload: IntakeSubmitPayload) {
     janet_handoff: payload.janetHandoff ?? null,
     patient_id: payload.patientId ?? null,
     returning_patient: payload.returningPatient ?? null,
+    source: payload.source ?? 'mobile',
     uploads: payload.uploads ?? {},
     visit_id: payload.visitId ?? null,
   };

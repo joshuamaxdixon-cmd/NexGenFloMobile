@@ -51,7 +51,6 @@ import {
   buildLocalConfirmationPrompt,
   buildMedicalInfoLegacyAllergyText,
   buildLocalRetryPrompt,
-  buildNoSpeechRetryPrompt,
   buildPastMedicalHistoryPrompt,
   formatMedicationAllergySummary,
   getCanonicalJanetPrompt,
@@ -104,7 +103,14 @@ const LOCAL_CONFIRMATION_FIELDS = [
 
 type LocalConfirmationField = (typeof LOCAL_CONFIRMATION_FIELDS)[number];
 type LocalConfirmationState = {
+  confirmationPrompt?: string;
   field: LocalConfirmationField;
+  updates: Partial<IntakeFormData>;
+  value: string;
+};
+
+type BasicInfoLocalCapture = {
+  confirmationPrompt?: string;
   updates: Partial<IntakeFormData>;
   value: string;
 };
@@ -206,6 +212,8 @@ const JANET_TIMING = {
   preSpeakDelayMs: 80,
   // Small post-processing pause before Janet replies.
   postResponseDelayMs: 60,
+  // Patient-thinking window before Janet gently reprompts.
+  noSpeechGraceMs: 8000,
 } as const;
 
 const EMPTY_CONFIRMATION: JanetConfirmationState = {
@@ -354,6 +362,20 @@ function getLivePillLabel(args: {
   return 'JANET READY';
 }
 
+function formatGenderDisplay(value: string) {
+  const normalized = normalizeTranscriptText(value).toLowerCase();
+  if (normalized === 'male') {
+    return 'Male';
+  }
+  if (normalized === 'female') {
+    return 'Female';
+  }
+  if (normalized === 'other') {
+    return 'Other';
+  }
+  return value;
+}
+
 function buildPreviewRows(
   step: IntakeStepKey,
   form: ReturnType<typeof useDraftStore>['state']['intake']['form'],
@@ -369,7 +391,7 @@ function buildPreviewRows(
           : '',
       ],
       ['Weight', form.weightLb ? `${form.weightLb} lb` : ''],
-      ['Sex', form.gender],
+      ['Sex', formatGenderDisplay(form.gender)],
       ['Phone', form.phoneNumber],
       ['Email', form.email],
       ['Emergency contact', [form.emergencyContactName, form.emergencyContactPhone].filter(Boolean).join(' · ').trim()],
@@ -424,14 +446,52 @@ function isBackendManagedJanetStep(step: IntakeStepKey) {
 }
 
 function transcriptMeansNone(value: string) {
-  const normalized = value.toLowerCase();
+  const normalized = normalizeTranscriptText(value).toLowerCase();
   return (
     normalized === 'none' ||
     normalized === 'no' ||
+    normalized === 'nothing' ||
+    normalized === 'none known' ||
+    normalized === 'no known' ||
+    normalized.includes('no known ') ||
+    normalized.includes('no past surgeries') ||
+    normalized.includes('no surgery') ||
+    normalized.includes('no surgeries') ||
+    normalized.includes('never had surgery') ||
+    normalized.includes('never had surgeries') ||
+    normalized.includes('no chronic condition') ||
+    normalized.includes('no chronic conditions') ||
+    normalized.includes('no medical history') ||
     normalized.includes('none of the above') ||
     normalized.includes('ninguna') ||
     normalized.includes('ninguno')
   );
+}
+
+function buildPastMedicalHistoryFallbackSelection(
+  field: PastMedicalHistoryVoiceField,
+  transcript: string,
+) {
+  const normalizedTranscript = normalizeTranscriptText(transcript).replace(/[.,!?]+$/g, '');
+  if (
+    !normalizedTranscript ||
+    transcriptIsBareAffirmativeIntent(normalizedTranscript) ||
+    transcriptIsNegative(normalizedTranscript, 'en') ||
+    transcriptMeansNone(normalizedTranscript) ||
+    transcriptMeansUnsure(normalizedTranscript)
+  ) {
+    return [];
+  }
+
+  if (
+    field === 'pastMedicalHistorySurgicalHistory' ||
+    field === 'pastMedicalHistoryChronicConditions' ||
+    field === 'pastMedicalHistoryOtherRelevantHistory'
+  ) {
+    return [formatSentenceCase(normalizedTranscript)];
+  }
+
+  return [];
 }
 
 function getJanetStepTitle(step: IntakeStepKey, field: string | null) {
@@ -534,6 +594,86 @@ function normalizeLocalConfirmationValue(
   return normalized;
 }
 
+function normalizeGenderTranscript(value: string) {
+  return normalizeTranscriptText(value)
+    .toLowerCase()
+    .replace(/[’']/g, "'")
+    .replace(/\bi'm\b/g, 'i am')
+    .replace(/\bim\b/g, 'i am')
+    .replace(/[^a-z0-9\s-]/g, ' ')
+    .replace(/-/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function parseGenderVoiceCapture(transcript: string): BasicInfoLocalCapture | null {
+  const normalized = normalizeGenderTranscript(transcript);
+  if (!normalized) {
+    return null;
+  }
+
+  const malePhrases = new Set([
+    'male',
+    'mail',
+    'mailed',
+    'man',
+    'men',
+    'i am male',
+    'i am a male',
+    'i am a man',
+    'boy',
+    'gentleman',
+  ]);
+  const femalePhrases = new Set([
+    'female',
+    'woman',
+    'women',
+    'girl',
+    'lady',
+    'i am female',
+    'i am a female',
+    'i am a woman',
+  ]);
+  const otherPhrases = new Set([
+    'other',
+    'nonbinary',
+    'non binary',
+    'neither',
+    'something else',
+  ]);
+
+  if (normalized === 'me' || normalized === 'meh') {
+    return {
+      confirmationPrompt: 'I heard something that may mean male. Is that right?',
+      updates: { gender: 'male' },
+      value: 'Male',
+    };
+  }
+
+  if (malePhrases.has(normalized)) {
+    return {
+      updates: { gender: 'male' },
+      value: 'Male',
+    };
+  }
+
+  if (femalePhrases.has(normalized)) {
+    return {
+      updates: { gender: 'female' },
+      value: 'Female',
+    };
+  }
+
+  if (otherPhrases.has(normalized)) {
+    return {
+      updates: { gender: 'other' },
+      value: 'Other',
+    };
+  }
+
+  return null;
+}
+
 
 function parseSpokenDigits(value: string) {
   return value
@@ -551,38 +691,151 @@ function parseSpokenDigits(value: string) {
     .replace(/\bnine\b/g, '9');
 }
 
-function normalizeSpokenNumberWords(value: string) {
-  return value
+const SPOKEN_NUMBER_WORDS: Record<string, number> = {
+  a: 1,
+  eight: 8,
+  eighteen: 18,
+  eighty: 80,
+  eleven: 11,
+  fifteen: 15,
+  fifty: 50,
+  five: 5,
+  forty: 40,
+  four: 4,
+  fourteen: 14,
+  nine: 9,
+  nineteen: 19,
+  ninety: 90,
+  one: 1,
+  seven: 7,
+  seventeen: 17,
+  seventy: 70,
+  six: 6,
+  sixteen: 16,
+  sixty: 60,
+  ten: 10,
+  thirteen: 13,
+  thirty: 30,
+  three: 3,
+  twelve: 12,
+  twenty: 20,
+  two: 2,
+  zero: 0,
+};
+
+function parseSpokenWeightPounds(value: string) {
+  const normalized = normalizeTranscriptText(value)
     .toLowerCase()
-    .replace(/\bten\b/g, '10')
-    .replace(/\beleven\b/g, '11')
-    .replace(/\btwelve\b/g, '12')
-    .replace(/\bthirteen\b/g, '13')
-    .replace(/\bfourteen\b/g, '14')
-    .replace(/\bfifteen\b/g, '15')
-    .replace(/\bsixteen\b/g, '16')
-    .replace(/\bseventeen\b/g, '17')
-    .replace(/\beighteen\b/g, '18')
-    .replace(/\bnineteen\b/g, '19')
-    .replace(/\btwenty\b/g, '20')
-    .replace(/\bthirty\b/g, '30')
-    .replace(/\bforty\b/g, '40')
-    .replace(/\bfifty\b/g, '50')
-    .replace(/\bsixty\b/g, '60')
-    .replace(/\bseventy\b/g, '70')
-    .replace(/\beighty\b/g, '80')
-    .replace(/\bninety\b/g, '90')
-    .replace(/\bhundred\b/g, ' ')
-    .replace(/\band\b/g, ' ');
+    .replace(/[.,!?]+/g, ' ')
+    .replace(/[-–—]/g, ' ')
+    .replace(/\b(pounds?|lbs?)\b/g, ' ')
+    .replace(/\band\b/g, ' ')
+    .replace(/\ba hundred\b/g, 'one hundred')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const shorthandHundreds = normalized.match(
+    /^(?:one|1)\s+(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|\d{2})(?:\s+(one|two|three|four|five|six|seven|eight|nine|\d))?$/,
+  );
+  if (shorthandHundreds) {
+    const tensValue = /^\d+$/.test(shorthandHundreds[1])
+      ? Number(shorthandHundreds[1])
+      : SPOKEN_NUMBER_WORDS[shorthandHundreds[1]];
+    const onesValue = shorthandHundreds[2]
+      ? /^\d+$/.test(shorthandHundreds[2])
+        ? Number(shorthandHundreds[2])
+        : SPOKEN_NUMBER_WORDS[shorthandHundreds[2]]
+      : 0;
+    const parsed = 100 + tensValue + onesValue;
+    if (parsed >= 100 && parsed <= 199) {
+      return String(parsed);
+    }
+  }
+
+  const tokens = normalized.split(' ').filter(Boolean);
+  let total = 0;
+  let current = 0;
+  let sawNumberWord = false;
+
+  for (const token of tokens) {
+    if (token === 'hundred') {
+      current = (current || 1) * 100;
+      sawNumberWord = true;
+      continue;
+    }
+
+    const wordValue = SPOKEN_NUMBER_WORDS[token];
+    if (typeof wordValue === 'number') {
+      current += wordValue;
+      sawNumberWord = true;
+      continue;
+    }
+
+    if (/^\d+$/.test(token)) {
+      const digitValue = Number(token);
+      if (current >= 100 && digitValue >= 0 && digitValue < 100) {
+        current += digitValue;
+      } else {
+        current += digitValue;
+      }
+      sawNumberWord = true;
+    }
+  }
+
+  total += current;
+  if (sawNumberWord && total >= 20 && total <= 700) {
+    return String(total);
+  }
+
+  const directNumber = normalized.match(/\b([1-9]\d{1,2})(?:\.\d+)?\b/)?.[1];
+  if (directNumber) {
+    const parsed = Number(directNumber);
+    return parsed >= 20 && parsed <= 700 ? String(parsed) : '';
+  }
+
+  const condensedDigits = normalized.replace(/\D/g, '');
+  if (
+    condensedDigits.length === 4 &&
+    condensedDigits.startsWith('1') &&
+    condensedDigits[2] === '0'
+  ) {
+    const repaired = Number(`${condensedDigits[0]}${condensedDigits[1]}${condensedDigits[3]}`);
+    return repaired >= 100 && repaired <= 199 ? String(repaired) : '';
+  }
+
+  if (condensedDigits.length === 4 && condensedDigits.startsWith('10')) {
+    const repaired = Number(`1${condensedDigits.slice(2)}`);
+    return repaired >= 100 && repaired <= 199 ? String(repaired) : '';
+  }
+
+  if (condensedDigits.length === 4 && condensedDigits.startsWith('1')) {
+    const repaired = Number(`${condensedDigits[0]}${condensedDigits.slice(2)}`);
+    return repaired >= 100 && repaired <= 199 ? String(repaired) : '';
+  }
+
+  if (condensedDigits.length === 3) {
+    const parsed = Number(condensedDigits);
+    return parsed >= 20 && parsed <= 700 ? String(parsed) : '';
+  }
+
+  if (!sawNumberWord || total < 20 || total > 700) {
+    return '';
+  }
+
+  return String(total);
 }
 
 function parseBasicInfoLocalCapture(
   field: LocalConfirmationField,
   transcript: string,
-): { updates: Partial<IntakeFormData>; value: string } | null {
+): BasicInfoLocalCapture | null {
   const normalized = normalizeTranscriptText(transcript);
   if (!normalized) {
     return null;
+  }
+
+  if (field === 'gender') {
+    return parseGenderVoiceCapture(normalized);
   }
 
   if (field === 'heightFt') {
@@ -620,22 +873,11 @@ function parseBasicInfoLocalCapture(
   }
 
   if (field === 'weightLb') {
-    const normalizedWeightTranscript = normalizeSpokenNumberWords(
-      parseSpokenDigits(normalized),
-    )
-      .toLowerCase()
-      .replace(/\bpounds?\b/g, ' ')
-      .replace(/\blbs?\b/g, ' ')
-      .replace(/[^\d.\s]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-    const numberGroups = normalizedWeightTranscript.match(/\d+/g) ?? [];
-    const hasDecimalPoint = /\d\.\d/.test(normalizedWeightTranscript);
-    const weightSource = hasDecimalPoint
-      ? normalizedWeightTranscript.match(/\d+(?:\.\d+)?/)?.[0] ?? normalized
-      : numberGroups.length > 0
-        ? numberGroups.join('')
-        : normalized;
+    const weightSource = parseSpokenWeightPounds(normalized);
+    if (!weightSource) {
+      return null;
+    }
+
     const normalizedWeight = normalizeIntakeFormFields({
       weightLb: weightSource,
     }).weightLb;
@@ -673,6 +915,18 @@ const STRUCTURED_MEDICAL_INFO_FIELDS = [
 ] as const;
 
 type StructuredMedicalInfoField = (typeof STRUCTURED_MEDICAL_INFO_FIELDS)[number];
+type StructuredMedicalInfoCapture = {
+  acknowledgementMessage: string;
+  currentFieldAnswered: boolean;
+  followUpPrompt?: string;
+  updates: Partial<IntakeFormData>;
+  value: string;
+};
+type StructuredMedicalInfoConfirmationState = {
+  capture: StructuredMedicalInfoCapture;
+  field: StructuredMedicalInfoField;
+  transcript: string;
+};
 const STRUCTURED_ALLERGY_FIELDS = [
   'allergyMedicationSelections',
   'allergyMaterialSelections',
@@ -708,16 +962,59 @@ function isLocalSymptomTextField(
   return LOCAL_SYMPTOM_TEXT_FIELDS.includes(field as LocalSymptomTextField);
 }
 
+function buildContextualListeningHelpPrompt(options: {
+  field: string | null;
+  isSecondPrompt: boolean;
+  language: 'en' | 'es';
+  step: IntakeStepKey;
+}) {
+  const { field, isSecondPrompt, language, step } = options;
+
+  if (!isSecondPrompt) {
+    return language === 'es'
+      ? 'Sigo escuchando. Tómate tu tiempo y responde cuando estés listo.'
+      : "I'm still listening. Take your time and answer when you're ready.";
+  }
+
+  if (language === 'es') {
+    if (isLocalConfirmationField(field) || field === 'insuranceProvider' || field === 'memberId') {
+      return 'Puedes decir tu respuesta, deletrearla o decir omitir.';
+    }
+    if (isStructuredMedicalInfoField(field) || step === 'pastMedicalHistory') {
+      return 'Puedes decir una opción, decir ninguna, o decir no estoy seguro.';
+    }
+    if (isDocumentVoiceField(field)) {
+      return 'Puedes decir el detalle, deletrearlo o decir omitir.';
+    }
+    return 'Puedes decir tu respuesta, deletrearla o decir omitir.';
+  }
+
+  if (isLocalConfirmationField(field) || field === 'insuranceProvider' || field === 'memberId') {
+    return "You can say your answer, spell it out, or say skip.";
+  }
+  if (isStructuredMedicalInfoField(field) || step === 'pastMedicalHistory') {
+    return "You can say an option, say none, or say unsure.";
+  }
+  if (isDocumentVoiceField(field)) {
+    return "You can say the detail, spell it out, or say skip.";
+  }
+  return "You can say your answer, spell it out, or say skip.";
+}
+
+function isNoSpeechRecognitionMessage(value: string | null | undefined) {
+  const normalized = normalizeTranscriptText(value ?? '').toLowerCase();
+  return (
+    normalized.includes('no speech') ||
+    normalized.includes('no match') ||
+    normalized.includes('speech timeout') ||
+    normalized.includes('nothing was heard')
+  );
+}
+
 function parseStructuredMedicalInfoCapture(
   field: StructuredMedicalInfoField,
   transcript: string,
-): {
-  acknowledgementMessage: string;
-  currentFieldAnswered: boolean;
-  followUpPrompt?: string;
-  updates: Partial<IntakeFormData>;
-  value: string;
-} | null {
+): StructuredMedicalInfoCapture | null {
   const normalizedTranscript = normalizeTranscriptText(transcript);
 
   if (!normalizedTranscript) {
@@ -910,12 +1207,7 @@ function getAllergyFieldLabelForSpeech(field: StructuredAllergyField) {
 function parseAllergyFieldVoiceCapture(
   field: StructuredAllergyField,
   transcript: string,
-): {
-  acknowledgementMessage: string;
-  currentFieldAnswered: boolean;
-  updates: Partial<IntakeFormData>;
-  value: string;
-} | null {
+): StructuredMedicalInfoCapture | null {
   if (field === 'allergyMedicationSelections') {
     return parseMedicationAllergyVoiceCapture(transcript);
   }
@@ -949,15 +1241,14 @@ function parseAllergyFieldVoiceCapture(
       acknowledgementMessage: `I heard none. I'll mark no known ${fieldLabel}.`,
       currentFieldAnswered: true,
       updates: {
-        [field]: [],
+        [field]: ['None known'],
         medicalInfoHydrated: true,
       } as Partial<IntakeFormData>,
       value: 'None known',
     };
   }
 
-  const hydrated = hydrateMedicalInfoFromLegacy(normalizedTranscript, '');
-  const selections = hydrated[field];
+  const selections = matchMedicalInfoSelectionsForField(field, normalizedTranscript);
   const normalizedSelection =
     Array.isArray(selections) && selections.length > 0
       ? selections.filter((value) => value !== 'Unknown / Unsure')
@@ -1255,6 +1546,145 @@ function formatReviewVoiceList(values: string[], maxItems = 4) {
   return `${formatVoiceList(visibleValues.slice(0, maxItems))}, and ${visibleValues.length - maxItems} more`;
 }
 
+type ReviewDisplaySection = {
+  rows: { label: string; value: string }[];
+  title: string;
+};
+
+function formatReviewDisplayValue(
+  value: string | string[] | null | undefined,
+) {
+  const values = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(',').map((entry) => entry.trim())
+      : [];
+  const normalizedValues = values
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  if (normalizedValues.length === 0) {
+    return 'Not provided';
+  }
+
+  const isNoneValue = (entry: string) => {
+    const normalized = entry.toLowerCase();
+    return (
+      normalized === 'none' ||
+      normalized === 'none known' ||
+      normalized === 'none reported' ||
+      normalized === 'none of the above'
+    );
+  };
+  const isUnsureValue = (entry: string) => {
+    const normalized = entry.toLowerCase();
+    return (
+      normalized === 'unsure' ||
+      normalized === 'unknown / unsure' ||
+      normalized === 'unsure of immunization history'
+    );
+  };
+  const realValues = normalizedValues.filter(
+    (entry) => !isNoneValue(entry) && !isUnsureValue(entry),
+  );
+
+  if (realValues.length > 0) {
+    return realValues.join(', ');
+  }
+
+  if (normalizedValues.some(isUnsureValue)) {
+    return 'Unsure';
+  }
+
+  if (normalizedValues.some(isNoneValue)) {
+    return 'None';
+  }
+
+  return normalizedValues.join(', ');
+}
+
+function buildReviewDisplaySections(options: {
+  form: IntakeFormData;
+  hasGovernmentIdUpload: boolean;
+  hasInsuranceUpload: boolean;
+}): ReviewDisplaySection[] {
+  const { form, hasGovernmentIdUpload, hasInsuranceUpload } = options;
+  const patientName = [form.firstName, form.lastName].filter(Boolean).join(' ').trim();
+  const height = [form.heightFt ? `${form.heightFt} ft` : '', form.heightIn ? `${form.heightIn} in` : '']
+    .filter(Boolean)
+    .join(' ');
+  const allergies = buildMedicalInfoAllergyEntries(form);
+  const medicationAllergySummary = formatMedicationAllergySummary(form, '');
+  const immunizations = buildMedicalInfoImmunizationEntries(form);
+  const pmh = buildPastMedicalHistoryEntries(form);
+
+  return [
+    {
+      title: 'Patient Information',
+      rows: [
+        { label: 'Name', value: formatReviewDisplayValue(patientName) },
+        { label: 'Date of birth', value: formatReviewDisplayValue(form.dateOfBirth) },
+        {
+          label: 'Height / Weight',
+          value: formatReviewDisplayValue(
+            [height, form.weightLb ? `${form.weightLb} lb` : ''].filter(Boolean).join(' / '),
+          ),
+        },
+        { label: 'Sex', value: formatReviewDisplayValue(formatGenderDisplay(form.gender)) },
+        { label: 'Phone', value: formatReviewDisplayValue(form.phoneNumber) },
+        { label: 'Email', value: formatReviewDisplayValue(form.email) },
+      ],
+    },
+    {
+      title: 'Visit Details',
+      rows: [
+        { label: 'Reason for visit', value: formatReviewDisplayValue(form.chiefConcern) },
+        { label: 'Duration', value: formatReviewDisplayValue(form.symptomDuration) },
+        { label: 'Severity', value: formatReviewDisplayValue(form.painLevel) },
+        { label: 'Symptom notes', value: formatReviewDisplayValue(form.symptomNotes) },
+      ],
+    },
+    {
+      title: 'Medical Info',
+      rows: [
+        {
+          label: 'Allergies',
+          value: formatReviewDisplayValue(
+            allergies.length > 0 ? allergies : medicationAllergySummary,
+          ),
+        },
+        { label: 'Medications', value: formatReviewDisplayValue(form.medications) },
+        { label: 'Immunizations', value: formatReviewDisplayValue(immunizations) },
+      ],
+    },
+    {
+      title: 'Past Medical History',
+      rows: [
+        { label: 'Chronic conditions', value: formatReviewDisplayValue(pmh.chronic) },
+        { label: 'Surgical history', value: formatReviewDisplayValue(pmh.surgical) },
+        {
+          label: 'Other relevant history',
+          value: formatReviewDisplayValue(pmh.otherRelevant),
+        },
+      ],
+    },
+    {
+      title: 'Documents',
+      rows: [
+        { label: 'Photo ID', value: hasGovernmentIdUpload ? 'Added' : 'Not added' },
+        { label: 'Insurance card', value: hasInsuranceUpload ? 'Added' : 'Not added' },
+        {
+          label: 'Insurance provider',
+          value: formatReviewDisplayValue(form.insuranceProvider),
+        },
+        { label: 'Member ID', value: formatReviewDisplayValue(form.memberId) },
+        { label: 'Group number', value: formatReviewDisplayValue(form.groupNumber) },
+        { label: 'Subscriber name', value: formatReviewDisplayValue(form.subscriberName) },
+      ],
+    },
+  ];
+}
+
 function buildReviewSummaryPrompt(options: {
   form: IntakeFormData;
   hasGovernmentIdUpload: boolean;
@@ -1366,8 +1796,8 @@ function getReviewSectionChoicePrompt(language: 'en' | 'es') {
 
 function getSubmitSuccessPrompt(language: 'en' | 'es') {
   return language === 'es'
-    ? 'Tu registro se envió correctamente.'
-    : 'Your check-in was submitted successfully.';
+    ? 'Tu registro se envió correctamente. Ya está todo listo. El personal de la clínica revisará tu información pronto. Me apartaré por ahora, pero puedes llamarme si necesitas ayuda.'
+    : "Your check-in has been submitted successfully. You're all set. The clinic staff will review your information shortly. I'll step back for now, but you can call me anytime if you need help.";
 }
 
 function getSubmitCancelledPrompt(language: 'en' | 'es') {
@@ -1513,8 +1943,11 @@ export function VoiceExperience({
   const autoPlayedSessionRef = useRef('');
   const autoListenRef = useRef('');
   const silenceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const noSpeechGraceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const noSpeechRepromptCountRef = useRef(0);
   const detectedSpeechRef = useRef(false);
   const startRecordingInFlightRef = useRef(false);
+  const suppressLiveSpeechEndRef = useRef(false);
   const stopRecordingAndProcessRef = useRef<(() => Promise<void>) | null>(null);
   const handleJanetTurnRef = useRef<
     ((
@@ -1555,6 +1988,8 @@ export function VoiceExperience({
   );
   const [localConfirmation, setLocalConfirmation] =
     useState<LocalConfirmationState | null>(null);
+  const [structuredMedicalInfoConfirmation, setStructuredMedicalInfoConfirmation] =
+    useState<StructuredMedicalInfoConfirmationState | null>(null);
   const [janetFlowMode, setJanetFlowMode] =
     useState<JanetFlowMode>('field_question');
   const [pendingNextStep, setPendingNextStep] = useState<IntakeStepKey | null>(null);
@@ -1612,6 +2047,7 @@ export function VoiceExperience({
     ? state.janetMode.currentStep
     : state.intake.currentStep;
   const janetCopy = JANET_UI_COPY[state.janetMode.language];
+  const isSubmitted = state.backend.submit.status === 'submitted';
   const backendJanetStep = isBackendManagedJanetStep(janetStep)
     ? inferJanetConversationStep(janetStep)
     : 'symptoms';
@@ -1710,6 +2146,13 @@ export function VoiceExperience({
     if (silenceTimeoutRef.current) {
       clearTimeout(silenceTimeoutRef.current);
       silenceTimeoutRef.current = null;
+    }
+  }, []);
+
+  const clearNoSpeechGraceTimeout = useCallback(() => {
+    if (noSpeechGraceTimeoutRef.current) {
+      clearTimeout(noSpeechGraceTimeoutRef.current);
+      noSpeechGraceTimeoutRef.current = null;
     }
   }, []);
 
@@ -1898,6 +2341,8 @@ export function VoiceExperience({
 
       if (hasSpeechNow) {
         detectedSpeechRef.current = true;
+        noSpeechRepromptCountRef.current = 0;
+        clearNoSpeechGraceTimeout();
         clearSilenceTimeout();
         return;
       }
@@ -1914,7 +2359,7 @@ export function VoiceExperience({
         }, JANET_TIMING.silenceDurationMs);
       }
     },
-    [clearSilenceTimeout],
+    [clearNoSpeechGraceTimeout, clearSilenceTimeout],
   );
 
   const playPrompt = useCallback(
@@ -1928,14 +2373,18 @@ export function VoiceExperience({
       setMicError(null);
       setSpeechState('processing');
       lastSpokenTextRef.current = trimmedText;
+      const autoListenToken = `${session?.sessionId ?? 'local'}:${Date.now()}:${trimmedText}`;
+      const scheduleAutoListen = () => {
+        if (autoListenRef.current !== autoListenToken) {
+          setPendingAutoListenToken(autoListenToken);
+        }
+      };
 
       try {
         if (!voiceOutputEnabled) {
           setSpeechState('replay');
           if (shouldAutoListenAfter) {
-            setPendingAutoListenToken(
-              `${session?.sessionId ?? 'local'}:${Date.now()}:${trimmedText}`,
-            );
+            scheduleAutoListen();
           }
           return;
         }
@@ -1950,9 +2399,7 @@ export function VoiceExperience({
           onComplete: () => {
             setSpeechState('replay');
             if (shouldAutoListenAfter) {
-              setPendingAutoListenToken(
-                `${session?.sessionId ?? 'local'}:${Date.now()}:${trimmedText}`,
-              );
+              scheduleAutoListen();
             }
           },
           onStart: () => {
@@ -1961,6 +2408,13 @@ export function VoiceExperience({
           sessionId: session?.sessionId ?? null,
           text: trimmedText,
         });
+        if (shouldAutoListenAfter) {
+          const estimatedSpeechMs = Math.min(
+            60000,
+            Math.max(4500, trimmedText.split(/\s+/).length * 500 + 1500),
+          );
+          setTimeout(scheduleAutoListen, estimatedSpeechMs);
+        }
       } catch (error) {
         setMicError(
           error instanceof Error && error.message
@@ -1968,6 +2422,9 @@ export function VoiceExperience({
             : 'Janet voice guidance is unavailable right now.',
         );
         setSpeechState(lastSpokenTextRef.current.trim() ? 'replay' : 'ready');
+        if (shouldAutoListenAfter) {
+          scheduleAutoListen();
+        }
       }
     },
     [autoListenEnabled, session?.sessionId, state.janetMode.language, voiceOutputEnabled],
@@ -1990,13 +2447,93 @@ export function VoiceExperience({
     setLiveMeterLevel(0);
   }, []);
 
+  const stopListeningWithoutProcessing = useCallback(async () => {
+    clearNoSpeechGraceTimeout();
+    clearSilenceTimeout();
+
+    if (liveSpeechActiveRef.current) {
+      suppressLiveSpeechEndRef.current = true;
+      stopJanetLiveSpeech();
+      resetLiveSpeechCapture();
+    }
+
+    const activeRecording = recordingRef.current;
+    if (activeRecording) {
+      recordingRef.current = null;
+      try {
+        await activeRecording.stopAndUnloadAsync();
+      } catch {
+        // Recording may already be stopped by the native layer.
+      }
+    }
+
+    detectedSpeechRef.current = false;
+    setLiveMeterLevel(0);
+    setIsRecording(false);
+    setVoiceListening(false);
+    setIsProcessing(false);
+  }, [
+    clearNoSpeechGraceTimeout,
+    clearSilenceTimeout,
+    resetLiveSpeechCapture,
+    setVoiceListening,
+  ]);
+
+  const recoverFromNoSpeech = useCallback(async () => {
+    await stopListeningWithoutProcessing();
+
+    const prompt = buildContextualListeningHelpPrompt({
+      field: activeManagedField,
+      isSecondPrompt: noSpeechRepromptCountRef.current > 0,
+      language: state.janetMode.language,
+      step: janetStep,
+    });
+    noSpeechRepromptCountRef.current += 1;
+    setWarnings([]);
+    setMicError(null);
+    setPartialTranscript('');
+    setFinalTranscript('');
+    setVoiceTranscript(prompt);
+    setReplyText(prompt);
+    await playPrompt(prompt, { autoListenAfter: true });
+  }, [
+    activeManagedField,
+    janetStep,
+    playPrompt,
+    setVoiceTranscript,
+    state.janetMode.language,
+    stopListeningWithoutProcessing,
+  ]);
+
+  const scheduleNoSpeechGraceTimeout = useCallback(() => {
+    clearNoSpeechGraceTimeout();
+    noSpeechGraceTimeoutRef.current = setTimeout(() => {
+      noSpeechGraceTimeoutRef.current = null;
+      const hasTranscript =
+        isMeaningfulTranscript(liveSpeechTranscriptRef.current) ||
+        isMeaningfulTranscript(finalTranscript);
+
+      if (detectedSpeechRef.current || hasTranscript) {
+        return;
+      }
+
+      void recoverFromNoSpeech();
+    }, JANET_TIMING.noSpeechGraceMs);
+  }, [clearNoSpeechGraceTimeout, finalTranscript, recoverFromNoSpeech]);
+
   const finalizeLiveSpeechCapture = useCallback(async () => {
     if (liveSpeechFinalizingRef.current) {
       return;
     }
 
+    if (suppressLiveSpeechEndRef.current) {
+      suppressLiveSpeechEndRef.current = false;
+      return;
+    }
+
     liveSpeechFinalizingRef.current = true;
     liveSpeechActiveRef.current = false;
+    clearNoSpeechGraceTimeout();
     setIsRecording(false);
     setVoiceListening(false);
     setIsProcessing(true);
@@ -2032,21 +2569,16 @@ export function VoiceExperience({
       }
 
       if (!isMeaningfulTranscript(transcript)) {
-        const retryPrompt = buildNoSpeechRetryPrompt({
-          fallbackPrompt: replyText.trim() || resolvedSpeechText.trim(),
-          language: state.janetMode.language,
-        });
         setWarnings((currentWarnings) =>
           currentWarnings.length > 0
             ? currentWarnings
-            : ['Janet did not catch a clear answer.'],
+            : ["Janet is still listening. Take your time."],
         );
-        setMicError('Janet did not catch a clear answer. Please try again.');
-        setReplyText(retryPrompt);
-        await queuePrompt(retryPrompt);
+        await recoverFromNoSpeech();
         return;
       }
 
+      noSpeechRepromptCountRef.current = 0;
       await handleJanetTurnRef.current?.(
         transcript,
         confidence,
@@ -2064,10 +2596,9 @@ export function VoiceExperience({
     }
   }, [
     backendJanetStep,
-    queuePrompt,
+    clearNoSpeechGraceTimeout,
+    recoverFromNoSpeech,
     resetLiveSpeechCapture,
-    replyText,
-    resolvedSpeechText,
     session?.sessionId,
     setVoiceListening,
     setVoiceTranscript,
@@ -2124,6 +2655,7 @@ export function VoiceExperience({
         liveSpeechAudioUriRef.current = null;
         liveSpeechActiveRef.current = true;
         liveSpeechFinalizingRef.current = false;
+        suppressLiveSpeechEndRef.current = false;
         setPartialTranscript('');
         setFinalTranscript('');
         setIsRecording(true);
@@ -2131,6 +2663,7 @@ export function VoiceExperience({
         setVoiceListening(true);
         setSpeechState('ready');
         setVoiceTranscript('Listening for the next answer...');
+        scheduleNoSpeechGraceTimeout();
         void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
         startJanetLiveSpeech({
@@ -2169,6 +2702,7 @@ export function VoiceExperience({
           ? 'Spell mode is on. Janet is listening carefully for one detail at a time.'
           : 'Listening for the next answer...',
       );
+      scheduleNoSpeechGraceTimeout();
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch (error) {
       setMicError(
@@ -2193,6 +2727,7 @@ export function VoiceExperience({
     setVoiceEditing,
     setVoiceListening,
     setVoiceTranscript,
+    scheduleNoSpeechGraceTimeout,
     state.backend.draft.draftId,
     state.backend.draft.patientId,
     state.backend.draft.visitId,
@@ -2231,7 +2766,7 @@ export function VoiceExperience({
           prompt: reviewPrompt,
           required: true,
         });
-        await queuePrompt(reviewPrompt, { autoListenAfter: false });
+        await queuePrompt(reviewPrompt, { autoListenAfter: true });
         return;
       }
 
@@ -2301,6 +2836,106 @@ export function VoiceExperience({
       interactionMode: 'correction' | 'normal' | 'spell' = 'normal',
     ) => {
       const normalizedTranscript = normalizeTranscriptText(transcript).toLowerCase();
+      const applyStructuredMedicalInfoCapture = async (
+        field: StructuredMedicalInfoField,
+        medicalInfoCapture: StructuredMedicalInfoCapture,
+        sourceTranscript: string,
+      ) => {
+        const mergedLegacyAllergies =
+          isStructuredAllergyField(field)
+            ? buildMedicalInfoLegacyAllergyText({
+                ...state.intake.form,
+                ...(session?.draftPatch ?? {}),
+                ...medicalInfoCapture.updates,
+              } as IntakeFormData)
+            : undefined;
+        const mergedForm = reconcileStructuredIntakeForm(
+          normalizeIntakeFormFields({
+            ...state.intake.form,
+            ...(session?.draftPatch ?? {}),
+            ...medicalInfoCapture.updates,
+            ...(mergedLegacyAllergies
+              ? { allergies: mergedLegacyAllergies }
+              : {}),
+          }) as IntakeFormData,
+        );
+        const nextField = medicalInfoCapture.currentFieldAnswered
+          ? getNextJanetFieldAfter('symptoms', field)
+          : field;
+        const nextPrompt = getCanonicalJanetPrompt({
+          field: nextField,
+          language: state.janetMode.language,
+          pastMedicalHistoryField: null,
+          step: 'symptoms',
+        });
+        const nextHandoff = buildJanetHandoffFromDraft({
+          existing: state.voice.handoff,
+          form: mergedForm,
+          interpretedAt: new Date().toISOString(),
+          transcript: sourceTranscript,
+        });
+
+        updateIntakeFields(
+          isStructuredAllergyField(field)
+            ? {
+                ...medicalInfoCapture.updates,
+                allergies: mergedForm.allergies,
+              }
+            : medicalInfoCapture.updates,
+        );
+        setVoiceHandoff(nextHandoff);
+        setWarnings([]);
+        setLowConfidence(false);
+        setConfirmation(EMPTY_CONFIRMATION);
+        setStructuredMedicalInfoConfirmation(null);
+        setPartialTranscript('');
+        setFinalTranscript(medicalInfoCapture.value);
+        setVoiceTranscript(medicalInfoCapture.value);
+        setSession((currentSession) =>
+          currentSession
+            ? {
+                ...currentSession,
+                confirmation: EMPTY_CONFIRMATION,
+                currentField: nextField,
+                currentStep: 'symptoms',
+                draftPatch: {
+                  ...currentSession.draftPatch,
+                  ...medicalInfoCapture.updates,
+                  ...(mergedLegacyAllergies
+                    ? { allergies: mergedForm.allergies }
+                    : {}),
+                },
+                firstPrompt: nextPrompt || currentSession.firstPrompt,
+              }
+            : currentSession,
+        );
+        setReplyText(
+          medicalInfoCapture.currentFieldAnswered
+            ? nextPrompt || medicalInfoCapture.acknowledgementMessage
+            : nextPrompt || medicalInfoCapture.acknowledgementMessage,
+        );
+        setJanetModeStep('symptoms');
+        void queueDraftAndHandoffSync({
+          formOverride: mergedForm,
+        });
+
+        await playPrompt(medicalInfoCapture.acknowledgementMessage, {
+          autoListenAfter: false,
+        });
+
+        if (!nextField) {
+          await queueStepTransitionPrompt('symptoms');
+          return;
+        }
+
+        const promptToAsk = medicalInfoCapture.currentFieldAnswered
+          ? nextPrompt
+          : nextPrompt;
+
+        if (promptToAsk.trim()) {
+          await queuePrompt(promptToAsk);
+        }
+      };
 
       if (janetFlowMode === 'step_transition_confirmation') {
         if (pendingNextStep && transcriptMatchesIntent(transcript, CONTINUE_INTENTS)) {
@@ -2420,14 +3055,26 @@ export function VoiceExperience({
           const didSubmit = await submitCurrentIntake();
           setIsProcessing(false);
           setConfirmation(EMPTY_CONFIRMATION);
-          await queuePrompt(
-            didSubmit
-              ? getSubmitSuccessPrompt(state.janetMode.language)
-              : state.janetMode.language === 'es'
+          if (didSubmit) {
+            clearNoSpeechGraceTimeout();
+            clearSilenceTimeout();
+            detectedSpeechRef.current = false;
+            setVoiceListening(false);
+            setIsRecording(false);
+            setPendingAutoListenToken(null);
+            setJanetFlowMode('review_summary');
+            setReplyText(getSubmitSuccessPrompt(state.janetMode.language));
+            await playPrompt(getSubmitSuccessPrompt(state.janetMode.language), {
+              autoListenAfter: false,
+            });
+          } else {
+            await queuePrompt(
+              state.janetMode.language === 'es'
                 ? 'No pude enviar el registro todavía.'
                 : 'I could not submit the check-in yet.',
-            { autoListenAfter: false },
-          );
+              { autoListenAfter: false },
+            );
+          }
           return;
         }
 
@@ -2446,12 +3093,17 @@ export function VoiceExperience({
           interactionMode === 'correction' ||
           transcriptIsNegative(transcript, state.janetMode.language)
         ) {
-          const retryPrompt = getCanonicalJanetPrompt({
-            field: localConfirmation.field,
-            language: state.janetMode.language,
-            pastMedicalHistoryField: null,
-            step: 'basicInfo',
-          });
+          const retryPrompt =
+            localConfirmation.field === 'gender'
+              ? state.janetMode.language === 'es'
+                ? 'Está bien. Di masculino, femenino u otro.'
+                : 'Okay. Please say male, female, or other.'
+              : getCanonicalJanetPrompt({
+                  field: localConfirmation.field,
+                  language: state.janetMode.language,
+                  pastMedicalHistoryField: null,
+                  step: 'basicInfo',
+                });
           setLocalConfirmation(null);
           setConfirmation(EMPTY_CONFIRMATION);
           setReplyText(retryPrompt);
@@ -2549,6 +3201,71 @@ export function VoiceExperience({
         return;
       }
 
+      if (structuredMedicalInfoConfirmation) {
+        const { capture, field } = structuredMedicalInfoConfirmation;
+
+        if (
+          interactionMode === 'correction' ||
+          transcriptIsNegative(transcript, state.janetMode.language)
+        ) {
+          const retryPrompt = getCanonicalJanetPrompt({
+            field,
+            language: state.janetMode.language,
+            pastMedicalHistoryField: null,
+            step: 'symptoms',
+          });
+          setStructuredMedicalInfoConfirmation(null);
+          setConfirmation(EMPTY_CONFIRMATION);
+          setReplyText(retryPrompt);
+          setFinalTranscript('');
+          setVoiceTranscript('');
+          await playPrompt(retryPrompt);
+          return;
+        }
+
+        if (transcriptIsAffirmative(transcript, state.janetMode.language)) {
+          await applyStructuredMedicalInfoCapture(
+            field,
+            capture,
+            structuredMedicalInfoConfirmation.transcript,
+          );
+          return;
+        }
+
+        const correctedCapture = isStructuredAllergyField(field)
+          ? parseAllergyFieldVoiceCapture(field, transcript)
+          : parseStructuredMedicalInfoCapture(field, transcript);
+
+        if (correctedCapture) {
+          const confirmationPrompt = buildLocalConfirmationPrompt({
+            language: state.janetMode.language,
+            value: correctedCapture.value,
+          });
+          setStructuredMedicalInfoConfirmation({
+            capture: correctedCapture,
+            field,
+            transcript,
+          });
+          setConfirmation({
+            choices: [],
+            field,
+            prompt: confirmationPrompt,
+            required: true,
+          });
+          setFinalTranscript(correctedCapture.value);
+          setVoiceTranscript(correctedCapture.value);
+          await playPrompt(confirmationPrompt);
+          return;
+        }
+
+        await queuePrompt(
+          state.janetMode.language === 'es'
+            ? 'Por favor di sí para confirmar, o intenta decir la alergia otra vez.'
+            : 'Please say yes to confirm, or try saying the allergy again.',
+        );
+        return;
+      }
+
       if (
         janetStep === 'basicInfo' &&
         isLocalConfirmationField(activeManagedField) &&
@@ -2626,29 +3343,28 @@ export function VoiceExperience({
         }
 
         setLocalConfirmation({
+          confirmationPrompt: localCapture.confirmationPrompt,
           field: activeManagedField,
           updates: localCapture.updates,
           value: localCapture.value,
         });
+        const confirmationPrompt =
+          localCapture.confirmationPrompt ??
+          buildLocalConfirmationPrompt({
+            language: state.janetMode.language,
+            value: localCapture.value,
+          });
         setConfirmation({
           choices: [],
           field: activeManagedField,
-          prompt: buildLocalConfirmationPrompt({
-            language: state.janetMode.language,
-            value: localCapture.value,
-          }),
+          prompt: confirmationPrompt,
           required: true,
         });
         setWarnings([]);
         setLowConfidence(false);
         setFinalTranscript(localCapture.value);
         setVoiceTranscript(localCapture.value);
-        await playPrompt(
-          buildLocalConfirmationPrompt({
-            language: state.janetMode.language,
-            value: localCapture.value,
-          }),
-        );
+        await playPrompt(confirmationPrompt);
         return;
       }
 
@@ -2670,40 +3386,61 @@ export function VoiceExperience({
           const hydrated = hydratePastMedicalHistoryFromLegacy(normalizedTranscript);
           const explicitNone = transcriptMeansNone(normalizedTranscript);
           const explicitUnsure = transcriptMeansUnsure(normalizedTranscript);
+          const fallbackSelection = buildPastMedicalHistoryFallbackSelection(
+            targetField,
+            normalizedTranscript,
+          );
           const nextUpdates: Partial<IntakeFormData> = {
             pastMedicalHistoryHydrated: true,
           };
 
           if (targetField === 'pastMedicalHistoryChronicConditions') {
+            const chronicConditions =
+              hydrated.pastMedicalHistoryChronicConditions ?? [];
             nextUpdates.pastMedicalHistoryChronicConditions = explicitUnsure
               ? ['Unsure']
               : explicitNone
                 ? ['None known']
-                : hydrated.pastMedicalHistoryChronicConditions ?? [];
+                : chronicConditions.length > 0
+                  ? chronicConditions
+                  : fallbackSelection;
             nextUpdates.pastMedicalHistoryOtherMentalHealthCondition =
               hydrated.pastMedicalHistoryOtherMentalHealthCondition ?? '';
           }
 
           if (targetField === 'pastMedicalHistorySurgicalHistory') {
+            const surgicalHistory = hydrated.pastMedicalHistorySurgicalHistory ?? [];
             nextUpdates.pastMedicalHistorySurgicalHistory = explicitUnsure
               ? ['Unsure']
               : explicitNone
                 ? ['None known']
-                : hydrated.pastMedicalHistorySurgicalHistory ?? [];
+                : surgicalHistory.length > 0
+                  ? surgicalHistory
+                  : fallbackSelection;
             nextUpdates.pastMedicalHistoryOtherSurgery =
               hydrated.pastMedicalHistoryOtherSurgery ?? '';
           }
 
           if (targetField === 'pastMedicalHistoryOtherRelevantHistory') {
+            const otherRelevantHistory =
+              hydrated.pastMedicalHistoryOtherRelevantHistory ?? [];
             nextUpdates.pastMedicalHistoryOtherRelevantHistory = explicitUnsure
               ? ['Unsure']
               : explicitNone
                 ? ['None known']
-                : hydrated.pastMedicalHistoryOtherRelevantHistory ?? [];
+                : otherRelevantHistory.length > 0
+                  ? otherRelevantHistory
+                  : fallbackSelection;
           }
 
-          const hasStructuredValue = Object.values(nextUpdates).some((value) =>
-            Array.isArray(value) ? value.length > 0 : typeof value === 'string' ? value.trim().length > 0 : value === true,
+          const hasStructuredValue = Object.entries(nextUpdates).some(([key, value]) =>
+            key === 'pastMedicalHistoryHydrated'
+              ? false
+              : Array.isArray(value)
+                ? value.length > 0
+                : typeof value === 'string'
+                  ? value.trim().length > 0
+                  : false,
           );
 
           if (!hasStructuredValue && !explicitNone && !explicitUnsure) {
@@ -2768,103 +3505,37 @@ export function VoiceExperience({
           : parseStructuredMedicalInfoCapture(activeManagedField, transcript);
 
         if (medicalInfoCapture) {
-          const mergedLegacyAllergies =
-            isStructuredAllergyField(activeManagedField)
-              ? buildMedicalInfoLegacyAllergyText({
-                  ...state.intake.form,
-                  ...(session?.draftPatch ?? {}),
-                  ...medicalInfoCapture.updates,
-                } as IntakeFormData)
-              : undefined;
-          const mergedForm = reconcileStructuredIntakeForm(
-            normalizeIntakeFormFields({
-              ...state.intake.form,
-              ...(session?.draftPatch ?? {}),
-              ...medicalInfoCapture.updates,
-              ...(mergedLegacyAllergies
-                ? { allergies: mergedLegacyAllergies }
-                : {}),
-            }) as IntakeFormData,
-          );
-          const nextField = medicalInfoCapture.currentFieldAnswered
-            ? getNextJanetFieldAfter(
-                'symptoms',
-                activeManagedField,
-              )
-            : activeManagedField;
-          const nextPrompt = getCanonicalJanetPrompt({
-            field: nextField,
-            language: state.janetMode.language,
-            pastMedicalHistoryField: null,
-            step: 'symptoms',
-          });
-          const nextHandoff = buildJanetHandoffFromDraft({
-            existing: state.voice.handoff,
-            form: mergedForm,
-            interpretedAt: new Date().toISOString(),
-            transcript,
-          });
-
-          updateIntakeFields(
-            isStructuredAllergyField(activeManagedField)
-              ? {
-                  ...medicalInfoCapture.updates,
-                  allergies: mergedForm.allergies,
-                }
-              : medicalInfoCapture.updates,
-          );
-          setVoiceHandoff(nextHandoff);
-          setWarnings([]);
-          setLowConfidence(false);
-          setConfirmation(EMPTY_CONFIRMATION);
-          setPartialTranscript('');
-          setFinalTranscript(medicalInfoCapture.value);
-          setVoiceTranscript(medicalInfoCapture.value);
-          setSession((currentSession) =>
-            currentSession
-              ? {
-                  ...currentSession,
-                  confirmation: EMPTY_CONFIRMATION,
-                  currentField: nextField,
-                  currentStep: 'symptoms',
-                  draftPatch: {
-                    ...currentSession.draftPatch,
-                    ...medicalInfoCapture.updates,
-                    ...(mergedLegacyAllergies
-                      ? { allergies: mergedForm.allergies }
-                      : {}),
-                  },
-                  firstPrompt: nextPrompt || currentSession.firstPrompt,
-                }
-              : currentSession,
-          );
-          setReplyText(
-            medicalInfoCapture.currentFieldAnswered
-              ? nextPrompt || medicalInfoCapture.acknowledgementMessage
-              : nextPrompt || medicalInfoCapture.acknowledgementMessage,
-          );
-          setJanetModeStep('symptoms');
-          void queueDraftAndHandoffSync({
-            formOverride: mergedForm,
-          });
-
-          await playPrompt(medicalInfoCapture.acknowledgementMessage, {
-            autoListenAfter: false,
-          });
-
-          if (!nextField) {
-            await queueStepTransitionPrompt('symptoms');
+          if (activeManagedField === 'allergyFoodSelections') {
+            const confirmationPrompt = buildLocalConfirmationPrompt({
+              language: state.janetMode.language,
+              value: medicalInfoCapture.value,
+            });
+            setStructuredMedicalInfoConfirmation({
+              capture: medicalInfoCapture,
+              field: activeManagedField,
+              transcript,
+            });
+            setConfirmation({
+              choices: [],
+              field: activeManagedField,
+              prompt: confirmationPrompt,
+              required: true,
+            });
+            setWarnings([]);
+            setLowConfidence(false);
+            setPartialTranscript('');
+            setFinalTranscript(medicalInfoCapture.value);
+            setVoiceTranscript(medicalInfoCapture.value);
+            setReplyText(confirmationPrompt);
+            await playPrompt(confirmationPrompt);
             return;
           }
 
-          const promptToAsk =
-            medicalInfoCapture.currentFieldAnswered
-              ? nextPrompt
-              : nextPrompt;
-
-          if (promptToAsk.trim()) {
-            await queuePrompt(promptToAsk);
-          }
+          await applyStructuredMedicalInfoCapture(
+            activeManagedField,
+            medicalInfoCapture,
+            transcript,
+          );
           return;
         }
       }
@@ -3189,6 +3860,8 @@ export function VoiceExperience({
       activeManagedField,
       awaitingReviewSectionChoice,
       beginVoiceStep,
+      clearNoSpeechGraceTimeout,
+      clearSilenceTimeout,
       janetStep,
       janetFlowMode,
       localConfirmation,
@@ -3201,12 +3874,14 @@ export function VoiceExperience({
       session,
       setJanetModeStep,
       setVoiceHandoff,
+      setVoiceListening,
       setVoiceTranscript,
       state.intake.form,
       state.janetMode.language,
       state.returningPatient.form,
       state.voice.handoff,
       state.voice.spellModeEnabled,
+      structuredMedicalInfoConfirmation,
       submitCurrentIntake,
       queueDraftAndHandoffSync,
       queueDraftSync,
@@ -3221,6 +3896,7 @@ export function VoiceExperience({
     }
 
     clearSilenceTimeout();
+    clearNoSpeechGraceTimeout();
     detectedSpeechRef.current = false;
     setLiveMeterLevel(0);
     recordingRef.current = null;
@@ -3249,22 +3925,17 @@ export function VoiceExperience({
       setWarnings(transcription.warnings);
 
       if (!isMeaningfulTranscript(normalizedTranscript)) {
-        const retryPrompt = buildNoSpeechRetryPrompt({
-          fallbackPrompt: replyText.trim() || resolvedSpeechText.trim(),
-          language: state.janetMode.language,
-        });
         setWarnings((currentWarnings) =>
           currentWarnings.length > 0
             ? currentWarnings
-            : ['Janet did not catch a clear answer.'],
+            : ["Janet is still listening. Take your time."],
         );
-        setMicError('Janet did not catch a clear answer. Please try again.');
-        setReplyText(retryPrompt);
-        await queuePrompt(retryPrompt);
+        await recoverFromNoSpeech();
         setIsProcessing(false);
         return;
       }
 
+      noSpeechRepromptCountRef.current = 0;
       await handleJanetTurn(
         normalizedTranscript,
         transcription.confidence,
@@ -3282,11 +3953,10 @@ export function VoiceExperience({
   }, [
     handleJanetTurn,
     backendJanetStep,
-    queuePrompt,
-    replyText,
-    resolvedSpeechText,
+    recoverFromNoSpeech,
     session?.sessionId,
     clearSilenceTimeout,
+    clearNoSpeechGraceTimeout,
     setVoiceListening,
     setVoiceTranscript,
     state.janetMode.language,
@@ -3491,6 +4161,8 @@ export function VoiceExperience({
         return;
       }
 
+      noSpeechRepromptCountRef.current = 0;
+      clearNoSpeechGraceTimeout();
       liveSpeechTranscriptRef.current = transcript;
       const confidence = event.results[0]?.confidence;
       if (typeof confidence === 'number' && confidence >= 0) {
@@ -3522,6 +4194,16 @@ export function VoiceExperience({
         return;
       }
 
+      if (isNoSpeechRecognitionMessage(event.message)) {
+        setWarnings((currentWarnings) =>
+          currentWarnings.length > 0
+            ? currentWarnings
+            : ["Janet is still listening. Take your time."],
+        );
+        void recoverFromNoSpeech();
+        return;
+      }
+
       resetLiveSpeechCapture();
       setIsRecording(false);
       setVoiceListening(false);
@@ -3532,6 +4214,11 @@ export function VoiceExperience({
     });
 
     const endSubscription = addJanetLiveSpeechListener('end', () => {
+      if (suppressLiveSpeechEndRef.current) {
+        suppressLiveSpeechEndRef.current = false;
+        return;
+      }
+
       if (!liveSpeechActiveRef.current) {
         return;
       }
@@ -3549,7 +4236,9 @@ export function VoiceExperience({
     };
   }, [
     finalizeLiveSpeechCapture,
+    clearNoSpeechGraceTimeout,
     liveSpeechAvailability.moduleAvailable,
+    recoverFromNoSpeech,
     resetLiveSpeechCapture,
     setVoiceListening,
     setVoiceTranscript,
@@ -3558,6 +4247,7 @@ export function VoiceExperience({
   useEffect(() => {
     return () => {
       clearSilenceTimeout();
+      clearNoSpeechGraceTimeout();
       abortJanetLiveSpeech();
       if (recordingRef.current) {
         void recordingRef.current.stopAndUnloadAsync();
@@ -3566,7 +4256,7 @@ export function VoiceExperience({
       setIsRecording(false);
       void stopPlayback();
     };
-  }, [clearSilenceTimeout, stopPlayback]);
+  }, [clearNoSpeechGraceTimeout, clearSilenceTimeout, stopPlayback]);
 
   useEffect(() => {
     bootstrapKeyRef.current = '';
@@ -3652,6 +4342,7 @@ export function VoiceExperience({
 
     if (
       janetFlowMode !== 'field_question' ||
+      isSubmitted ||
       bootstrapKeyRef.current === nextBootstrapKey ||
       isBootstrapping
     ) {
@@ -3671,6 +4362,7 @@ export function VoiceExperience({
   }, [
     bootstrapSession,
     isBootstrapping,
+    isSubmitted,
     janetFlowMode,
     queueStepTransitionPrompt,
     resolvedVoiceStepState.isStepComplete,
@@ -3748,8 +4440,24 @@ export function VoiceExperience({
     canOfferIdScan,
     canOfferInsuranceScan,
   });
+  const shouldShowReviewCards =
+    janetStep === 'review' &&
+    !shouldShowScanConfirmation &&
+    !isScanning &&
+    !isSubmitted;
+  const reviewDisplaySections = useMemo(
+    () =>
+      buildReviewDisplaySections({
+        form: state.intake.form,
+        hasGovernmentIdUpload,
+        hasInsuranceUpload,
+      }),
+    [hasGovernmentIdUpload, hasInsuranceUpload, state.intake.form],
+  );
   const currentQuestionText = shouldShowScanConfirmation
     ? pendingScanResult?.promptText ?? 'Please confirm these scanned details before saving them.'
+    : shouldShowReviewCards && !awaitingReviewSectionChoice
+      ? 'Let’s review your check-in before submitting.'
     : janetStep === 'pastMedicalHistory'
       ? replyText.trim() ||
         buildPastMedicalHistoryPrompt(
@@ -3786,6 +4494,19 @@ export function VoiceExperience({
     styles.meterBar4,
     styles.meterBar5,
   ];
+  const navigateHome = useCallback(() => {
+    void Haptics.selectionAsync();
+    closeJanetMode();
+    navigation.navigate('Home');
+  }, [closeJanetMode, navigation]);
+  const openPatientPortal = useCallback(() => {
+    void Haptics.selectionAsync();
+    closeJanetMode();
+    const parentNavigation = navigation.getParent<{
+      navigate: (screen: 'PortalLogin') => void;
+    }>();
+    parentNavigation?.navigate('PortalLogin');
+  }, [closeJanetMode, navigation]);
 
   useEffect(() => {
     if (janetStep === 'review' && janetFlowMode === 'field_question') {
@@ -3934,7 +4655,7 @@ export function VoiceExperience({
           badgeLabel="Voice"
           message={micError}
           style={styles.banner}
-          title="Janet needs attention"
+          title="I'm still listening"
           tone="warning"
         />
       ) : null}
@@ -3948,6 +4669,41 @@ export function VoiceExperience({
           tone="warning"
         />
       ) : null}
+
+      {isSubmitted ? (
+        <View style={styles.successCard}>
+          <View style={styles.successIconWrap}>
+            <Ionicons
+              color={colors.surface}
+              name="checkmark"
+              size={30}
+            />
+          </View>
+          <Text style={styles.successTitle}>Check-in submitted</Text>
+          <Text style={styles.successMessage}>
+            Your check-in has been submitted successfully. The clinic staff will review your information shortly.
+          </Text>
+          <View style={styles.nextStepsCard}>
+            <Text style={styles.nextStepsTitle}>What happens next</Text>
+            <Text style={styles.nextStepsText}>
+              You can wait to be called, or check in at the front desk if the clinic asks you to.
+            </Text>
+          </View>
+          <View style={styles.inlineActions}>
+            <PrimaryButton
+              onPress={navigateHome}
+              style={[styles.inlineButton, styles.inlineButtonLeft]}
+              title="Back to Home"
+            />
+            <SecondaryButton
+              onPress={openPatientPortal}
+              style={[styles.inlineButton, styles.inlineButtonRight]}
+              title="Open Patient Portal"
+            />
+          </View>
+        </View>
+      ) : (
+        <>
 
       {!embedded ? (
         <View style={styles.stepPanel}>
@@ -3970,10 +4726,28 @@ export function VoiceExperience({
         </View>
       )}
 
-        <View style={styles.questionCard}>
+      <View style={styles.questionCard}>
         <Text style={styles.questionKicker}>{janetCopy.currentQuestion}</Text>
         <Text style={styles.questionText}>{currentQuestionText}</Text>
       </View>
+
+      {shouldShowReviewCards ? (
+        <View style={styles.reviewSectionsWrap}>
+          {reviewDisplaySections.map((section) => (
+            <View key={section.title} style={styles.reviewSectionCard}>
+              <Text style={styles.reviewSectionTitle}>{section.title}</Text>
+              <View style={styles.reviewRows}>
+                {section.rows.map((row) => (
+                  <View key={`${section.title}:${row.label}`} style={styles.reviewRow}>
+                    <Text style={styles.reviewLabel}>{row.label}</Text>
+                    <Text style={styles.reviewValue}>{row.value}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          ))}
+        </View>
+      ) : null}
 
       {canOfferIdScan || canOfferInsuranceScan ? (
         <View style={styles.scanAssistCard}>
@@ -4181,11 +4955,15 @@ export function VoiceExperience({
         </View>
       ) : shouldShowConfirmationActions ? (
         <View style={styles.confirmationCard}>
-          <Text style={styles.confirmationTitle}>Confirm this answer</Text>
-          <Text style={styles.confirmationSubtitle}>
-            Janet is waiting for a quick yes or no before moving on.
+          <Text style={styles.confirmationTitle}>
+            {janetStep === 'review' ? 'Ready to submit?' : 'Confirm this answer'}
           </Text>
-          {confirmationTranscript ? (
+          <Text style={styles.confirmationSubtitle}>
+            {janetStep === 'review'
+              ? "If everything looks correct, say 'yes' or tap Submit. If something needs changes, say 'edit'."
+              : 'Janet is waiting for a quick yes or no before moving on.'}
+          </Text>
+          {confirmationTranscript && janetStep !== 'review' ? (
             <View style={styles.confirmationTranscriptWrap}>
               <Text style={styles.confirmationTranscriptLabel}>Current answer</Text>
               <Text style={styles.confirmationTranscriptText}>
@@ -4209,7 +4987,7 @@ export function VoiceExperience({
                 void handleJanetTurn('yes', 1, 'normal');
               }}
               style={[styles.inlineButton, styles.inlineButtonLeft]}
-              title="Yes, that's right"
+              title={janetStep === 'review' ? 'Submit' : "Yes, that's right"}
             />
             <SecondaryButton
               disabled={isProcessing}
@@ -4223,7 +5001,7 @@ export function VoiceExperience({
         </View>
       ) : null}
 
-      {!shouldShowConfirmationActions && state.voice.handoff ? (
+      {!shouldShowConfirmationActions && !shouldShowReviewCards && state.voice.handoff ? (
         <View style={styles.previewCard}>
           <Text style={styles.previewCardTitle}>Structured intake preview</Text>
           <Text style={styles.previewCardSubtitle}>
@@ -4346,6 +5124,8 @@ export function VoiceExperience({
             />
           </View>
           ) : null}
+        </>
+      )}
         </>
       )}
     </>
@@ -4482,6 +5262,26 @@ const styles = StyleSheet.create({
     color: colors.primaryDeep,
     fontWeight: '700',
     marginBottom: spacing.md,
+  },
+  nextStepsCard: {
+    backgroundColor: colors.surfaceSoft,
+    borderColor: colors.divider,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginTop: spacing.md,
+    padding: spacing.sm,
+    width: '100%',
+  },
+  nextStepsText: {
+    ...typography.label,
+    color: colors.textSecondary,
+    lineHeight: 22,
+    marginTop: 6,
+  },
+  nextStepsTitle: {
+    ...typography.label,
+    color: colors.textPrimary,
+    fontWeight: '800',
   },
   hero: {
     alignItems: 'center',
@@ -4671,6 +5471,52 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     fontWeight: '600',
   },
+  reviewLabel: {
+    ...typography.caption,
+    color: colors.textTertiary,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  reviewRow: {
+    borderTopColor: colors.divider,
+    borderTopWidth: 1,
+    paddingVertical: spacing.xs + 2,
+  },
+  reviewRows: {
+    marginTop: spacing.xs,
+  },
+  reviewSectionCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: spacing.sm,
+    shadowColor: colors.shadow,
+    shadowOffset: {
+      width: 0,
+      height: 6,
+    },
+    shadowOpacity: 0.05,
+    shadowRadius: 14,
+  },
+  reviewSectionsWrap: {
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  reviewSectionTitle: {
+    ...typography.label,
+    color: colors.textPrimary,
+    fontWeight: '800',
+    marginBottom: spacing.xs,
+  },
+  reviewValue: {
+    ...typography.body,
+    color: colors.textPrimary,
+    fontWeight: '600',
+    lineHeight: 23,
+    marginTop: 4,
+  },
   primaryActionButton: {
     marginTop: spacing.sm,
     minHeight: 48,
@@ -4773,6 +5619,45 @@ const styles = StyleSheet.create({
   },
   skipButton: {
     flex: 1,
+  },
+  successCard: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 24,
+    borderWidth: 1,
+    marginTop: spacing.md,
+    padding: spacing.md,
+    shadowColor: colors.shadow,
+    shadowOffset: {
+      width: 0,
+      height: 12,
+    },
+    shadowOpacity: 0.08,
+    shadowRadius: 20,
+    width: '100%',
+  },
+  successIconWrap: {
+    alignItems: 'center',
+    backgroundColor: colors.primaryDeep,
+    borderRadius: 999,
+    height: 58,
+    justifyContent: 'center',
+    marginBottom: spacing.sm,
+    width: 58,
+  },
+  successMessage: {
+    ...typography.body,
+    color: colors.textSecondary,
+    lineHeight: 24,
+    marginTop: spacing.xs,
+    textAlign: 'center',
+  },
+  successTitle: {
+    ...typography.sectionTitle,
+    color: colors.textPrimary,
+    fontSize: 24,
+    textAlign: 'center',
   },
   stepKicker: {
     ...typography.caption,

@@ -2,9 +2,9 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { InfoCard } from '../../components/InfoCard';
-import { SecondaryButton } from '../../components/SecondaryButton';
 import {
   buildPastMedicalHistoryEntries,
+  buildMedicalInfoImmunizationEntries,
   formatMedicationAllergySummary,
   getReviewReadiness,
   type IntakeFormData,
@@ -23,7 +23,7 @@ type ReviewScreenProps = {
 };
 
 function valueOrFallback(value: string) {
-  return value.trim().length > 0 ? value : 'Not provided yet';
+  return value.trim().length > 0 ? value : 'Not provided';
 }
 
 function formatGender(value: string) {
@@ -43,15 +43,36 @@ function formatGender(value: string) {
 function formatName(firstName: string, lastName: string) {
   const fullName = `${firstName} ${lastName}`.trim();
 
-  return fullName.length > 0 ? fullName : 'Not provided yet';
+  return fullName.length > 0 ? fullName : 'Not provided';
 }
 
 function formatSelectionList(values: string[]) {
   if (values.length === 0) {
-    return 'Not provided yet';
+    return 'Not provided';
   }
 
-  return values.join(', ');
+  const realValues = values.filter(
+    (value) =>
+      value !== 'None known' &&
+      value !== 'None of the above' &&
+      value !== 'Unknown / Unsure' &&
+      value !== 'Unsure' &&
+      value !== 'Unsure of immunization history',
+  );
+
+  if (realValues.length > 0) {
+    return realValues.join(', ');
+  }
+
+  if (
+    values.some((value) =>
+      ['Unknown / Unsure', 'Unsure', 'Unsure of immunization history'].includes(value),
+    )
+  ) {
+    return 'Unknown';
+  }
+
+  return 'None';
 }
 
 function formatHeight(heightFt: string, heightIn: string) {
@@ -59,7 +80,7 @@ function formatHeight(heightFt: string, heightIn: string) {
   const inches = heightIn.trim();
 
   if (!feet && !inches) {
-    return 'Not provided yet';
+    return 'Not provided';
   }
 
   if (!feet) {
@@ -77,7 +98,6 @@ export function ReviewScreen({
   form,
   hasGovernmentIdUpload,
   hasInsuranceUpload,
-  onEditStep,
   onToggleReviewConfirmed,
   reviewConfirmed,
 }: ReviewScreenProps) {
@@ -88,6 +108,7 @@ export function ReviewScreen({
     hasInsuranceUpload,
   });
   const pastMedicalHistory = buildPastMedicalHistoryEntries(form);
+  const immunizations = buildMedicalInfoImmunizationEntries(form);
 
   const sections = [
     {
@@ -107,13 +128,11 @@ export function ReviewScreen({
       ],
     },
     {
-      title: 'Medical Info',
-      actionLabel: 'Edit',
-      actionStep: 'symptoms' as const,
+      title: 'Allergies',
       items: [
         [
           'Medication Allergies',
-          formatMedicationAllergySummary(form, 'Not provided yet'),
+          formatMedicationAllergySummary(form, 'Not provided').replace('Unsure', 'Unknown').replace('None known', 'None'),
         ],
         [
           'Material / Contact Allergies',
@@ -124,21 +143,12 @@ export function ReviewScreen({
           'Environmental Allergies',
           formatSelectionList(form.allergyEnvironmentalSelections),
         ],
-        ['Medications', valueOrFallback(form.medications)],
-        ['Last dose', valueOrFallback(form.lastDose)],
-        ['Core Vaccines', formatSelectionList(form.immunizationCoreSelections)],
-        [
-          'Routine Adult Vaccines',
-          formatSelectionList(form.immunizationRoutineSelections),
-        ],
-        [
-          'Travel / Risk-Based Vaccines',
-          formatSelectionList(form.immunizationTravelSelections),
-        ],
-        ['Reason for visit', valueOrFallback(form.chiefConcern)],
-        ['Duration', valueOrFallback(form.symptomDuration)],
-        ['Severity', valueOrFallback(form.painLevel)],
-        ['Symptom notes', valueOrFallback(form.symptomNotes)],
+      ],
+    },
+    {
+      title: 'Medications',
+      items: [
+        ['Current Medications', valueOrFallback(form.medications)],
       ],
     },
     {
@@ -161,14 +171,43 @@ export function ReviewScreen({
       ],
     },
     {
-      title: 'Documents',
+      title: 'Immunizations',
       items: [
+        ['Core Vaccines', formatSelectionList(form.immunizationCoreSelections)],
+        [
+          'Routine Adult Vaccines',
+          formatSelectionList(form.immunizationRoutineSelections),
+        ],
+        [
+          'Travel / Risk-Based Vaccines',
+          formatSelectionList(form.immunizationTravelSelections),
+        ],
+        [
+          'Unknown / Unsure',
+          immunizations.length > 0
+            ? formatSelectionList(form.immunizationUnknownSelections)
+            : 'Not provided',
+        ],
+      ],
+    },
+    {
+      title: 'Visit Details',
+      items: [
+        ['Reason for visit', valueOrFallback(form.chiefConcern)],
+        ['Duration', valueOrFallback(form.symptomDuration)],
+        ['Severity', valueOrFallback(form.painLevel)],
+        ['Symptom notes', valueOrFallback(form.symptomNotes)],
+      ],
+    },
+    {
+      title: 'Documents / Insurance',
+      items: [
+        ['Photo ID', hasGovernmentIdUpload ? 'Added' : 'Not provided'],
+        ['Insurance Card', hasInsuranceUpload ? 'Added' : 'Not provided'],
         ['Insurance provider', valueOrFallback(form.insuranceProvider)],
         ['Member ID', valueOrFallback(form.memberId)],
         ['Group number', valueOrFallback(form.groupNumber)],
         ['Subscriber name', valueOrFallback(form.subscriberName)],
-        ['Insurance Card', hasInsuranceUpload ? 'Added' : 'Not added'],
-        ['Photo ID', hasGovernmentIdUpload ? 'Added' : 'Not added'],
       ],
     },
   ] as const;
@@ -197,13 +236,6 @@ export function ReviewScreen({
           >
             <View style={styles.summaryHeader}>
               <Text style={styles.summaryTitle}>{section.title}</Text>
-              {'actionStep' in section ? (
-                <SecondaryButton
-                  onPress={() => onEditStep?.(section.actionStep)}
-                  style={styles.editButton}
-                  title={section.actionLabel}
-                />
-              ) : null}
             </View>
             <View style={styles.summaryList}>
               {section.items.map(([label, value]) => (

@@ -87,8 +87,6 @@ function buildFieldPrompt(field: keyof IntakeFormData) {
       return 'What medications are being taken right now?';
     case 'medicalConditions':
       return 'Any additional history notes staff should know for this visit?';
-    case 'lastDose':
-      return 'When was the last dose taken?';
     case 'allergyReaction':
       return 'What reaction happens with that allergy?';
     case 'allergyNotes':

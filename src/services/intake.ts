@@ -30,7 +30,6 @@ export type IntakeFormData = {
   symptomNotes: string;
   medications: string;
   pharmacy: string;
-  lastDose: string;
   medicalConditions: string;
   immunizations: string;
   medicalInfoHydrated: boolean;
@@ -73,8 +72,8 @@ export const intakeFlowSteps = [
   },
   {
     key: 'symptoms',
-    title: 'Medical Info',
-    subtitle: 'Add the health details that matter for today.',
+    title: 'Medical Intake',
+    subtitle: 'Add allergies, medications, and visit details.',
   },
   {
     key: 'pastMedicalHistory',
@@ -83,8 +82,8 @@ export const intakeFlowSteps = [
   },
   {
     key: 'documents',
-    title: 'Add Documents',
-    subtitle: 'Upload documents now or skip and finish check-in.',
+    title: 'Documents / Insurance',
+    subtitle: 'Upload documents and add insurance details.',
   },
   {
     key: 'review',
@@ -117,10 +116,6 @@ export const janetStepFieldOrder = {
     'allergyFoodSelections',
     'allergyEnvironmentalSelections',
     'medications',
-    'lastDose',
-    'immunizationCoreSelections',
-    'immunizationRoutineSelections',
-    'immunizationTravelSelections',
     'chiefConcern',
     'symptomDuration',
     'painLevel',
@@ -130,6 +125,10 @@ export const janetStepFieldOrder = {
     'pastMedicalHistoryChronicConditions',
     'pastMedicalHistorySurgicalHistory',
     'pastMedicalHistoryOtherRelevantHistory',
+    'immunizationCoreSelections',
+    'immunizationRoutineSelections',
+    'immunizationTravelSelections',
+    'immunizationUnknownSelections',
   ],
   documents: [
     'insuranceProvider',
@@ -331,30 +330,21 @@ const JANET_FIELD_METADATA = {
     },
     title: 'Medications',
   },
-  lastDose: {
-    hints: ['last dose', 'last time taken', 'today', 'yesterday'],
-    label: 'last dose',
-    prompt: {
-      en: 'When was your last dose, like today at 8 a.m. or last night?',
-      es: '¿Cuándo fue tu última dosis, como hoy a las 8 a. m. o anoche?',
-    },
-    title: 'Last Dose',
-  },
   immunizationCoreSelections: {
-    hints: ['core vaccines', 'immunizations', 'flu shot', 'covid vaccine', 'none', 'unsure'],
+    hints: ['core vaccines', 'tetanus', 'tdap', 'mmr', 'hepatitis', 'hpv', 'none', 'unsure'],
     label: 'core vaccines',
     prompt: {
-      en: 'Which core vaccines should we note, like flu or COVID? You can say none or unsure.',
-      es: '¿Qué vacunas principales debemos registrar, como la gripe o COVID? Puedes decir ninguna o no estoy seguro.',
+      en: 'Which core vaccines should we note, like tetanus, MMR, hepatitis, or HPV? You can say none or unsure.',
+      es: '¿Qué vacunas principales debemos registrar, como tétanos, MMR, hepatitis o HPV? Puedes decir ninguna o no estoy seguro.',
     },
     title: 'Core Vaccines',
   },
   immunizationRoutineSelections: {
-    hints: ['routine adult vaccines', 'tetanus', 'shingles', 'pneumonia', 'none', 'unsure'],
+    hints: ['routine adult vaccines', 'flu shot', 'covid vaccine', 'shingles', 'pneumonia', 'none', 'unsure'],
     label: 'routine adult vaccines',
     prompt: {
-      en: 'Which routine adult vaccines should we note, like tetanus or shingles? You can say none or unsure.',
-      es: '¿Qué vacunas rutinarias para adultos debemos registrar, como tétanos o herpes zóster? Puedes decir ninguna o no estoy seguro.',
+      en: 'Which routine adult vaccines should we note, like flu, COVID, pneumococcal, or shingles? You can say none or unsure.',
+      es: '¿Qué vacunas rutinarias para adultos debemos registrar, como gripe, COVID, neumococo o herpes zóster? Puedes decir ninguna o no estoy seguro.',
     },
     title: 'Routine Adult Vaccines',
   },
@@ -366,6 +356,15 @@ const JANET_FIELD_METADATA = {
       es: '¿Qué vacunas de viaje o basadas en riesgo debemos registrar, como fiebre amarilla o hepatitis? Puedes decir ninguna o no estoy seguro.',
     },
     title: 'Travel / Risk-Based Vaccines',
+  },
+  immunizationUnknownSelections: {
+    hints: ['unknown immunizations', 'unsure', 'not sure', 'no records'],
+    label: 'unknown or unsure immunization history',
+    prompt: {
+      en: 'If you are unsure about immunizations or have no records, say unsure or no records. Otherwise say skip.',
+      es: 'Si no estás seguro de tus vacunas o no tienes registros, di no estoy seguro o sin registros. De lo contrario, di omitir.',
+    },
+    title: 'Unknown / Unsure',
   },
   chiefConcern: {
     hints: ['reason for visit', 'chief concern', 'symptoms'],
@@ -614,7 +613,8 @@ export function matchMedicalInfoSelectionsForField(
     | 'allergyEnvironmentalSelections'
     | 'immunizationCoreSelections'
     | 'immunizationRoutineSelections'
-    | 'immunizationTravelSelections',
+    | 'immunizationTravelSelections'
+    | 'immunizationUnknownSelections',
   transcript: string,
 ) {
   const optionKey =
@@ -630,7 +630,9 @@ export function matchMedicalInfoSelectionsForField(
               ? 'immunizationCore'
               : field === 'immunizationRoutineSelections'
                 ? 'immunizationRoutine'
-                : 'immunizationTravel';
+                : field === 'immunizationTravelSelections'
+                  ? 'immunizationTravel'
+                  : 'immunizationUnknown';
   const options = medicalInfoCategoryOptions[optionKey];
   const aliasesByOption =
     optionKey.startsWith('allergy')
@@ -817,25 +819,22 @@ export const medicalInfoCategoryOptions = {
   allergyMaterial: MEDICAL_INFO_ALLERGY_OPTIONS.material,
   allergyMedication: MEDICAL_INFO_ALLERGY_OPTIONS.medication,
   immunizationCore: [
-    'None known',
-    'Influenza (yearly)',
-    'COVID-19 vaccine',
-    'Tetanus / Tdap (within 10 years)',
-    'MMR (Measles, Mumps, Rubella)',
-    'Varicella (Chickenpox)',
+    'Tetanus / Tdap',
+    'MMR',
+    'Varicella',
     'Polio (IPV)',
     'Hepatitis B',
     'Hepatitis A',
-    'HPV (Gardasil)',
-    'Meningococcal ACWY (MenACWY)',
-    'Meningococcal B (MenB)',
+    'HPV',
+    'None known',
     'Unsure',
   ],
   immunizationRoutine: [
-    'None known',
+    'Influenza (yearly)',
+    'COVID-19 vaccine',
     'Pneumococcal',
-    'Shingles',
-    'Shingrix - age 50+',
+    'Shingles / Shingrix',
+    'None known',
     'Unsure',
   ],
   immunizationTravel: [
@@ -855,20 +854,17 @@ export const medicalInfoCategoryOptions = {
 
 const MEDICAL_INFO_IMMUNIZATION_ALIASES: Record<string, string[]> = {
   'None known': ['none', 'no', 'none known', 'none of them'],
-  'Tetanus / Tdap (within 10 years)': ['tetanus', 'tdap', 'tetanus tdap'],
-  'MMR (Measles, Mumps, Rubella)': ['mmr', 'measles mumps rubella'],
-  'Varicella (Chickenpox)': ['varicella', 'chickenpox', 'chicken pox'],
+  'Tetanus / Tdap': ['tetanus', 'tdap', 'tetanus tdap', 'tetanus tdap within 10 years'],
+  MMR: ['mmr', 'measles mumps rubella'],
+  Varicella: ['varicella', 'chickenpox', 'chicken pox'],
   'Polio (IPV)': ['polio', 'ipv'],
   'Hepatitis B': ['hepatitis b', 'hep b'],
   'Hepatitis A': ['hepatitis a', 'hep a'],
-  'HPV (Gardasil)': ['hpv', 'gardasil'],
-  'Meningococcal ACWY (MenACWY)': ['meningococcal acwy', 'menacwy'],
-  'Meningococcal B (MenB)': ['meningococcal b', 'menb'],
+  HPV: ['hpv', 'gardasil'],
   'Influenza (yearly)': ['influenza', 'flu', 'flu shot'],
   'COVID-19 vaccine': ['covid', 'covid 19', 'covid vaccine'],
   Pneumococcal: ['pneumococcal', 'pneumonia shot'],
-  Shingles: ['shingles'],
-  'Shingrix - age 50+': ['shingrix'],
+  'Shingles / Shingrix': ['shingles', 'shingrix'],
   Typhoid: ['typhoid'],
   'Yellow Fever': ['yellow fever'],
   'Japanese Encephalitis': ['japanese encephalitis'],
@@ -1453,7 +1449,7 @@ export function reconcilePastMedicalHistoryForm(
 
 export function formatPastMedicalHistorySummary(
   items: string[],
-  emptyLabel = 'None selected',
+  emptyLabel = 'Not provided',
 ) {
   return items.length > 0 ? items.join(', ') : emptyLabel;
 }
@@ -1598,7 +1594,7 @@ export function getMedicationAllergyStatusLabel(status: string) {
   }
 
   if (normalized === 'unsure') {
-    return 'Unsure';
+    return 'Unknown';
   }
 
   return '';
@@ -1606,7 +1602,7 @@ export function getMedicationAllergyStatusLabel(status: string) {
 
 export function formatMedicationAllergySummary(
   form: Pick<IntakeFormData, 'allergyMedicationSelections' | 'allergyMedicationStatus'>,
-  emptyLabel = 'No selections yet',
+  emptyLabel = 'Not provided',
 ) {
   if (form.allergyMedicationSelections.length > 0) {
     return formatCompactSelectionSummary(form.allergyMedicationSelections, emptyLabel);
@@ -1645,7 +1641,7 @@ export function buildMedicalInfoImmunizationEntries(form: MedicalInfoForm) {
 
 export function formatCompactSelectionSummary(
   items: string[],
-  emptyLabel = 'No selections yet',
+  emptyLabel = 'Not provided',
 ) {
   if (items.length === 0) {
     return emptyLabel;
@@ -1660,7 +1656,7 @@ export function formatCompactSelectionSummary(
 
 export function formatCompactTextSummary(
   value: string,
-  emptyLabel = 'No selections yet',
+  emptyLabel = 'Not provided',
 ) {
   const normalized = value.trim().replace(/\s+/g, ' ');
 
@@ -2119,7 +2115,6 @@ export function createInitialIntakeForm(): IntakeFormData {
     symptomNotes: '',
     medications: '',
     pharmacy: '',
-    lastDose: '',
     medicalConditions: '',
     immunizations: '',
     medicalInfoHydrated: false,
@@ -2218,6 +2213,54 @@ export type IntakeSubmitPayload = {
   source?: string;
   uploads?: Partial<Record<UploadDocumentType, string | null>>;
   visitId?: number | null;
+};
+
+export type CanonicalMobileIntakePayload = {
+  allergies: {
+    environmental: string[];
+    food: string[];
+    material: string[];
+    medication: string[];
+  };
+  documents: {
+    group_number: string;
+    insurance_card: string | null;
+    member_id: string;
+    photo_id: string | null;
+    provider: string;
+    subscriber: string;
+  };
+  history: {
+    chronic: string[];
+    other: string[];
+    surgical: string[];
+  };
+  immunizations: {
+    core: string[];
+    routine: string[];
+    travel: string[];
+    unknown: string | null;
+  };
+  medications: string[];
+  patient_info: {
+    date_of_birth: string;
+    email: string;
+    emergency_contact_name: string;
+    emergency_contact_phone: string;
+    first_name: string;
+    gender: string;
+    height_ft: string;
+    height_in: string;
+    last_name: string;
+    phone_number: string;
+    weight_lb: string;
+  };
+  visit: {
+    duration: string;
+    notes: string;
+    reason: string;
+    severity: string;
+  };
 };
 
 export type IntakeSubmitResponse = {
@@ -2347,11 +2390,101 @@ function normalizeSubmitResponse(raw: unknown): IntakeSubmitResponse {
   };
 }
 
-function toRemoteDraftPayload(payload: IntakeDraftPayload) {
+function splitListText(value: string) {
+  return value
+    .split(/[\n,;]+/)
+    .map((entry) => entry.trim().replace(/\s+/g, ' '))
+    .filter(Boolean);
+}
+
+function withoutStatusSelections(values: string[]) {
+  return values.filter(
+    (value) =>
+      value !== 'None known' &&
+      value !== 'Unknown / Unsure' &&
+      value !== 'Unsure' &&
+      value !== 'Unsure of immunization history' &&
+      value !== 'No records available',
+  );
+}
+
+export function buildCanonicalMobileIntakePayload(
+  form: IntakeFormData,
+  uploads: Partial<Record<UploadDocumentType, string | null>> = {},
+): CanonicalMobileIntakePayload {
+  const serializedForm = serializeIntakeForm(form);
+  const history = buildPastMedicalHistoryEntries(serializedForm);
+
   return {
+    patient_info: {
+      first_name: serializedForm.firstName,
+      last_name: serializedForm.lastName,
+      date_of_birth: serializedForm.dateOfBirth,
+      gender: serializedForm.gender,
+      height_ft: serializedForm.heightFt,
+      height_in: serializedForm.heightIn,
+      weight_lb: serializedForm.weightLb,
+      phone_number: serializedForm.phoneNumber,
+      email: serializedForm.email,
+      emergency_contact_name: serializedForm.emergencyContactName,
+      emergency_contact_phone: serializedForm.emergencyContactPhone,
+    },
+    allergies: {
+      medication: withoutStatusSelections(serializedForm.allergyMedicationSelections),
+      material: withoutStatusSelections(serializedForm.allergyMaterialSelections),
+      food: withoutStatusSelections(serializedForm.allergyFoodSelections),
+      environmental: withoutStatusSelections(serializedForm.allergyEnvironmentalSelections),
+    },
+    medications: splitListText(serializedForm.medications),
+    history: {
+      chronic: withoutStatusSelections(history.chronic),
+      surgical: withoutStatusSelections(history.surgical),
+      other: withoutStatusSelections(history.otherRelevant),
+    },
+    immunizations: {
+      core: withoutStatusSelections(serializedForm.immunizationCoreSelections),
+      routine: withoutStatusSelections(serializedForm.immunizationRoutineSelections),
+      travel: withoutStatusSelections(serializedForm.immunizationTravelSelections),
+      unknown:
+        serializedForm.immunizationUnknownSelections.length > 0 ||
+        [
+          ...serializedForm.immunizationCoreSelections,
+          ...serializedForm.immunizationRoutineSelections,
+          ...serializedForm.immunizationTravelSelections,
+        ].some((value) => value === 'Unsure')
+          ? 'Unknown'
+          : null,
+    },
+    visit: {
+      reason: serializedForm.chiefConcern,
+      duration: serializedForm.symptomDuration,
+      severity: serializedForm.painLevel,
+      notes: serializedForm.symptomNotes,
+    },
+    documents: {
+      photo_id: uploads.id ?? null,
+      insurance_card: uploads.insurance ?? null,
+      provider: serializedForm.insuranceProvider,
+      member_id: serializedForm.memberId,
+      group_number: serializedForm.groupNumber,
+      subscriber: serializedForm.subscriberName,
+    },
+  };
+}
+
+function toRemoteDraftPayload(payload: IntakeDraftPayload) {
+  const canonicalPayload = buildCanonicalMobileIntakePayload(
+    payload.form,
+    payload.uploads,
+  );
+
+  return {
+    ...canonicalPayload,
+    canonical_payload: canonicalPayload,
     current_step: payload.currentStep,
     draft_id: payload.draftId ?? null,
     form: serializeIntakeForm(payload.form),
+    intake_payload: canonicalPayload,
     janet_handoff: payload.janetHandoff ?? null,
     patient_id: payload.patientId ?? null,
     returning_patient: payload.returningPatient ?? null,
@@ -2362,9 +2495,17 @@ function toRemoteDraftPayload(payload: IntakeDraftPayload) {
 }
 
 function toSubmitPayload(payload: IntakeSubmitPayload) {
+  const canonicalPayload = buildCanonicalMobileIntakePayload(
+    payload.form,
+    payload.uploads,
+  );
+
   return {
+    ...canonicalPayload,
+    canonical_payload: canonicalPayload,
     draft_id: payload.draftId ?? null,
     form: serializeIntakeForm(payload.form),
+    intake_payload: canonicalPayload,
     janet_handoff: payload.janetHandoff ?? null,
     patient_id: payload.patientId ?? null,
     returning_patient: payload.returningPatient ?? null,

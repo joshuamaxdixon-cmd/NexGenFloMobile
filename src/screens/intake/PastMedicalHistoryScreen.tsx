@@ -5,7 +5,9 @@ import { InfoCard } from '../../components/InfoCard';
 import { InputField } from '../../components/InputField';
 import { SearchableCheckboxAccordionSection } from '../../components/SearchableCheckboxAccordionSection';
 import {
+  buildMedicalInfoImmunizationEntries,
   hydratePastMedicalHistoryFromLegacy,
+  medicalInfoCategoryOptions,
   PAST_MEDICAL_HISTORY_NONE_OF_ABOVE,
   PAST_MEDICAL_HISTORY_OTHER_MENTAL_HEALTH,
   PAST_MEDICAL_HISTORY_OTHER_SURGERY,
@@ -15,6 +17,10 @@ import type { IntakeStepComponentProps } from './types';
 
 type PastMedicalHistorySectionKey =
   | 'chronicConditions'
+  | 'immunizationCore'
+  | 'immunizationRoutine'
+  | 'immunizationTravel'
+  | 'immunizationUnknown'
   | 'otherRelevantHistory'
   | 'surgicalHistory';
 
@@ -56,6 +62,10 @@ export function PastMedicalHistoryScreen({
     Record<PastMedicalHistorySectionKey, string>
   >({
     chronicConditions: '',
+    immunizationCore: '',
+    immunizationRoutine: '',
+    immunizationTravel: '',
+    immunizationUnknown: '',
     otherRelevantHistory: '',
     surgicalHistory: '',
   });
@@ -176,6 +186,118 @@ export function PastMedicalHistoryScreen({
       ...current,
       [section]: value,
     }));
+  };
+
+  const applyImmunizationSelections = (
+    updates: Pick<
+      IntakeStepComponentProps['form'],
+      | 'immunizationCoreSelections'
+      | 'immunizationRoutineSelections'
+      | 'immunizationTravelSelections'
+      | 'immunizationUnknownSelections'
+    >,
+  ) => {
+    const nextForm = {
+      ...form,
+      ...updates,
+    };
+
+    onChange('immunizationCoreSelections', updates.immunizationCoreSelections);
+    onChange('immunizationRoutineSelections', updates.immunizationRoutineSelections);
+    onChange('immunizationTravelSelections', updates.immunizationTravelSelections);
+    onChange('immunizationUnknownSelections', updates.immunizationUnknownSelections);
+    onChange('immunizations', buildMedicalInfoImmunizationEntries(nextForm).join(', '));
+    onChange('medicalInfoHydrated', true);
+  };
+
+  const toggleImmunizationSelection = (
+    field:
+      | 'immunizationCoreSelections'
+      | 'immunizationRoutineSelections'
+      | 'immunizationTravelSelections'
+      | 'immunizationUnknownSelections',
+    value: string,
+  ) => {
+    const currentValues = form[field];
+    const nextValues = currentValues.includes(value)
+      ? currentValues.filter((entry) => entry !== value)
+      : [...currentValues, value];
+
+    const baseValues = {
+      immunizationCoreSelections: form.immunizationCoreSelections,
+      immunizationRoutineSelections: form.immunizationRoutineSelections,
+      immunizationTravelSelections: form.immunizationTravelSelections,
+      immunizationUnknownSelections: form.immunizationUnknownSelections,
+    };
+
+    if (field === 'immunizationUnknownSelections') {
+      applyImmunizationSelections({
+        immunizationCoreSelections: nextValues.length > 0 ? [] : baseValues.immunizationCoreSelections,
+        immunizationRoutineSelections: nextValues.length > 0 ? [] : baseValues.immunizationRoutineSelections,
+        immunizationTravelSelections: nextValues.length > 0 ? [] : baseValues.immunizationTravelSelections,
+        immunizationUnknownSelections: nextValues,
+      });
+      return;
+    }
+
+    applyImmunizationSelections({
+      ...baseValues,
+      [field]: nextValues.filter(
+        (entry) => entry !== 'None known' && entry !== 'Unsure',
+      ),
+      immunizationUnknownSelections: [],
+    });
+  };
+
+  const addCustomImmunization = (
+    field:
+      | 'immunizationCoreSelections'
+      | 'immunizationRoutineSelections'
+      | 'immunizationTravelSelections',
+    searchKey: PastMedicalHistorySectionKey,
+    rawValue: string,
+  ) => {
+    const normalizedValue = normalizeSelectionLabel(rawValue);
+    if (!normalizedValue) {
+      return;
+    }
+
+    const optionKey =
+      field === 'immunizationCoreSelections'
+        ? 'immunizationCore'
+        : field === 'immunizationRoutineSelections'
+          ? 'immunizationRoutine'
+          : 'immunizationTravel';
+    const canonicalValue =
+      medicalInfoCategoryOptions[optionKey].find(
+        (option) => normalizeSelectionKey(option) === normalizeSelectionKey(normalizedValue),
+      ) ?? normalizedValue;
+
+    if (
+      form[field].some(
+        (entry) => normalizeSelectionKey(entry) === normalizeSelectionKey(canonicalValue),
+      )
+    ) {
+      setSectionSearch(searchKey, '');
+      return;
+    }
+
+    applyImmunizationSelections({
+      immunizationCoreSelections:
+        field === 'immunizationCoreSelections'
+          ? [...form.immunizationCoreSelections, canonicalValue]
+          : form.immunizationCoreSelections,
+      immunizationRoutineSelections:
+        field === 'immunizationRoutineSelections'
+          ? [...form.immunizationRoutineSelections, canonicalValue]
+          : form.immunizationRoutineSelections,
+      immunizationTravelSelections:
+        field === 'immunizationTravelSelections'
+          ? [...form.immunizationTravelSelections, canonicalValue]
+          : form.immunizationTravelSelections,
+      immunizationUnknownSelections: [],
+    });
+    setSectionSearch(searchKey, '');
   };
 
   const addCustomChronicCondition = (rawValue: string) => {
@@ -327,6 +449,79 @@ export function PastMedicalHistoryScreen({
           searchValue={searchValues.otherRelevantHistory}
           selectedValues={form.pastMedicalHistoryOtherRelevantHistory}
           title="Other Relevant History"
+        />
+
+        <SearchableCheckboxAccordionSection
+          isOpen={openSection === 'immunizationCore'}
+          onAddCustomValue={(value) =>
+            addCustomImmunization(
+              'immunizationCoreSelections',
+              'immunizationCore',
+              value,
+            )
+          }
+          onChangeSearch={(value) => setSectionSearch('immunizationCore', value)}
+          onToggleOpen={() => toggleSection('immunizationCore')}
+          onToggleValue={(value) =>
+            toggleImmunizationSelection('immunizationCoreSelections', value)
+          }
+          options={medicalInfoCategoryOptions.immunizationCore}
+          searchValue={searchValues.immunizationCore}
+          selectedValues={form.immunizationCoreSelections}
+          title="Core Vaccines"
+        />
+
+        <SearchableCheckboxAccordionSection
+          isOpen={openSection === 'immunizationRoutine'}
+          onAddCustomValue={(value) =>
+            addCustomImmunization(
+              'immunizationRoutineSelections',
+              'immunizationRoutine',
+              value,
+            )
+          }
+          onChangeSearch={(value) => setSectionSearch('immunizationRoutine', value)}
+          onToggleOpen={() => toggleSection('immunizationRoutine')}
+          onToggleValue={(value) =>
+            toggleImmunizationSelection('immunizationRoutineSelections', value)
+          }
+          options={medicalInfoCategoryOptions.immunizationRoutine}
+          searchValue={searchValues.immunizationRoutine}
+          selectedValues={form.immunizationRoutineSelections}
+          title="Routine Adult Vaccines"
+        />
+
+        <SearchableCheckboxAccordionSection
+          isOpen={openSection === 'immunizationTravel'}
+          onAddCustomValue={(value) =>
+            addCustomImmunization(
+              'immunizationTravelSelections',
+              'immunizationTravel',
+              value,
+            )
+          }
+          onChangeSearch={(value) => setSectionSearch('immunizationTravel', value)}
+          onToggleOpen={() => toggleSection('immunizationTravel')}
+          onToggleValue={(value) =>
+            toggleImmunizationSelection('immunizationTravelSelections', value)
+          }
+          options={medicalInfoCategoryOptions.immunizationTravel}
+          searchValue={searchValues.immunizationTravel}
+          selectedValues={form.immunizationTravelSelections}
+          title="Travel / Risk-Based Vaccines"
+        />
+
+        <SearchableCheckboxAccordionSection
+          isOpen={openSection === 'immunizationUnknown'}
+          onChangeSearch={(value) => setSectionSearch('immunizationUnknown', value)}
+          onToggleOpen={() => toggleSection('immunizationUnknown')}
+          onToggleValue={(value) =>
+            toggleImmunizationSelection('immunizationUnknownSelections', value)
+          }
+          options={medicalInfoCategoryOptions.immunizationUnknown}
+          searchValue={searchValues.immunizationUnknown}
+          selectedValues={form.immunizationUnknownSelections}
+          title="Unknown / Unsure"
         />
       </InfoCard>
     </View>

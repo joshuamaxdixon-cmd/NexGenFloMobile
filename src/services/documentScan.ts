@@ -45,7 +45,6 @@ const ALLOWED_FIELDS = [
   'symptomNotes',
   'medications',
   'pharmacy',
-  'lastDose',
   'medicalConditions',
   'allergies',
   'allergyReaction',

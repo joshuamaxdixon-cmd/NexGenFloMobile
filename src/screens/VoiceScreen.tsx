@@ -238,7 +238,6 @@ const EMPTY_MEDICAL_AND_PMH_PREFILL: Partial<IntakeFormData> = {
   immunizationRoutineSelections: [],
   immunizationTravelSelections: [],
   immunizationUnknownSelections: [],
-  lastDose: '',
   medicalConditions: '',
   medicalInfoHydrated: false,
   medications: '',
@@ -402,12 +401,20 @@ function buildPreviewRows(
     return [
       ['Allergies', buildMedicalInfoAllergyEntries(form).join(', ')],
       ['Medications', form.medications],
-      ['Last dose', form.lastDose],
-      ['Immunizations', buildMedicalInfoImmunizationEntries(form).join(', ')],
       ['Chief concern', form.chiefConcern],
       ['Duration', form.symptomDuration],
       ['Severity', form.painLevel],
       ['Symptom notes', form.symptomNotes],
+    ] as const;
+  }
+
+  if (step === 'pastMedicalHistory') {
+    const pmh = buildPastMedicalHistoryEntries(form);
+    return [
+      ['Chronic conditions', pmh.chronic.join(', ')],
+      ['Surgical history', pmh.surgical.join(', ')],
+      ['Other relevant history', pmh.otherRelevant.join(', ')],
+      ['Immunizations', buildMedicalInfoImmunizationEntries(form).join(', ')],
     ] as const;
   }
 
@@ -416,16 +423,6 @@ function buildPreviewRows(
       ['Insurance provider', form.insuranceProvider],
       ['Member ID', form.memberId],
       ['Subscriber', form.subscriberName],
-    ] as const;
-  }
-
-  if (step === 'pastMedicalHistory') {
-    const entries = buildPastMedicalHistoryEntries(form);
-
-    return [
-      ['Chronic conditions', entries.chronic.join(', ')],
-      ['Surgical history', entries.surgical.join(', ')],
-      ['Other relevant history', entries.otherRelevant.join(', ')],
     ] as const;
   }
 
@@ -912,6 +909,7 @@ const STRUCTURED_MEDICAL_INFO_FIELDS = [
   'immunizationCoreSelections',
   'immunizationRoutineSelections',
   'immunizationTravelSelections',
+  'immunizationUnknownSelections',
 ] as const;
 
 type StructuredMedicalInfoField = (typeof STRUCTURED_MEDICAL_INFO_FIELDS)[number];
@@ -936,7 +934,6 @@ const STRUCTURED_ALLERGY_FIELDS = [
 type StructuredAllergyField = (typeof STRUCTURED_ALLERGY_FIELDS)[number];
 const LOCAL_SYMPTOM_TEXT_FIELDS = [
   'medications',
-  'lastDose',
   'chiefConcern',
   'symptomDuration',
   'painLevel',
@@ -1030,18 +1027,24 @@ function parseStructuredMedicalInfoCapture(
       ? 'core vaccines'
       : field === 'immunizationRoutineSelections'
         ? 'routine adult vaccines'
-        : 'travel or risk-based vaccines';
+        : field === 'immunizationTravelSelections'
+          ? 'travel or risk-based vaccines'
+          : 'unknown or unsure immunization history';
   const isImmunizationField =
     field === 'immunizationCoreSelections' ||
     field === 'immunizationRoutineSelections' ||
-    field === 'immunizationTravelSelections';
+    field === 'immunizationTravelSelections' ||
+    field === 'immunizationUnknownSelections';
 
   if (isImmunizationField && transcriptMeansUnsure(normalizedTranscript)) {
     return {
       acknowledgementMessage: `I heard I don't know. I'll mark ${fieldLabel} as unsure.`,
       currentFieldAnswered: true,
       updates: {
-        [field]: ['Unsure'],
+        [field]:
+          field === 'immunizationUnknownSelections'
+            ? ['Unsure of immunization history']
+            : ['Unsure'],
         medicalInfoHydrated: true,
       } as Partial<IntakeFormData>,
       value: 'Unsure',
@@ -1316,21 +1319,6 @@ function parseLocalSymptomTextCapture(
     };
   }
 
-  if (field === 'lastDose') {
-    const value = formatSentenceCase(normalizedTranscript.replace(/[.,!?]+$/g, ''));
-    if (!value) {
-      return null;
-    }
-
-    return {
-      acknowledgementMessage: `I heard ${value}. I'll record that as your last dose timing.`,
-      updates: {
-        lastDose: value,
-      },
-      value,
-    };
-  }
-
   if (field === 'chiefConcern') {
     const value = formatSentenceCase(normalizedTranscript.replace(/[.,!?]+$/g, ''));
     if (!value) {
@@ -1593,7 +1581,7 @@ function formatReviewDisplayValue(
   }
 
   if (normalizedValues.some(isUnsureValue)) {
-    return 'Unsure';
+    return 'Unknown';
   }
 
   if (normalizedValues.some(isNoneValue)) {
@@ -1654,7 +1642,6 @@ function buildReviewDisplaySections(options: {
           ),
         },
         { label: 'Medications', value: formatReviewDisplayValue(form.medications) },
-        { label: 'Immunizations', value: formatReviewDisplayValue(immunizations) },
       ],
     },
     {
@@ -1666,13 +1653,14 @@ function buildReviewDisplaySections(options: {
           label: 'Other relevant history',
           value: formatReviewDisplayValue(pmh.otherRelevant),
         },
+        { label: 'Immunizations', value: formatReviewDisplayValue(immunizations) },
       ],
     },
     {
       title: 'Documents',
       rows: [
-        { label: 'Photo ID', value: hasGovernmentIdUpload ? 'Added' : 'Not added' },
-        { label: 'Insurance card', value: hasInsuranceUpload ? 'Added' : 'Not added' },
+        { label: 'Photo ID', value: hasGovernmentIdUpload ? 'Added' : 'Not provided' },
+        { label: 'Insurance card', value: hasInsuranceUpload ? 'Added' : 'Not provided' },
         {
           label: 'Insurance provider',
           value: formatReviewDisplayValue(form.insuranceProvider),

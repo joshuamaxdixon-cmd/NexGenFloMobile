@@ -603,7 +603,6 @@ function createFreshPatientIntakeForm(
       prefill?.immunizationTravelSelections ?? initial.immunizationTravelSelections,
     immunizationUnknownSelections:
       prefill?.immunizationUnknownSelections ?? initial.immunizationUnknownSelections,
-    lastDose: prefill?.lastDose ?? initial.lastDose,
     medicalConditions: prefill?.medicalConditions ?? initial.medicalConditions,
     medicalInfoHydrated: prefill?.medicalInfoHydrated ?? initial.medicalInfoHydrated,
     medications: prefill?.medications ?? initial.medications,

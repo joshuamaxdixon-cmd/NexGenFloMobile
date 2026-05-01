@@ -19,7 +19,6 @@ import { SearchableCheckboxPicker } from '../../components/SearchableCheckboxPic
 import {
   buildMedicalInfoAllergyEntries,
   buildMedicalInfoLegacyAllergyText,
-  buildMedicalInfoImmunizationEntries,
   formatCompactSelectionSummary,
   formatMedicationAllergySummary,
   formatCompactTextSummary,
@@ -33,16 +32,12 @@ type CheckboxEditorKey =
   | 'allergyEnvironmentalSelections'
   | 'allergyFoodSelections'
   | 'allergyMaterialSelections'
-  | 'allergyMedicationSelections'
-  | 'immunizationCoreSelections'
-  | 'immunizationRoutineSelections'
-  | 'immunizationTravelSelections';
+  | 'allergyMedicationSelections';
 
 type TextEditorKey =
   | 'allergyNotes'
   | 'allergyReaction'
   | 'chiefConcern'
-  | 'lastDose'
   | 'medications'
   | 'painLevel'
   | 'symptomDuration'
@@ -55,13 +50,9 @@ const checkboxEditorOrder: CheckboxEditorKey[] = [
   'allergyMaterialSelections',
   'allergyFoodSelections',
   'allergyEnvironmentalSelections',
-  'immunizationCoreSelections',
-  'immunizationRoutineSelections',
-  'immunizationTravelSelections',
 ];
 
 const searchEnabledEditors = new Set<CheckboxEditorKey>(checkboxEditorOrder);
-const immunizationStatusValues = ['None known', 'Unsure'] as const;
 const commonMedicationOptions = [
   'Aspirin',
   'Ibuprofen',
@@ -72,16 +63,6 @@ const commonMedicationOptions = [
   'Levothyroxine',
   'Atorvastatin',
 ] as const;
-const lastDoseQuickOptions = [
-  'Today',
-  'Yesterday',
-  'This morning',
-  'This afternoon',
-  'Last night',
-  'I do not know',
-  'Not taking now',
-] as const;
-
 const editorTitles: Record<MedicalInfoEditorKey, string> = {
   allergyEnvironmentalSelections: 'Environmental Allergies',
   allergyFoodSelections: 'Food Allergies',
@@ -90,10 +71,6 @@ const editorTitles: Record<MedicalInfoEditorKey, string> = {
   allergyNotes: 'Allergy Safety Notes',
   allergyReaction: 'Allergy Reaction Details',
   chiefConcern: 'Reason for Visit',
-  immunizationCoreSelections: 'Core Vaccines',
-  immunizationRoutineSelections: 'Routine Adult Vaccines',
-  immunizationTravelSelections: 'Travel / Risk-Based Vaccines',
-  lastDose: 'Last Dose',
   medications: 'Medications',
   painLevel: 'Severity',
   symptomDuration: 'Duration',
@@ -228,9 +205,6 @@ export function SymptomsScreen({
     allergyFoodSelections: '',
     allergyMaterialSelections: '',
     allergyMedicationSelections: '',
-    immunizationCoreSelections: '',
-    immunizationRoutineSelections: '',
-    immunizationTravelSelections: '',
   });
 
   const selectedAllergies = useMemo(
@@ -306,46 +280,6 @@ export function SymptomsScreen({
     });
   };
 
-  const updateImmunizationSelections = (
-    field: Extract<
-      CheckboxEditorKey,
-      | 'immunizationCoreSelections'
-      | 'immunizationRoutineSelections'
-      | 'immunizationTravelSelections'
-    >,
-    nextSelections: string[],
-  ) => {
-    const normalizedSelections = nextSelections.some((value) =>
-      immunizationStatusValues.includes(
-        value as (typeof immunizationStatusValues)[number],
-      ),
-    )
-      ? nextSelections.filter((value) =>
-          immunizationStatusValues.includes(
-            value as (typeof immunizationStatusValues)[number],
-          ),
-        )
-      : nextSelections.filter(
-          (value) =>
-            !immunizationStatusValues.includes(
-              value as (typeof immunizationStatusValues)[number],
-            ),
-        );
-    const nextForm: IntakeFormData = {
-      ...form,
-      [field]: normalizedSelections,
-    };
-
-    applyUpdates({
-      immunizationCoreSelections: nextForm.immunizationCoreSelections,
-      immunizationRoutineSelections: nextForm.immunizationRoutineSelections,
-      immunizationTravelSelections: nextForm.immunizationTravelSelections,
-      immunizationUnknownSelections: nextForm.immunizationUnknownSelections,
-      immunizations: buildMedicalInfoImmunizationEntries(nextForm).join(', '),
-      medicalInfoHydrated: true,
-    });
-  };
-
   const toggleSelection = (
     field: CheckboxEditorKey,
     value: string,
@@ -371,16 +305,6 @@ export function SymptomsScreen({
       );
       return;
     }
-
-    updateImmunizationSelections(
-      field as Extract<
-        CheckboxEditorKey,
-        | 'immunizationCoreSelections'
-        | 'immunizationRoutineSelections'
-        | 'immunizationTravelSelections'
-      >,
-      nextSelections,
-    );
   };
 
   const updateSearch = (field: CheckboxEditorKey, value: string) => {
@@ -443,16 +367,6 @@ export function SymptomsScreen({
           | 'allergyFoodSelections'
           | 'allergyMaterialSelections'
           | 'allergyMedicationSelections'
-        >,
-        nextSelections,
-      );
-    } else {
-      updateImmunizationSelections(
-        field as Extract<
-          CheckboxEditorKey,
-          | 'immunizationCoreSelections'
-          | 'immunizationRoutineSelections'
-          | 'immunizationTravelSelections'
         >,
         nextSelections,
       );
@@ -583,39 +497,6 @@ export function SymptomsScreen({
             </View>
           </EditorSheet>
         );
-      case 'lastDose':
-        return (
-          <EditorSheet
-            onClose={() => setActiveEditor(null)}
-            subtitle="Capture when the patient last took any current medication."
-            title={editorTitles.lastDose}
-            visible
-          >
-            {renderTextEditor('lastDose', {
-              optional: true,
-              placeholder: 'Example: Today, yesterday, this morning, last night',
-            })}
-            <View style={styles.editorGroup}>
-              <Text style={styles.quickPickLabel}>Quick choices</Text>
-              <View style={styles.quickPickWrap}>
-                {lastDoseQuickOptions.map((option) => (
-                  <Pressable
-                    key={option}
-                    onPress={() =>
-                      onChange('lastDose', option as IntakeFormData['lastDose'])
-                    }
-                    style={({ pressed }) => [
-                      styles.quickPickChip,
-                      pressed ? styles.quickPickChipPressed : null,
-                    ]}
-                  >
-                    <Text style={styles.quickPickChipLabel}>{option}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-          </EditorSheet>
-        );
       case 'chiefConcern':
         return (
           <EditorSheet
@@ -708,41 +589,11 @@ export function SymptomsScreen({
         </View>
 
         <View style={[styles.section, styles.sectionSpaced]}>
-          <Text style={styles.sectionTitle}>Current Medications & History</Text>
+          <Text style={styles.sectionTitle}>Current Medications</Text>
           <CompactSummaryRow
             onPress={() => setActiveEditor('medications')}
             summary={formatCompactTextSummary(form.medications)}
             title="Medications"
-          />
-          <CompactSummaryRow
-            onPress={() => setActiveEditor('lastDose')}
-            summary={formatCompactTextSummary(form.lastDose)}
-            title="Last Dose"
-          />
-        </View>
-
-        <View style={[styles.section, styles.sectionSpaced]}>
-          <Text style={styles.sectionTitle}>Immunizations</Text>
-          <CompactSummaryRow
-            onPress={() => setActiveEditor('immunizationCoreSelections')}
-            summary={formatCompactSelectionSummary(
-              form.immunizationCoreSelections,
-            )}
-            title="Core Vaccines"
-          />
-          <CompactSummaryRow
-            onPress={() => setActiveEditor('immunizationRoutineSelections')}
-            summary={formatCompactSelectionSummary(
-              form.immunizationRoutineSelections,
-            )}
-            title="Routine Adult Vaccines"
-          />
-          <CompactSummaryRow
-            onPress={() => setActiveEditor('immunizationTravelSelections')}
-            summary={formatCompactSelectionSummary(
-              form.immunizationTravelSelections,
-            )}
-            title="Travel / Risk-Based Vaccines"
           />
         </View>
 

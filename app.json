@@ -21,7 +21,7 @@
       "package": "com.nexgenhealth.nexgenflo",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#F7F4EF"
+        "backgroundColor": "#071A33"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,

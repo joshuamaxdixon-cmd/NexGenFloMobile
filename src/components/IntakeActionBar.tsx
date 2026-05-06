@@ -1,4 +1,5 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors, spacing, typography } from '../theme';
 import { PrimaryButton } from './PrimaryButton';
@@ -29,8 +30,9 @@ export function IntakeActionBar({
   onTertiaryPress,
   tertiaryDisabled = false,
 }: IntakeActionBarProps) {
+  const insets = useSafeAreaInsets();
   return (
-    <View style={styles.shell}>
+    <View style={[styles.shell, { paddingBottom: spacing.lg + insets.bottom }]}>
       <View style={styles.row}>
         {onBackPress ? (
           <SecondaryButton

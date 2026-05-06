@@ -13,12 +13,12 @@ export function JanetAssistantEntry({
 }: JanetAssistantEntryProps) {
   return (
     <JanetHelperCard
-      actionLabel="Use Janet instead"
+      actionLabel="Use Janet"
       avatarSize="sm"
       onPress={onPress}
       statusLabel="Ready"
       style={style}
-      subtitle="Continue this step with guided voice."
+      subtitle="Janet can guide this step by voice."
       title="Janet Assistant"
     />
   );

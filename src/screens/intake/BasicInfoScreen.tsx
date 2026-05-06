@@ -57,7 +57,7 @@ export function BasicInfoScreen({
             errorText={fieldErrors?.firstName}
             label="First Name"
             onChangeText={(value) => onChange('firstName', value)}
-            placeholder="Ava"
+            placeholder="Enter first name"
             value={form.firstName}
           />
           <InputField
@@ -65,7 +65,7 @@ export function BasicInfoScreen({
             errorText={fieldErrors?.lastName}
             label="Last Name"
             onChangeText={(value) => onChange('lastName', value)}
-            placeholder="Johnson"
+            placeholder="Enter last name"
             value={form.lastName}
           />
           <InputField
@@ -107,7 +107,7 @@ export function BasicInfoScreen({
             label="Weight (lb)"
             onChangeText={(value) => onChange('weightLb', value)}
             optional
-            placeholder="140"
+            placeholder="Enter weight"
             value={form.weightLb}
           />
 
@@ -135,7 +135,7 @@ export function BasicInfoScreen({
             keyboardType="phone-pad"
             label="Phone Number"
             onChangeText={(value) => onChange('phoneNumber', value)}
-            placeholder="555-555-5555"
+            placeholder="Enter phone number"
             value={form.phoneNumber}
           />
           <InputField
@@ -145,7 +145,7 @@ export function BasicInfoScreen({
             label="Email"
             onChangeText={(value) => onChange('email', value)}
             optional
-            placeholder="patient@example.com"
+            placeholder="Enter email address"
             value={form.email}
           />
 
@@ -157,7 +157,7 @@ export function BasicInfoScreen({
               label="Full Name"
               onChangeText={(value) => onChange('emergencyContactName', value)}
               optional
-              placeholder="Terry Cruise"
+              placeholder="Enter contact name"
               value={form.emergencyContactName}
             />
             <InputField
@@ -166,7 +166,7 @@ export function BasicInfoScreen({
               label="Phone Number"
               onChangeText={(value) => onChange('emergencyContactPhone', value)}
               optional
-              placeholder="555-555-1212"
+              placeholder="Enter contact phone"
               value={form.emergencyContactPhone}
             />
           </View>

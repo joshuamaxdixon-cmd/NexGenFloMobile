@@ -13,6 +13,9 @@
       "channel": "preview",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_NEXGEN_API_BASE_URL": "https://api.nexgenhealthapp.com/api"
       }
     }
   }

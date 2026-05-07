@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DevPreviewPanel } from '../components/DevPreviewPanel';
 import { DevQaPanel } from '../components/DevQaPanel';
@@ -126,6 +127,7 @@ function HomeActionCard({
 }
 
 export function HomeScreen({ navigation }: HomeScreenProps) {
+  const insets = useSafeAreaInsets();
   const {
     checkBackendHealth,
     clearBackendDebugState,
@@ -323,7 +325,7 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
   };
 
   return (
-    <ScreenContainer contentContainerStyle={styles.content}>
+    <ScreenContainer contentContainerStyle={[styles.content, { paddingBottom: spacing.xxl + insets.bottom }]}>
       <Pressable
         accessible={false}
         disabled={!__DEV__}

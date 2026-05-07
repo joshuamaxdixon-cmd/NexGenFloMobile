@@ -399,7 +399,7 @@ export function IntakeScreen() {
           primaryLoading={isSubmitting || (!isLastStep && isSaving)}
           primaryTitle={nextButtonTitle}
           tertiaryDisabled={isSubmitting || isSaving}
-          tertiaryTitle={isDocumentsStep ? 'Skip and finish' : undefined}
+          tertiaryTitle={isDocumentsStep ? 'Continue without documents' : undefined}
         />
       </>
     </ScreenContainer>

@@ -254,38 +254,6 @@ export function DocumentsScreen({
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Insurance Card (Optional)</Text>
-        <View style={styles.fieldsGroup}>
-          <InputField
-            errorText={fieldErrors?.insuranceProvider}
-            label="Insurance provider"
-            onChangeText={(value) => onChange('insuranceProvider', value)}
-            optional
-            placeholder="Blue Cross Blue Shield"
-            value={form.insuranceProvider}
-          />
-          <InputField
-            errorText={fieldErrors?.memberId}
-            label="Member ID"
-            onChangeText={(value) => onChange('memberId', value)}
-            optional
-            placeholder="XJH-449922"
-            value={form.memberId}
-          />
-          <InputField
-            label="Group number"
-            onChangeText={(value) => onChange('groupNumber', value)}
-            optional
-            placeholder="GRP-2024"
-            value={form.groupNumber}
-          />
-          <InputField
-            label="Subscriber name"
-            onChangeText={(value) => onChange('subscriberName', value)}
-            optional
-            placeholder="Ava Johnson"
-            value={form.subscriberName}
-          />
-        </View>
         <UploadDocumentCard
           asset={state.uploads.insurance}
           busyAction={busyAction}
@@ -294,6 +262,38 @@ export function DocumentsScreen({
           onPick={handlePickDocument}
           remoteStatus={state.backend.uploads.insurance.status}
         />
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Insurance Details (Optional)</Text>
+        <View style={styles.fieldsGroup}>
+          <InputField
+            errorText={fieldErrors?.insuranceProvider}
+            label="Insurance provider"
+            onChangeText={(value) => onChange('insuranceProvider', value)}
+            placeholder="Blue Cross Blue Shield"
+            value={form.insuranceProvider}
+          />
+          <InputField
+            errorText={fieldErrors?.memberId}
+            label="Member ID"
+            onChangeText={(value) => onChange('memberId', value)}
+            placeholder="XJH-449922"
+            value={form.memberId}
+          />
+          <InputField
+            label="Group number"
+            onChangeText={(value) => onChange('groupNumber', value)}
+            placeholder="GRP-2024"
+            value={form.groupNumber}
+          />
+          <InputField
+            label="Subscriber name"
+            onChangeText={(value) => onChange('subscriberName', value)}
+            placeholder="Enter subscriber name"
+            value={form.subscriberName}
+          />
+        </View>
       </View>
     </InfoCard>
   );

@@ -603,7 +603,7 @@ export function SymptomsScreen({
             errorText={fieldErrors?.chiefConcern}
             onPress={() => setActiveEditor('chiefConcern')}
             summary={formatCompactTextSummary(form.chiefConcern)}
-            title="Reason for visit"
+            title="Reason for visit *"
           />
           <CompactSummaryRow
             errorText={fieldErrors?.symptomDuration}

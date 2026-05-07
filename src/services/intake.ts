@@ -73,7 +73,7 @@ export const intakeFlowSteps = [
   {
     key: 'symptoms',
     title: 'Medical Intake',
-    subtitle: 'Add allergies, medications, and visit details.',
+    subtitle: 'Tell us what brings you in today and any health details staff should know.',
   },
   {
     key: 'pastMedicalHistory',
@@ -83,7 +83,7 @@ export const intakeFlowSteps = [
   {
     key: 'documents',
     title: 'Documents / Insurance',
-    subtitle: 'Upload documents and add insurance details.',
+    subtitle: 'Upload documents if you have them. You can also bring them later.',
   },
   {
     key: 'review',

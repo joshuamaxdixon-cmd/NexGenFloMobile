@@ -11,6 +11,11 @@ import {
 } from '../../services';
 import { colors, spacing, typography } from '../../theme';
 
+type ReviewSection = {
+  title: string;
+  items: [string, string][];
+};
+
 type ReviewScreenProps = {
   form: IntakeFormData;
   hasGovernmentIdUpload: boolean;
@@ -94,6 +99,154 @@ function formatHeight(heightFt: string, heightIn: string) {
   return `${feet} ft ${inches} in`;
 }
 
+function buildPatientInfoItems(form: IntakeFormData): [string, string][] {
+  const items: [string, string][] = [
+    ['Full name', formatName(form.firstName, form.lastName)],
+    ['Date of birth', valueOrFallback(form.dateOfBirth)],
+  ];
+
+  if (form.heightFt.trim() || form.heightIn.trim()) {
+    items.push(['Height', formatHeight(form.heightFt, form.heightIn)]);
+  }
+  if (form.weightLb.trim()) {
+    items.push(['Weight', `${form.weightLb} lb`]);
+  }
+
+  items.push(['Sex', valueOrFallback(formatGender(form.gender))]);
+  items.push(['Phone number', valueOrFallback(form.phoneNumber)]);
+
+  if (form.email.trim()) {
+    items.push(['Email', form.email]);
+  }
+
+  const hasEmergencyContact =
+    form.emergencyContactName.trim().length > 0 ||
+    form.emergencyContactPhone.trim().length > 0;
+  if (hasEmergencyContact) {
+    const parts = [
+      form.emergencyContactName.trim(),
+      form.emergencyContactPhone.trim(),
+    ].filter(Boolean);
+    items.push(['Emergency contact', parts.join(' · ')]);
+  }
+
+  return items;
+}
+
+function buildAllergyItems(form: IntakeFormData): [string, string][] {
+  const items: [string, string][] = [
+    [
+      'Medication Allergies',
+      formatMedicationAllergySummary(form, 'Not provided')
+        .replace('Unsure', 'Unknown')
+        .replace('None known', 'None'),
+    ],
+  ];
+
+  const otherGroups: [string, string][] = [];
+  if (form.allergyMaterialSelections.length > 0) {
+    otherGroups.push(['Material / Contact', formatSelectionList(form.allergyMaterialSelections)]);
+  }
+  if (form.allergyFoodSelections.length > 0) {
+    otherGroups.push(['Food Allergies', formatSelectionList(form.allergyFoodSelections)]);
+  }
+  if (form.allergyEnvironmentalSelections.length > 0) {
+    otherGroups.push(['Environmental', formatSelectionList(form.allergyEnvironmentalSelections)]);
+  }
+
+  if (otherGroups.length > 0) {
+    items.push(...otherGroups);
+  } else {
+    items.push(['Other allergies', 'Not provided']);
+  }
+
+  return items;
+}
+
+function buildPastHistoryItems(
+  pastMedicalHistory: ReturnType<typeof buildPastMedicalHistoryEntries>,
+): [string, string][] {
+  const items: [string, string][] = [];
+
+  if (pastMedicalHistory.chronic.length > 0) {
+    items.push(['Chronic conditions', formatSelectionList(pastMedicalHistory.chronic)]);
+  }
+  if (pastMedicalHistory.surgical.length > 0) {
+    items.push(['Surgical history', formatSelectionList(pastMedicalHistory.surgical)]);
+  }
+  if (pastMedicalHistory.otherRelevant.length > 0) {
+    items.push(['Other relevant history', formatSelectionList(pastMedicalHistory.otherRelevant)]);
+  }
+
+  if (items.length === 0) {
+    items.push(['', 'Not provided']);
+  }
+
+  return items;
+}
+
+function buildImmunizationItems(
+  form: IntakeFormData,
+  immunizations: string[],
+): [string, string][] {
+  if (immunizations.length === 0) {
+    return [['', 'Not provided']];
+  }
+
+  const items: [string, string][] = [];
+
+  if (form.immunizationCoreSelections.length > 0) {
+    items.push(['Core Vaccines', formatSelectionList(form.immunizationCoreSelections)]);
+  }
+  if (form.immunizationRoutineSelections.length > 0) {
+    items.push(['Routine Adult Vaccines', formatSelectionList(form.immunizationRoutineSelections)]);
+  }
+  if (form.immunizationTravelSelections.length > 0) {
+    items.push(['Travel / Risk-Based', formatSelectionList(form.immunizationTravelSelections)]);
+  }
+  if (form.immunizationUnknownSelections.length > 0) {
+    items.push(['Unknown / Unsure', formatSelectionList(form.immunizationUnknownSelections)]);
+  }
+
+  return items;
+}
+
+function buildDocumentItems(
+  form: IntakeFormData,
+  hasGovernmentIdUpload: boolean,
+  hasInsuranceUpload: boolean,
+): [string, string][] {
+  const items: [string, string][] = [
+    ['Photo ID', hasGovernmentIdUpload ? 'On file' : 'Not uploaded'],
+    ['Insurance Card', hasInsuranceUpload ? 'On file' : 'Not uploaded'],
+  ];
+
+  const hasInsuranceDetails =
+    form.insuranceProvider.trim().length > 0 ||
+    form.memberId.trim().length > 0 ||
+    form.groupNumber.trim().length > 0 ||
+    form.subscriberName.trim().length > 0;
+
+  if (hasInsuranceDetails) {
+    if (form.insuranceProvider.trim()) {
+      items.push(['Insurance provider', form.insuranceProvider]);
+    }
+    if (form.memberId.trim()) {
+      items.push(['Member ID', form.memberId]);
+    }
+    if (form.groupNumber.trim()) {
+      items.push(['Group number', form.groupNumber]);
+    }
+    if (form.subscriberName.trim()) {
+      items.push(['Subscriber name', form.subscriberName]);
+    }
+  } else {
+    items.push(['Insurance details', 'Not provided']);
+  }
+
+  return items;
+}
+
 export function ReviewScreen({
   form,
   hasGovernmentIdUpload,
@@ -110,85 +263,26 @@ export function ReviewScreen({
   const pastMedicalHistory = buildPastMedicalHistoryEntries(form);
   const immunizations = buildMedicalInfoImmunizationEntries(form);
 
-  const sections = [
+  const sections: ReviewSection[] = [
     {
       title: 'Patient Info',
-      actionLabel: 'Edit',
-      actionStep: 'basicInfo' as const,
-      items: [
-        ['Full name', formatName(form.firstName, form.lastName)],
-        ['Date of birth', valueOrFallback(form.dateOfBirth)],
-        ['Height', formatHeight(form.heightFt, form.heightIn)],
-        ['Weight', valueOrFallback(form.weightLb ? `${form.weightLb} lb` : '')],
-        ['Sex', valueOrFallback(formatGender(form.gender))],
-        ['Phone number', valueOrFallback(form.phoneNumber)],
-        ['Email', valueOrFallback(form.email)],
-        ['Emergency contact full name', valueOrFallback(form.emergencyContactName)],
-        ['Emergency contact phone', valueOrFallback(form.emergencyContactPhone)],
-      ],
+      items: buildPatientInfoItems(form),
     },
     {
       title: 'Allergies',
-      items: [
-        [
-          'Medication Allergies',
-          formatMedicationAllergySummary(form, 'Not provided').replace('Unsure', 'Unknown').replace('None known', 'None'),
-        ],
-        [
-          'Material / Contact Allergies',
-          formatSelectionList(form.allergyMaterialSelections),
-        ],
-        ['Food Allergies', formatSelectionList(form.allergyFoodSelections)],
-        [
-          'Environmental Allergies',
-          formatSelectionList(form.allergyEnvironmentalSelections),
-        ],
-      ],
+      items: buildAllergyItems(form),
     },
     {
       title: 'Medications',
-      items: [
-        ['Current Medications', valueOrFallback(form.medications)],
-      ],
+      items: [['Current Medications', valueOrFallback(form.medications)]],
     },
     {
       title: 'Past Medical History',
-      actionLabel: 'Edit',
-      actionStep: 'pastMedicalHistory' as const,
-      items: [
-        [
-          'Chronic conditions',
-          formatSelectionList(pastMedicalHistory.chronic),
-        ],
-        [
-          'Surgical history',
-          formatSelectionList(pastMedicalHistory.surgical),
-        ],
-        [
-          'Other relevant history',
-          formatSelectionList(pastMedicalHistory.otherRelevant),
-        ],
-      ],
+      items: buildPastHistoryItems(pastMedicalHistory),
     },
     {
       title: 'Immunizations',
-      items: [
-        ['Core Vaccines', formatSelectionList(form.immunizationCoreSelections)],
-        [
-          'Routine Adult Vaccines',
-          formatSelectionList(form.immunizationRoutineSelections),
-        ],
-        [
-          'Travel / Risk-Based Vaccines',
-          formatSelectionList(form.immunizationTravelSelections),
-        ],
-        [
-          'Unknown / Unsure',
-          immunizations.length > 0
-            ? formatSelectionList(form.immunizationUnknownSelections)
-            : 'Not provided',
-        ],
-      ],
+      items: buildImmunizationItems(form, immunizations),
     },
     {
       title: 'Visit Details',
@@ -201,16 +295,9 @@ export function ReviewScreen({
     },
     {
       title: 'Documents / Insurance',
-      items: [
-        ['Photo ID', hasGovernmentIdUpload ? 'Added' : 'Not provided'],
-        ['Insurance Card', hasInsuranceUpload ? 'Added' : 'Not provided'],
-        ['Insurance provider', valueOrFallback(form.insuranceProvider)],
-        ['Member ID', valueOrFallback(form.memberId)],
-        ['Group number', valueOrFallback(form.groupNumber)],
-        ['Subscriber name', valueOrFallback(form.subscriberName)],
-      ],
+      items: buildDocumentItems(form, hasGovernmentIdUpload, hasInsuranceUpload),
     },
-  ] as const;
+  ];
 
   return (
     <View>
@@ -239,8 +326,8 @@ export function ReviewScreen({
             </View>
             <View style={styles.summaryList}>
               {section.items.map(([label, value]) => (
-                <View key={label} style={styles.summaryRow}>
-                  <Text style={styles.label}>{label}</Text>
+                <View key={label || value} style={styles.summaryRow}>
+                  {label ? <Text style={styles.label}>{label}</Text> : null}
                   <Text style={styles.value}>{value}</Text>
                 </View>
               ))}
@@ -267,7 +354,7 @@ export function ReviewScreen({
           </Text>
         </Pressable>
         <Text style={styles.confirmationHelp}>
-          This information will be shared with clinic staff for today’s visit.
+          This information will be shared with clinic staff for today&apos;s visit.
         </Text>
         {!reviewReadiness.isReady ? (
           <Text style={styles.checkboxHint}>

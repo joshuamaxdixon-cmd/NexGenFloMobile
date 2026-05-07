@@ -48,6 +48,10 @@ const MIN_SPEECH_DURATION_MS = 500;
 const SPEECH_DETECTION_THRESHOLD = -38;
 const SILENCE_DETECTION_THRESHOLD = -48;
 
+// Phase 2: Confidence thresholds for confirmation fatigue reduction
+const CONFIDENCE_THRESHOLD_AUTO_SAVE = 0.95;
+const CONFIDENCE_THRESHOLD_LOW = 0.75;
+
 const SUPPORTED_STEPS: IntakeStepKey[] = ['basicInfo', 'symptoms'];
 
 function normalizeConversationStep(step: IntakeStepKey): JanetConversationStep {
@@ -259,7 +263,19 @@ export function useUnifiedJanetFieldVoice({
         void syncCurrentDraft();
       }, 0);
 
-      if (result.confirmation.required || result.lowConfidence) {
+      // Phase 2: Only confirm when truly uncertain — not on every field.
+      const inlineTranscriptIsEmpty = !nextTranscript || nextTranscript.trim().length < 2;
+      const inlineBackendRequiresConfirmation = result.confirmation?.required === true;
+      const inlineIsLowConfidence =
+        result.lowConfidence === true ||
+        (typeof confidence === 'number' && confidence < CONFIDENCE_THRESHOLD_LOW);
+      const inlineIsHighConfidence =
+        typeof confidence === 'number' && confidence >= CONFIDENCE_THRESHOLD_AUTO_SAVE;
+      const shouldConfirmInline =
+        inlineBackendRequiresConfirmation ||
+        (inlineIsLowConfidence && !inlineTranscriptIsEmpty && !inlineIsHighConfidence);
+
+      if (shouldConfirmInline) {
         setState('confirming');
         setPromptText(
           result.confirmation.prompt?.trim() ||

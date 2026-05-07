@@ -4,6 +4,7 @@ export * from './draftStore';
 export * from './draftSession';
 export * from './intake';
 export * from './janet';
+export * from './janetFieldValidation';
 export * from './janetFlow';
 export * from './janetLiveSpeech';
 export * from './patients';

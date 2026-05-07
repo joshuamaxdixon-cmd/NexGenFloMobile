@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useNavigation } from '@react-navigation/native';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Audio } from 'expo-av';
@@ -52,14 +52,17 @@ import {
   buildMedicalInfoLegacyAllergyText,
   buildLocalRetryPrompt,
   buildPastMedicalHistoryPrompt,
+  buildReviewSectionSummary,
   formatMedicationAllergySummary,
   getCanonicalJanetPrompt,
+  getCriticalSpotCheckFields,
   getNextJanetFieldAfter,
   getNextPastMedicalHistoryField,
   getPastMedicalHistoryFieldAfter,
   getStepTransitionDeclinedPrompt,
   getStepTransitionPrompt,
   getNextVoiceStep,
+  resolveVoiceFieldReference,
   type JanetFlowMode,
   type PastMedicalHistoryVoiceField,
   type DocumentScanResult,
@@ -70,6 +73,11 @@ import {
   type JanetSessionState,
   type JanetSpeechPlaybackState,
 } from '../services';
+import {
+  buildValidationRetryPrompt,
+  normalizeJanetFieldValue,
+  validateJanetField,
+} from '../services/janetFieldValidation';
 import { colors, spacing, typography } from '../theme';
 
 type VoiceExperienceProps = {
@@ -139,6 +147,10 @@ function isOptionalBasicInfoField(
   return OPTIONAL_BASIC_INFO_FIELDS.includes(field as (typeof OPTIONAL_BASIC_INFO_FIELDS)[number]);
 }
 
+// Phase 2: Confidence thresholds for confirmation fatigue reduction
+const CONFIDENCE_THRESHOLD_AUTO_SAVE = 0.95;
+const CONFIDENCE_THRESHOLD_LOW = 0.75;
+
 const CONTINUE_INTENTS = [
   'yes',
   'yeah',
@@ -154,6 +166,64 @@ const CONTINUE_INTENTS = [
 ] as const;
 
 const PAUSE_INTENTS = ['no', 'not yet', 'wait', 'hold on', 'stop'] as const;
+
+// Phase 4: Correction command intent groups (client-side short-circuits, checked before backend).
+const REPEAT_INTENTS = [
+  'repeat',
+  'say that again',
+  'what was that',
+  'what did you say',
+  'again',
+  'say again',
+] as const;
+
+const SPELL_INTENTS = [
+  'spell it',
+  'spell that',
+  'spell mode',
+  'spell it out',
+  'letter by letter',
+] as const;
+
+const BACK_INTENTS = [
+  'go back',
+  'previous',
+  'back up',
+  'last question',
+  'go back one',
+] as const;
+
+const SKIP_INTENTS = [
+  'skip',
+  'skip for now',
+  'next question',
+  'move on',
+  'next',
+] as const;
+
+const CORRECTION_INTENTS = [
+  "that's wrong",
+  'that is wrong',
+  'incorrect',
+  'wrong',
+  'no that',
+  'not that',
+  'change that',
+] as const;
+
+// Phase 5: submit/confirm intents used in review_section_detail handler.
+const REVIEW_CONFIRM_INTENTS = [
+  'confirm',
+  'submit',
+  'looks good',
+  'all good',
+  'send it',
+  'ready to submit',
+  'yes submit',
+  'confirmar',
+  'enviar',
+  'todo bien',
+] as const;
 
 const JANET_UI_COPY = {
   en: {
@@ -1513,27 +1583,6 @@ function buildStepReviewPrompt(options: {
     : `Here is what I have for this step. ${summary}`;
 }
 
-function formatVoiceList(values: string[]) {
-  if (values.length === 0) {
-    return '';
-  }
-
-  if (values.length === 1) {
-    return values[0];
-  }
-
-  return `${values.slice(0, -1).join(', ')}, and ${values[values.length - 1]}`;
-}
-
-function formatReviewVoiceList(values: string[], maxItems = 4) {
-  const visibleValues = values.filter((value) => value.trim().length > 0);
-  if (visibleValues.length <= maxItems) {
-    return formatVoiceList(visibleValues);
-  }
-
-  return `${formatVoiceList(visibleValues.slice(0, maxItems))}, and ${visibleValues.length - maxItems} more`;
-}
-
 type ReviewDisplaySection = {
   rows: { label: string; value: string }[];
   title: string;
@@ -1673,103 +1722,6 @@ function buildReviewDisplaySections(options: {
   ];
 }
 
-function buildReviewSummaryPrompt(options: {
-  form: IntakeFormData;
-  hasGovernmentIdUpload: boolean;
-  hasInsuranceUpload: boolean;
-  language: 'en' | 'es';
-}) {
-  const { form, hasGovernmentIdUpload, hasInsuranceUpload, language } = options;
-  const patientName = [form.firstName, form.lastName].filter(Boolean).join(' ').trim();
-  const height = form.heightFt || form.heightIn
-    ? `${form.heightFt || '0'} foot ${form.heightIn || '0'}`
-    : '';
-  const allergies = formatVoiceList(buildMedicalInfoAllergyEntries(form));
-  const medicationAllergySummary = formatMedicationAllergySummary(form, '');
-  const immunizations = formatReviewVoiceList(
-    buildMedicalInfoImmunizationEntries(form),
-  );
-  const pmh = buildPastMedicalHistoryEntries(form);
-  const pmhValues = formatReviewVoiceList([
-    ...pmh.chronic,
-    ...pmh.surgical,
-    ...pmh.otherRelevant,
-  ]);
-  const visitDetails = [
-    form.chiefConcern ? `reason ${form.chiefConcern}` : '',
-    form.symptomDuration ? `duration ${form.symptomDuration}` : '',
-    form.painLevel ? `severity ${form.painLevel}` : '',
-  ].filter(Boolean);
-
-  if (language === 'es') {
-    return [
-      'Vamos a revisar los puntos principales antes de enviar.',
-      patientName
-        ? `Paciente: ${patientName}.`
-        : 'No tengo un nombre completo todavía.',
-      form.dateOfBirth ? `Fecha de nacimiento: ${form.dateOfBirth}.` : '',
-      height || form.weightLb
-        ? `Altura y peso: ${[height, form.weightLb ? `${form.weightLb} libras` : ''].filter(Boolean).join(', ')}.`
-        : '',
-      visitDetails.length > 0
-        ? `Visita: ${visitDetails.join(', ')}.`
-        : 'No se registró un motivo de visita.',
-      medicationAllergySummary
-        ? medicationAllergySummary === 'Unsure'
-          ? 'Alergias a medicamentos: incierto.'
-          : medicationAllergySummary === 'None known'
-            ? 'Alergias a medicamentos: ninguna conocida.'
-            : `Alergias a medicamentos: ${medicationAllergySummary}.`
-        : allergies
-          ? `Alergias: ${allergies}.`
-          : '',
-      form.medications ? `Medicamentos: ${form.medications}.` : '',
-      immunizations ? `Inmunizaciones: ${immunizations}.` : '',
-      pmhValues
-        ? `Antecedentes: ${pmhValues}.`
-        : 'No se proporcionaron antecedentes médicos.',
-      hasInsuranceUpload || hasGovernmentIdUpload
-        ? `Documentos: seguro ${hasInsuranceUpload ? 'agregado' : 'no agregado'} e identificación ${hasGovernmentIdUpload ? 'agregada' : 'no agregada'}.`
-        : 'No se agregaron documentos todavía.',
-      'Si todo está correcto, di sí. Si algo necesita cambios, di editar.',
-    ]
-      .filter(Boolean)
-      .join(' ');
-  }
-
-  return [
-    'Let’s review the key items before submitting.',
-    patientName ? `Patient: ${patientName}.` : 'I do not have your full name yet.',
-    form.dateOfBirth ? `Date of birth: ${form.dateOfBirth}.` : '',
-    height || form.weightLb
-      ? `Height and weight: ${[height, form.weightLb ? `${form.weightLb} pounds` : ''].filter(Boolean).join(', ')}.`
-      : '',
-    visitDetails.length > 0
-      ? `Visit: ${visitDetails.join(', ')}.`
-      : 'No reason for visit was provided.',
-    medicationAllergySummary
-      ? medicationAllergySummary === 'Unsure'
-        ? 'Medication allergies: unsure.'
-        : medicationAllergySummary === 'None known'
-          ? 'Medication allergies: none known.'
-          : `Medication allergies: ${medicationAllergySummary}.`
-      : allergies
-        ? `Allergies: ${allergies}.`
-        : '',
-    form.medications ? `Medications: ${form.medications}.` : '',
-    immunizations ? `Immunizations: ${immunizations}.` : '',
-    pmhValues
-      ? `Past history: ${pmhValues}.`
-      : 'No past medical history was provided.',
-    hasInsuranceUpload || hasGovernmentIdUpload
-      ? `Documents: insurance card ${hasInsuranceUpload ? 'added' : 'not added'} and photo ID ${hasGovernmentIdUpload ? 'added' : 'not added'}.`
-      : 'No documents were added yet.',
-    'If everything looks right, say yes. If something needs changes, say edit.',
-  ]
-    .filter(Boolean)
-    .join(' ');
-}
-
 function getSubmitConfirmationPrompt(language: 'en' | 'es') {
   return language === 'es'
     ? 'Perfecto. ¿Quieres que envíe tu registro ahora?'
@@ -1786,12 +1738,6 @@ function getSubmitSuccessPrompt(language: 'en' | 'es') {
   return language === 'es'
     ? 'Tu registro se envió correctamente. Ya está todo listo. El personal de la clínica revisará tu información pronto. Me apartaré por ahora, pero puedes llamarme si necesitas ayuda.'
     : "Your check-in has been submitted successfully. You're all set. The clinic staff will review your information shortly. I'll step back for now, but you can call me anytime if you need help.";
-}
-
-function getSubmitCancelledPrompt(language: 'en' | 'es') {
-  return language === 'es'
-    ? 'Está bien. Puedes revisar los detalles antes de enviarlo.'
-    : 'Okay. You can review the details before submitting.';
 }
 
 function resolveReviewSectionStep(
@@ -1908,6 +1854,7 @@ export function VoiceExperience({
   const navigation = useNavigation<BottomTabNavigationProp<RootTabParamList>>();
   const {
     closeJanetMode,
+    setJanetIntroSeen,
     setJanetLanguage,
     setJanetModeStep,
     setIntakeStep,
@@ -1927,12 +1874,29 @@ export function VoiceExperience({
   const recordingRef = useRef<Audio.Recording | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
   const bootstrapKeyRef = useRef('');
+  const introAlreadySeenOnMountRef = useRef(state.voice.hasSeenJanetIntro);
   const lastSpokenTextRef = useRef('');
   const autoPlayedSessionRef = useRef('');
   const autoListenRef = useRef('');
   const silenceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const noSpeechGraceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const noSpeechRepromptCountRef = useRef(0);
+  // Phase 3: tracks consecutive parse failures per field; reset on success or field advance.
+  const fieldAttemptCountsRef = useRef<Record<string, number>>({});
+  // Phase 4: field history for "go back" navigation (capped at 3 entries).
+  const fieldHistoryRef = useRef<string[]>([]);
+  // Phase 4: per-field spell mode activated by voice; auto-resets when field advances.
+  const perFieldSpellModeRef = useRef(false);
+  // Phase 4: back-navigation counter — max 2 consecutive go-backs per step.
+  const backNavigationCountRef = useRef(0);
+  // Phase 4: tracks the most recent prompt Janet spoke, for "repeat" command.
+  const lastJanetPromptRef = useRef('');
+  // Phase 5: when a field correction is triggered from review_section_detail,
+  // this ref holds the mode to restore after the correction is saved.
+  const postCorrectionReturnModeRef = useRef<JanetFlowMode | null>(null);
+  // Phase 5: tracks the last section the user selected in review_section_detail
+  // so "repeat" re-speaks the same section summary.
+  const lastReviewSectionRef = useRef<'patient' | 'visit' | 'medical' | 'history' | null>(null);
   const detectedSpeechRef = useRef(false);
   const startRecordingInFlightRef = useRef(false);
   const suppressLiveSpeechEndRef = useRef(false);
@@ -1959,6 +1923,8 @@ export function VoiceExperience({
     useState<JanetConfirmationState>(EMPTY_CONFIRMATION);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [lowConfidence, setLowConfidence] = useState(false);
+  const [autoSaveAck, setAutoSaveAck] = useState<string | null>(null);
+  const autoSaveAckAnim = useRef(new Animated.Value(0)).current;
   const [isBootstrapping, setIsBootstrapping] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -1992,6 +1958,30 @@ export function VoiceExperience({
   const liveSpeechAvailability = useMemo(
     () => getJanetLiveSpeechAvailability(),
     [],
+  );
+
+  const showAutoSaveAck = useCallback(
+    (label: string, value: string) => {
+      const message = `${label}: ${value}`;
+      setAutoSaveAck(message);
+      autoSaveAckAnim.setValue(0);
+      Animated.sequence([
+        Animated.timing(autoSaveAckAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.delay(1800),
+        Animated.timing(autoSaveAckAnim, {
+          toValue: 0,
+          duration: 400,
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        setAutoSaveAck(null);
+      });
+    },
+    [autoSaveAckAnim],
   );
 
   const queueDraftSync = useCallback(
@@ -2361,6 +2351,8 @@ export function VoiceExperience({
       setMicError(null);
       setSpeechState('processing');
       lastSpokenTextRef.current = trimmedText;
+      // Phase 4: track most recent prompt for "repeat" command.
+      lastJanetPromptRef.current = trimmedText;
       const autoListenToken = `${session?.sessionId ?? 'local'}:${Date.now()}:${trimmedText}`;
       const scheduleAutoListen = () => {
         if (autoListenRef.current !== autoListenToken) {
@@ -2570,7 +2562,8 @@ export function VoiceExperience({
       await handleJanetTurnRef.current?.(
         transcript,
         confidence,
-        state.voice.spellModeEnabled ? 'spell' : 'normal',
+        // Phase 4: honour per-field spell mode in addition to the global toggle.
+        state.voice.spellModeEnabled || perFieldSpellModeRef.current ? 'spell' : 'normal',
       );
     } catch (error) {
       setMicError(
@@ -2731,10 +2724,14 @@ export function VoiceExperience({
       bootstrapKeyRef.current = '';
       autoPlayedSessionRef.current = '';
       autoListenRef.current = '';
+      // Phase 4: reset per-step navigation state when entering a new step.
+      fieldHistoryRef.current = [];
+      backNavigationCountRef.current = 0;
+      perFieldSpellModeRef.current = false;
       setPendingNextStep(null);
       setAwaitingReviewSectionChoice(false);
       setReplyText('');
-      setJanetFlowMode(step === 'review' ? 'review_summary' : 'field_question');
+      setJanetFlowMode(step === 'review' ? 'review_section_detail' : 'field_question');
       setConfirmation(EMPTY_CONFIRMATION);
       setLocalConfirmation(null);
       setSession(null);
@@ -2742,19 +2739,29 @@ export function VoiceExperience({
       setJanetModeStep(step);
 
       if (step === 'review') {
-        const reviewPrompt = buildReviewSummaryPrompt({
-          form: state.intake.form,
-          hasGovernmentIdUpload,
-          hasInsuranceUpload,
-          language: state.janetMode.language,
-        });
+        // Phase 5: spot-check the 3 critical fields, then offer the section menu.
+        const lang = state.janetMode.language;
+        const spotFields = getCriticalSpotCheckFields(state.intake.form);
+        const [nameField, dobField, concernField] = spotFields;
+        const spotPrompt =
+          lang === 'es'
+            ? `Antes de terminar — tu nombre es ${nameField.value}, fecha de nacimiento ${dobField.value}, y motivo de visita ${concernField.value}. ¿Suena correcto?`
+            : `Before we finish — your name is ${nameField.value}, date of birth ${dobField.value}, and chief concern ${concernField.value}. Does that sound right?`;
+        const sectionMenuPrompt =
+          lang === 'es'
+            ? 'Puedes decir información del paciente, detalles de la visita, información médica, o antecedentes para revisar una sección. O di confirmar para enviar.'
+            : 'You can say patient info, visit details, medical info, or past history to review a section. Or say confirm to submit.';
+        const fullPrompt = `${spotPrompt} ${sectionMenuPrompt}`;
+        // Reset Phase 5 state
+        lastReviewSectionRef.current = null;
+        postCorrectionReturnModeRef.current = null;
         setConfirmation({
           choices: [],
           field: null,
-          prompt: reviewPrompt,
+          prompt: fullPrompt,
           required: true,
         });
-        await queuePrompt(reviewPrompt, { autoListenAfter: true });
+        await queuePrompt(fullPrompt, { autoListenAfter: true });
         return;
       }
 
@@ -2785,8 +2792,6 @@ export function VoiceExperience({
       }
     },
     [
-      hasGovernmentIdUpload,
-      hasInsuranceUpload,
       queuePrompt,
       setIntakeStep,
       setJanetModeStep,
@@ -2815,6 +2820,39 @@ export function VoiceExperience({
       await queuePrompt(prompt);
     },
     [queuePrompt, state.janetMode.language],
+  );
+
+  // ---------------------------------------------------------------------------
+  // Phase 3: Validation failure handler
+  // ---------------------------------------------------------------------------
+  const handleValidationFailure = useCallback(
+    async (fieldKey: string, errorMessage: string) => {
+      const prev = fieldAttemptCountsRef.current[fieldKey] ?? 0;
+      const count = prev + 1;
+      fieldAttemptCountsRef.current[fieldKey] = count;
+
+      const isOptional = OPTIONAL_BASIC_INFO_FIELDS.includes(
+        fieldKey as (typeof OPTIONAL_BASIC_INFO_FIELDS)[number],
+      );
+
+      const prompt = buildValidationRetryPrompt({
+        attemptCount: count,
+        errorMessage,
+        fieldKey,
+        isOptional,
+      });
+
+      setMicError(null);
+      setReplyText(prompt);
+
+      if (count === 2) {
+        // Auto-activate spell mode on the 2nd consecutive failure.
+        setVoiceSpellMode(true);
+      }
+
+      await queuePrompt(prompt, { autoListenAfter: true });
+    },
+    [queuePrompt, setVoiceSpellMode],
   );
 
   const handleJanetTurn = useCallback(
@@ -2863,6 +2901,14 @@ export function VoiceExperience({
           transcript: sourceTranscript,
         });
 
+        // Phase 4: push the saved field to history and reset per-field spell mode.
+        if (medicalInfoCapture.currentFieldAnswered && field) {
+          fieldHistoryRef.current = [
+            ...fieldHistoryRef.current.slice(-2),
+            field,
+          ];
+        }
+        perFieldSpellModeRef.current = false;
         updateIntakeFields(
           isStructuredAllergyField(field)
             ? {
@@ -2911,6 +2957,27 @@ export function VoiceExperience({
           autoListenAfter: false,
         });
 
+        // Phase 5: if this save came from a review correction, return to review.
+        if (
+          postCorrectionReturnModeRef.current === 'review_section_detail' &&
+          medicalInfoCapture.currentFieldAnswered
+        ) {
+          const returnMode = postCorrectionReturnModeRef.current;
+          postCorrectionReturnModeRef.current = null;
+          const rlang = state.janetMode.language;
+          const returnPrompt =
+            rlang === 'es'
+              ? 'Listo. De vuelta a la revisión. Di el nombre de una sección o confirmar para enviar.'
+              : 'Got it. Back to review. Say a section name or confirm to submit.';
+          setIntakeStep('review');
+          setJanetModeStep('review');
+          setJanetFlowMode(returnMode);
+          setReplyText(returnPrompt);
+          await wait(JANET_TIMING.postResponseDelayMs);
+          await playPrompt(returnPrompt, { autoListenAfter: true });
+          return;
+        }
+
         if (!nextField) {
           await queueStepTransitionPrompt('symptoms');
           return;
@@ -2924,6 +2991,235 @@ export function VoiceExperience({
           await queuePrompt(promptToAsk);
         }
       };
+
+      // -----------------------------------------------------------------------
+      // Phase 4: Correction commands — checked client-side BEFORE any backend
+      // call or flow-mode branching. These short-circuit the normal pipeline.
+      // -----------------------------------------------------------------------
+
+      // REPEAT: re-speak the last Janet prompt without re-sending to backend.
+      if (transcriptMatchesIntent(transcript, REPEAT_INTENTS)) {
+        const promptToRepeat =
+          lastJanetPromptRef.current.trim() ||
+          canonicalVoicePrompt.trim() ||
+          replyText.trim();
+        if (promptToRepeat) {
+          await playPrompt(promptToRepeat, { autoListenAfter: true });
+        }
+        return;
+      }
+
+      // SPELL (voice-activated): enable per-field spell mode for the current field only.
+      if (transcriptMatchesIntent(transcript, SPELL_INTENTS)) {
+        perFieldSpellModeRef.current = true;
+        const spellAck =
+          state.janetMode.language === 'es'
+            ? 'Modo deletreo activado. Di cada letra.'
+            : 'OK, spell mode on. Say each letter.';
+        await playPrompt(spellAck, { autoListenAfter: true });
+        return;
+      }
+
+      // CORRECTION ("that's wrong", "incorrect", etc.):
+      // During a local or structured-medical-info confirmation → re-ask current field.
+      // Outside confirmation → treat as "go back" to re-ask the same field.
+      if (transcriptMatchesIntent(transcript, CORRECTION_INTENTS)) {
+        if (localConfirmation) {
+          // Cancel local confirmation and re-ask the same field.
+          const retryPrompt = getCanonicalJanetPrompt({
+            field: localConfirmation.field,
+            language: state.janetMode.language,
+            pastMedicalHistoryField: null,
+            step: 'basicInfo',
+          });
+          setLocalConfirmation(null);
+          setConfirmation(EMPTY_CONFIRMATION);
+          setFinalTranscript('');
+          setVoiceTranscript('');
+          const correctionPrompt = `${state.janetMode.language === 'es' ? 'Vamos a intentarlo de nuevo.' : "Let's try that again."} ${retryPrompt}`.trim();
+          setReplyText(correctionPrompt);
+          await playPrompt(correctionPrompt, { autoListenAfter: true });
+          return;
+        }
+        if (structuredMedicalInfoConfirmation) {
+          // Cancel structured-medical-info confirmation and re-ask the same field.
+          const retryPrompt = getCanonicalJanetPrompt({
+            field: structuredMedicalInfoConfirmation.field,
+            language: state.janetMode.language,
+            pastMedicalHistoryField: null,
+            step: 'symptoms',
+          });
+          setStructuredMedicalInfoConfirmation(null);
+          setConfirmation(EMPTY_CONFIRMATION);
+          setFinalTranscript('');
+          setVoiceTranscript('');
+          const correctionPrompt = `${state.janetMode.language === 'es' ? 'Vamos a intentarlo de nuevo.' : "Let's try that again."} ${retryPrompt}`.trim();
+          setReplyText(correctionPrompt);
+          await playPrompt(correctionPrompt, { autoListenAfter: true });
+          return;
+        }
+        // Outside a confirmation: re-ask the current active field.
+        const currentPrompt = (
+          janetStep === 'pastMedicalHistory'
+            ? buildPastMedicalHistoryPrompt(pastMedicalHistoryField, state.janetMode.language)
+            : getCanonicalJanetPrompt({
+                field: activeManagedField,
+                language: state.janetMode.language,
+                pastMedicalHistoryField,
+                step: janetStep,
+              })
+        ).trim();
+        if (currentPrompt) {
+          const correctionPrompt = `${state.janetMode.language === 'es' ? 'Vamos a intentarlo de nuevo.' : "Let's try that again."} ${currentPrompt}`.trim();
+          setReplyText(correctionPrompt);
+          await playPrompt(correctionPrompt, { autoListenAfter: true });
+        }
+        return;
+      }
+
+      // SKIP (voice): skip the current field if optional; warn if required.
+      // Note: "move on" and "next" are also in CONTINUE_INTENTS, so they
+      // already advance steps. SKIP_INTENTS extends that with explicit field-skip
+      // semantics only for the field_question flow mode.
+      if (
+        janetFlowMode === 'field_question' &&
+        transcriptMatchesIntent(transcript, SKIP_INTENTS) &&
+        janetStep === 'basicInfo' &&
+        isLocalConfirmationField(activeManagedField)
+      ) {
+        if (isOptionalBasicInfoField(activeManagedField)) {
+          // Field is optional — skip it and advance.
+          const skipField = activeManagedField;
+          const baseForm = normalizeIntakeFormFields({
+            ...state.intake.form,
+            ...(session?.draftPatch ?? {}),
+            ...(skipField === 'heightFt'
+              ? { heightFt: '', heightIn: '' }
+              : { [skipField]: '' }),
+          }) as IntakeFormData;
+          const nextBasicField = resolveJanetVoiceFieldState({
+            form: baseForm,
+            pastMedicalHistoryField: null,
+            proposedField: null,
+            step: 'basicInfo',
+          }).activeField;
+          const nextPrompt = getCanonicalJanetPrompt({
+            field: nextBasicField,
+            language: state.janetMode.language,
+            pastMedicalHistoryField: null,
+            step: 'basicInfo',
+          });
+          const fieldLabel = getJanetFieldLabel(skipField);
+          const skipAck =
+            state.janetMode.language === 'es'
+              ? `Omitiendo ${fieldLabel}.`
+              : `Skipping ${fieldLabel}.`;
+          // Phase 4: reset per-field spell mode on skip.
+          perFieldSpellModeRef.current = false;
+          fieldAttemptCountsRef.current[skipField] = 0;
+          setSession((currentSession) =>
+            currentSession
+              ? {
+                  ...currentSession,
+                  currentField: nextBasicField,
+                  currentStep: 'basicInfo',
+                  draftPatch: {
+                    ...currentSession.draftPatch,
+                    ...(skipField === 'heightFt'
+                      ? { heightFt: '', heightIn: '' }
+                      : { [skipField]: '' }),
+                  },
+                  firstPrompt: nextPrompt || currentSession.firstPrompt,
+                }
+              : currentSession,
+          );
+          setReplyText(nextPrompt);
+          await playPrompt(skipAck, { autoListenAfter: false });
+          if (!nextBasicField) {
+            await queueStepTransitionPrompt('basicInfo');
+            return;
+          }
+          if (nextPrompt.trim()) {
+            await playPrompt(nextPrompt, { autoListenAfter: true });
+          }
+          return;
+        } else {
+          // Required field: warn user.
+          const fieldLabel = getJanetFieldLabel(activeManagedField);
+          const skipWarn =
+            state.janetMode.language === 'es'
+              ? `${fieldLabel} es obligatorio. Di tu respuesta o deletréala.`
+              : `That field is required. Say your answer or spell it.`;
+          await playPrompt(skipWarn, { autoListenAfter: true });
+          return;
+        }
+      }
+
+      // GO BACK: navigate to the prior field (max 2 back-navigations per step).
+      if (
+        janetFlowMode === 'field_question' &&
+        transcriptMatchesIntent(transcript, BACK_INTENTS)
+      ) {
+        if (backNavigationCountRef.current >= 2) {
+          const tooFarBack =
+            state.janetMode.language === 'es'
+              ? 'Ya fuimos atrás dos veces. Continuemos desde aquí.'
+              : "We've gone back twice already. Let's continue from here.";
+          await playPrompt(tooFarBack, { autoListenAfter: true });
+          return;
+        }
+
+        const previousField = fieldHistoryRef.current.length > 0
+          ? fieldHistoryRef.current[fieldHistoryRef.current.length - 1]
+          : null;
+
+        if (!previousField) {
+          const nothingBack =
+            state.janetMode.language === 'es'
+              ? 'Estamos al principio. No hay nada antes de esto.'
+              : "We're at the beginning. Nothing to go back to.";
+          await playPrompt(nothingBack, { autoListenAfter: true });
+          return;
+        }
+
+        // Pop the history entry.
+        fieldHistoryRef.current = fieldHistoryRef.current.slice(0, -1);
+        backNavigationCountRef.current += 1;
+        // Phase 4: reset per-field spell mode on back-navigation.
+        perFieldSpellModeRef.current = false;
+
+        const previousFieldLabel = getJanetFieldLabel(previousField);
+        const goBackPrompt = getCanonicalJanetPrompt({
+          field: previousField,
+          language: state.janetMode.language,
+          pastMedicalHistoryField: null,
+          step: janetStep,
+        });
+        const backAck =
+          state.janetMode.language === 'es'
+            ? `Volviendo a ${previousFieldLabel}. ${goBackPrompt}`.trim()
+            : `Going back to ${previousFieldLabel}. ${goBackPrompt}`.trim();
+
+        setSession((currentSession) =>
+          currentSession
+            ? {
+                ...currentSession,
+                currentField: previousField,
+              }
+            : currentSession,
+        );
+        setConfirmation(EMPTY_CONFIRMATION);
+        setLocalConfirmation(null);
+        setStructuredMedicalInfoConfirmation(null);
+        setFinalTranscript('');
+        setVoiceTranscript('');
+        setReplyText(goBackPrompt || backAck);
+        await playPrompt(backAck, { autoListenAfter: true });
+        return;
+      }
+
+      // Reset back-navigation counter when the user provides a real answer.
+      backNavigationCountRef.current = 0;
 
       if (janetFlowMode === 'step_transition_confirmation') {
         if (pendingNextStep && transcriptMatchesIntent(transcript, CONTINUE_INTENTS)) {
@@ -2983,6 +3279,156 @@ export function VoiceExperience({
           }
           return;
         }
+      }
+
+      // -----------------------------------------------------------------------
+      // Phase 5: Section-by-section review mode
+      // -----------------------------------------------------------------------
+      if (janetFlowMode === 'review_section_detail') {
+        const lang = state.janetMode.language;
+        const sectionMenuPrompt =
+          lang === 'es'
+            ? 'Puedes decir información del paciente, detalles de la visita, información médica, o antecedentes. O di confirmar para enviar.'
+            : 'You can say patient info, visit details, medical info, or past history. Or say confirm to submit.';
+
+        // REPEAT: re-speak the last section summary or the section menu.
+        if (transcriptMatchesIntent(transcript, REPEAT_INTENTS)) {
+          if (lastReviewSectionRef.current) {
+            const reSpeak = buildReviewSectionSummary(
+              lastReviewSectionRef.current,
+              state.intake.form,
+              lang,
+            );
+            await queuePrompt(reSpeak, { autoListenAfter: true });
+          } else {
+            await queuePrompt(sectionMenuPrompt, { autoListenAfter: true });
+          }
+          return;
+        }
+
+        // CONFIRM/SUBMIT: move to final submit confirmation.
+        if (
+          transcriptMatchesIntent(transcript, REVIEW_CONFIRM_INTENTS) ||
+          transcriptMatchesIntent(transcript, CONTINUE_INTENTS)
+        ) {
+          const submitPrompt = getSubmitConfirmationPrompt(lang);
+          setJanetFlowMode('final_submit_confirmation');
+          setConfirmation({
+            choices: [],
+            field: null,
+            prompt: submitPrompt,
+            required: true,
+          });
+          await queuePrompt(submitPrompt, { autoListenAfter: true });
+          return;
+        }
+
+        // SECTION SELECTION: speak that section's summary.
+        let selectedSection: 'patient' | 'visit' | 'medical' | 'history' | null = null;
+        if (
+          normalizedTranscript.includes('patient info') ||
+          normalizedTranscript.includes('patient information') ||
+          normalizedTranscript.includes('información del paciente') ||
+          (normalizedTranscript.includes('patient') && !normalizedTranscript.includes('history'))
+        ) {
+          selectedSection = 'patient';
+        } else if (
+          normalizedTranscript.includes('visit detail') ||
+          normalizedTranscript.includes('visit info') ||
+          normalizedTranscript.includes('detalles de la visita') ||
+          normalizedTranscript.includes('visit') ||
+          normalizedTranscript.includes('symptom')
+        ) {
+          selectedSection = 'visit';
+        } else if (
+          normalizedTranscript.includes('medical info') ||
+          normalizedTranscript.includes('información médica') ||
+          normalizedTranscript.includes('información medica') ||
+          (normalizedTranscript.includes('medical') && !normalizedTranscript.includes('history'))
+        ) {
+          selectedSection = 'medical';
+        } else if (
+          normalizedTranscript.includes('past history') ||
+          normalizedTranscript.includes('past medical') ||
+          normalizedTranscript.includes('history') ||
+          normalizedTranscript.includes('antecedentes')
+        ) {
+          selectedSection = 'history';
+        }
+
+        if (selectedSection) {
+          lastReviewSectionRef.current = selectedSection;
+          const sectionSummary = buildReviewSectionSummary(
+            selectedSection,
+            state.intake.form,
+            lang,
+          );
+          const afterSummary =
+            lang === 'es'
+              ? ' Di el nombre de otra sección, di cambiar seguido del campo, o di confirmar para enviar.'
+              : ' Say another section name, say fix or change followed by a field, or say confirm to submit.';
+          await queuePrompt(sectionSummary + afterSummary, { autoListenAfter: true });
+          return;
+        }
+
+        // FIELD CORRECTION: "fix my phone" / "change my name" etc.
+        const fieldRef = resolveVoiceFieldReference(normalizedTranscript);
+        if (
+          fieldRef &&
+          (normalizedTranscript.includes('fix') ||
+            normalizedTranscript.includes('change') ||
+            normalizedTranscript.includes('update') ||
+            normalizedTranscript.includes('edit') ||
+            normalizedTranscript.includes('correct') ||
+            normalizedTranscript.includes('wrong') ||
+            normalizedTranscript.includes('cambiar') ||
+            normalizedTranscript.includes('corregir'))
+        ) {
+          // Map section to intake step key for the correction redirect.
+          const sectionToStep: Record<string, IntakeStepKey> = {
+            patient: 'basicInfo',
+            visit: 'symptoms',
+            medical: 'symptoms',
+            history: 'pastMedicalHistory',
+          };
+          const targetStep = sectionToStep[fieldRef.section] ?? 'basicInfo';
+          const fieldLabel = fieldRef.fieldKey
+            .replace(/([A-Z])/g, ' $1')
+            .toLowerCase()
+            .trim();
+          const correctionAck =
+            lang === 'es'
+              ? `De acuerdo, vamos a actualizar tu ${fieldLabel}.`
+              : `OK, let's update your ${fieldLabel}.`;
+          const fieldPrompt = getCanonicalJanetPrompt({
+            field: fieldRef.fieldKey,
+            language: lang,
+            pastMedicalHistoryField: null,
+            step: targetStep,
+          });
+
+          // Mark that after this correction we want to return to review_section_detail.
+          postCorrectionReturnModeRef.current = 'review_section_detail';
+
+          // Redirect to the target step + field.
+          setJanetFlowMode('field_question');
+          setIntakeStep(targetStep);
+          setJanetModeStep(targetStep);
+          setConfirmation(EMPTY_CONFIRMATION);
+          setLocalConfirmation(null);
+          setSession(null);
+
+          const combined = fieldPrompt.trim()
+            ? `${correctionAck} ${fieldPrompt}`
+            : correctionAck;
+          setReplyText(combined);
+          await queuePrompt(combined, { autoListenAfter: true });
+          return;
+        }
+
+        // FALLBACK: re-speak section menu.
+        await queuePrompt(sectionMenuPrompt, { autoListenAfter: true });
+        return;
       }
 
       if (janetFlowMode === 'review_summary') {
@@ -3050,7 +3496,8 @@ export function VoiceExperience({
             setVoiceListening(false);
             setIsRecording(false);
             setPendingAutoListenToken(null);
-            setJanetFlowMode('review_summary');
+            // Stay in review_section_detail after submit (will be idle — no auto-listen).
+            setJanetFlowMode('review_section_detail');
             setReplyText(getSubmitSuccessPrompt(state.janetMode.language));
             await playPrompt(getSubmitSuccessPrompt(state.janetMode.language), {
               autoListenAfter: false,
@@ -3067,11 +3514,15 @@ export function VoiceExperience({
         }
 
         if (transcriptMatchesIntent(transcript, PAUSE_INTENTS)) {
-          setJanetFlowMode('review_summary');
+          // Return to section-by-section review so user can continue navigating.
+          const lang = state.janetMode.language;
+          const cancelledSectionMenu =
+            lang === 'es'
+              ? 'Está bien. Puedes decir una sección para revisar, o di confirmar para enviar.'
+              : 'Okay. Say a section to review, or confirm to submit.';
+          setJanetFlowMode('review_section_detail');
           setConfirmation(EMPTY_CONFIRMATION);
-          await queuePrompt(getSubmitCancelledPrompt(state.janetMode.language), {
-            autoListenAfter: false,
-          });
+          await queuePrompt(cancelledSectionMenu, { autoListenAfter: true });
           return;
         }
       }
@@ -3138,6 +3589,16 @@ export function VoiceExperience({
           ...baseForm,
           ...updates,
         };
+        // Phase 3: reset attempt count on confirmed save.
+        fieldAttemptCountsRef.current[localConfirmation.field] = 0;
+        // Phase 4: push the saved field to history and reset per-field spell mode.
+        if (localConfirmation.field) {
+          fieldHistoryRef.current = [
+            ...fieldHistoryRef.current.slice(-2),
+            localConfirmation.field,
+          ];
+        }
+        perFieldSpellModeRef.current = false;
         updateIntakeFields(updates);
         setConfirmation(EMPTY_CONFIRMATION);
         setLocalConfirmation(null);
@@ -3283,6 +3744,8 @@ export function VoiceExperience({
             step: 'basicInfo',
           });
 
+          // Phase 3: reset attempt count when field is skipped.
+          fieldAttemptCountsRef.current[activeManagedField] = 0;
           setSession((currentSession) =>
             currentSession
               ? {
@@ -3316,6 +3779,56 @@ export function VoiceExperience({
         );
 
         if (!localCapture) {
+          // Phase 2: For optional fields where transcript is noise-only / unrecognizable,
+          // auto-skip rather than re-prompting indefinitely.
+          if (isOptionalBasicInfoField(activeManagedField)) {
+            const baseForm = normalizeIntakeFormFields({
+              ...state.intake.form,
+              ...(session?.draftPatch ?? {}),
+              ...(activeManagedField === 'heightFt'
+                ? { heightFt: '', heightIn: '' }
+                : { [activeManagedField]: '' }),
+            }) as IntakeFormData;
+            const nextBasicField = resolveJanetVoiceFieldState({
+              form: baseForm,
+              pastMedicalHistoryField: null,
+              proposedField: null,
+              step: 'basicInfo',
+            }).activeField;
+            const nextPrompt = getCanonicalJanetPrompt({
+              field: nextBasicField,
+              language: state.janetMode.language,
+              pastMedicalHistoryField: null,
+              step: 'basicInfo',
+            });
+            setSession((currentSession) =>
+              currentSession
+                ? {
+                    ...currentSession,
+                    currentField: nextBasicField,
+                    currentStep: 'basicInfo',
+                    draftPatch: {
+                      ...currentSession.draftPatch,
+                      ...(activeManagedField === 'heightFt'
+                        ? { heightFt: '', heightIn: '' }
+                        : { [activeManagedField]: '' }),
+                    },
+                    firstPrompt: nextPrompt || currentSession.firstPrompt,
+                  }
+                : currentSession,
+            );
+            setReplyText(nextPrompt);
+            if (!nextBasicField) {
+              await queueStepTransitionPrompt('basicInfo');
+              return;
+            }
+            if (nextPrompt.trim()) {
+              await playPrompt(nextPrompt);
+            }
+            return;
+          }
+
+          // Required field: re-prompt as before
           const retryPrompt = buildLocalRetryPrompt({
             field: activeManagedField,
             language: state.janetMode.language,
@@ -3330,6 +3843,98 @@ export function VoiceExperience({
           return;
         }
 
+        // Phase 2: Confidence threshold — skip confirmation when capture is high-confidence.
+        const transcriptIsNoise = !transcript || transcript.trim().length < 2;
+        const isHighConfidence =
+          typeof confidence === 'number' && confidence >= CONFIDENCE_THRESHOLD_AUTO_SAVE;
+        const isLowConfidence =
+          typeof confidence !== 'number' || confidence < CONFIDENCE_THRESHOLD_LOW;
+        const shouldConfirmLocal = isLowConfidence && !transcriptIsNoise;
+
+        if (!shouldConfirmLocal || isHighConfidence) {
+          // Phase 3: Validate the captured value before auto-saving.
+          const normalizedCaptureValue = normalizeJanetFieldValue(
+            activeManagedField,
+            localCapture.value,
+          );
+          const validationError = validateJanetField(
+            activeManagedField,
+            normalizedCaptureValue,
+            transcript,
+          );
+          if (validationError) {
+            await handleValidationFailure(activeManagedField, validationError);
+            return;
+          }
+          // Reset attempt count on successful validation.
+          fieldAttemptCountsRef.current[activeManagedField] = 0;
+          // Phase 4: push current field to history and reset per-field spell mode.
+          if (activeManagedField) {
+            fieldHistoryRef.current = [
+              ...fieldHistoryRef.current.slice(-2),
+              activeManagedField,
+            ];
+          }
+          perFieldSpellModeRef.current = false;
+
+          // Auto-save: apply updates directly without asking "Did I get that right?"
+          const updates = normalizeIntakeFormFields(localCapture.updates);
+          const baseForm = normalizeIntakeFormFields({
+            ...state.intake.form,
+            ...(session?.draftPatch ?? {}),
+          }) as IntakeFormData;
+          const mergedForm = { ...baseForm, ...updates };
+          updateIntakeFields(updates);
+          setConfirmation(EMPTY_CONFIRMATION);
+          setLocalConfirmation(null);
+          setWarnings([]);
+          setLowConfidence(false);
+          setFinalTranscript(localCapture.value);
+          setVoiceTranscript(localCapture.value);
+
+          const fieldLabel = getJanetFieldLabel(activeManagedField);
+          showAutoSaveAck(fieldLabel, localCapture.value);
+
+          const nextBasicField = resolveJanetVoiceFieldState({
+            form: mergedForm,
+            pastMedicalHistoryField: null,
+            proposedField: null,
+            step: 'basicInfo',
+          }).activeField;
+          const nextPrompt = getCanonicalJanetPrompt({
+            field: nextBasicField,
+            language: state.janetMode.language,
+            pastMedicalHistoryField: null,
+            step: 'basicInfo',
+          });
+          setSession((currentSession) =>
+            currentSession
+              ? {
+                  ...currentSession,
+                  currentField: nextBasicField,
+                  currentStep: 'basicInfo',
+                  draftPatch: {
+                    ...currentSession.draftPatch,
+                    ...updates,
+                  },
+                  firstPrompt: nextPrompt || currentSession.firstPrompt,
+                }
+              : currentSession,
+          );
+          setJanetModeStep('basicInfo');
+          void queueDraftSync({ formOverride: mergedForm });
+          if (!nextBasicField) {
+            await queueStepTransitionPrompt('basicInfo');
+            return;
+          }
+          setReplyText(nextPrompt);
+          if (nextPrompt.trim()) {
+            await playPrompt(nextPrompt);
+          }
+          return;
+        }
+
+        // Low-confidence path: show confirmation as before
         setLocalConfirmation({
           confirmationPrompt: localCapture.confirmationPrompt,
           field: activeManagedField,
@@ -3453,7 +4058,34 @@ export function VoiceExperience({
           const nextField = explicitNone || explicitUnsure
             ? getPastMedicalHistoryFieldAfter(targetField)
             : getNextPastMedicalHistoryField(mergedForm);
+          // Phase 4: push saved PMH field to history and reset per-field spell mode.
+          if (targetField) {
+            fieldHistoryRef.current = [
+              ...fieldHistoryRef.current.slice(-2),
+              targetField,
+            ];
+          }
+          perFieldSpellModeRef.current = false;
           setPastMedicalHistoryField(nextField);
+
+          // Phase 5: if this PMH save came from a review correction, return to review.
+          if (postCorrectionReturnModeRef.current === 'review_section_detail') {
+            const returnMode = postCorrectionReturnModeRef.current;
+            postCorrectionReturnModeRef.current = null;
+            const lang = state.janetMode.language;
+            const returnPrompt =
+              lang === 'es'
+                ? 'Listo. De vuelta a la revisión. Di el nombre de una sección o confirmar para enviar.'
+                : 'Got it. Back to review. Say a section name or confirm to submit.';
+            void queueDraftAndHandoffSync();
+            setIntakeStep('review');
+            setJanetModeStep('review');
+            setJanetFlowMode(returnMode);
+            setReplyText(returnPrompt);
+            await wait(JANET_TIMING.postResponseDelayMs);
+            await playPrompt(returnPrompt, { autoListenAfter: true });
+            return;
+          }
 
           if (nextField) {
             setReplyText(
@@ -3539,6 +4171,30 @@ export function VoiceExperience({
         );
 
         if (symptomTextCapture) {
+          // Phase 3: Validate symptom field value before saving.
+          if (activeManagedField) {
+            const normalizedSymptomValue = normalizeJanetFieldValue(
+              activeManagedField,
+              symptomTextCapture.value,
+            );
+            const symptomValidationError = validateJanetField(
+              activeManagedField,
+              normalizedSymptomValue,
+              transcript,
+            );
+            if (symptomValidationError) {
+              await handleValidationFailure(activeManagedField, symptomValidationError);
+              return;
+            }
+            fieldAttemptCountsRef.current[activeManagedField] = 0;
+            // Phase 4: push saved field to history and reset per-field spell mode.
+            fieldHistoryRef.current = [
+              ...fieldHistoryRef.current.slice(-2),
+              activeManagedField,
+            ];
+            perFieldSpellModeRef.current = false;
+          }
+
           const mergedForm = reconcileStructuredIntakeForm(
             normalizeIntakeFormFields({
               ...state.intake.form,
@@ -3616,6 +4272,32 @@ export function VoiceExperience({
         );
 
         if (documentCapture) {
+          // Phase 3: No domain-specific rules for document fields currently —
+          // validateJanetField returns null (pass-through) for insuranceProvider etc.
+          // The guard is kept so future zip/memberId rules activate automatically.
+          if (activeManagedField) {
+            const normalizedDocValue = normalizeJanetFieldValue(
+              activeManagedField,
+              documentCapture.value,
+            );
+            const docValidationError = validateJanetField(
+              activeManagedField,
+              normalizedDocValue,
+              transcript,
+            );
+            if (docValidationError) {
+              await handleValidationFailure(activeManagedField, docValidationError);
+              return;
+            }
+            fieldAttemptCountsRef.current[activeManagedField] = 0;
+            // Phase 4: push saved field to history and reset per-field spell mode.
+            fieldHistoryRef.current = [
+              ...fieldHistoryRef.current.slice(-2),
+              activeManagedField,
+            ];
+            perFieldSpellModeRef.current = false;
+          }
+
           const mergedForm = reconcileStructuredIntakeForm(
             normalizeIntakeFormFields({
               ...state.intake.form,
@@ -3718,8 +4400,20 @@ export function VoiceExperience({
         );
 
         updateIntakeFields(result.extraction.draftPatch);
-        const shouldKeepTranscriptVisible =
-          result.confirmation.required || result.lowConfidence;
+
+        // Phase 2: New confirmation decision — only confirm when truly uncertain.
+        const backendTranscriptIsEmpty = !transcript || transcript.trim().length < 2;
+        const backendRequiresConfirmation = result.confirmation?.required === true;
+        const backendIsLowConfidence =
+          result.lowConfidence === true ||
+          (typeof confidence === 'number' && confidence < CONFIDENCE_THRESHOLD_LOW);
+        const backendIsHighConfidence =
+          typeof confidence === 'number' && confidence >= CONFIDENCE_THRESHOLD_AUTO_SAVE;
+        const shouldConfirmBackend =
+          backendRequiresConfirmation ||
+          (backendIsLowConfidence && !backendTranscriptIsEmpty && !backendIsHighConfidence);
+
+        const shouldKeepTranscriptVisible = shouldConfirmBackend;
         setPartialTranscript('');
         setFinalTranscript(shouldKeepTranscriptVisible ? transcript : '');
         setVoiceTranscript(shouldKeepTranscriptVisible ? transcript : '');
@@ -3773,8 +4467,7 @@ export function VoiceExperience({
         const backendAdvancedStep = resolvedUpdatedStep !== janetStep;
         const shouldOfferStepTransition =
           janetStep !== 'review' &&
-          !result.confirmation.required &&
-          !result.lowConfidence &&
+          !shouldConfirmBackend &&
           (backendAdvancedStep ||
             resolveJanetVoiceFieldState({
               form: mergedForm,
@@ -3782,6 +4475,31 @@ export function VoiceExperience({
               proposedField: backendAdvancedStep ? null : resolvedField,
               step: janetStep,
             }).isStepComplete);
+
+        // Phase 5: If this correction was initiated from review_section_detail,
+        // return to review mode after saving instead of offering a step transition.
+        // Note: updateIntakeFields(result.extraction.draftPatch) already called above.
+        if (postCorrectionReturnModeRef.current === 'review_section_detail' && !shouldConfirmBackend) {
+          const returnMode = postCorrectionReturnModeRef.current;
+          postCorrectionReturnModeRef.current = null;
+          const lang = state.janetMode.language;
+          const returnPrompt =
+            lang === 'es'
+              ? 'Listo. De vuelta a la revisión. Di el nombre de una sección o confirmar para enviar.'
+              : 'Got it. Back to review. Say a section name or confirm to submit.';
+          void queueDraftAndHandoffSync({ formOverride: mergedForm });
+          setConfirmation(EMPTY_CONFIRMATION);
+          setWarnings([]);
+          setLowConfidence(false);
+          setIntakeStep('review');
+          setJanetModeStep('review');
+          setJanetFlowMode(returnMode);
+          setReplyText(returnPrompt);
+          setIsProcessing(false);
+          await wait(JANET_TIMING.postResponseDelayMs);
+          await playPrompt(returnPrompt, { autoListenAfter: true });
+          return;
+        }
 
         if (shouldOfferStepTransition) {
           setSession((currentSession) =>
@@ -3809,23 +4527,32 @@ export function VoiceExperience({
           currentSession
             ? {
                 ...currentSession,
-                confirmation: result.confirmation,
+                confirmation: shouldConfirmBackend ? result.confirmation : EMPTY_CONFIRMATION,
                 currentField: resolvedField,
                 currentStep: resolvedUpdatedStep,
                 draftPatch: result.extraction.draftPatch,
                 firstPrompt:
-                  !result.confirmation.required
+                  !shouldConfirmBackend
                     ? sanitizedReplyPrompt || currentSession.firstPrompt
                     : currentSession.firstPrompt,
                 missingFields: result.extraction.missingFields,
               }
             : currentSession,
         );
-        setConfirmation(result.confirmation);
+        setConfirmation(shouldConfirmBackend ? result.confirmation : EMPTY_CONFIRMATION);
         setReplyText(sanitizedReplyPrompt);
         setWarnings(result.warnings);
-        setLowConfidence(result.lowConfidence);
+        setLowConfidence(shouldConfirmBackend ? result.lowConfidence : false);
         setJanetModeStep(resolvedUpdatedStep);
+
+        // Phase 2: Show non-blocking auto-save acknowledgment when skipping confirmation.
+        if (!shouldConfirmBackend && activeManagedField && !backendTranscriptIsEmpty) {
+          const ackLabel = getJanetFieldLabel(activeManagedField);
+          const ackValue = normalizeTranscriptText(transcript);
+          if (ackValue) {
+            showAutoSaveAck(ackLabel, ackValue);
+          }
+        }
 
         void queueDraftAndHandoffSync();
 
@@ -3848,8 +4575,12 @@ export function VoiceExperience({
       activeManagedField,
       awaitingReviewSectionChoice,
       beginVoiceStep,
+      // Phase 4: needed for "repeat" fallback and "go back" prompt construction.
+      canonicalVoicePrompt,
+      replyText,
       clearNoSpeechGraceTimeout,
       clearSilenceTimeout,
+      handleValidationFailure,
       janetStep,
       janetFlowMode,
       localConfirmation,
@@ -3860,6 +4591,7 @@ export function VoiceExperience({
       queuePrompt,
       queueStepTransitionPrompt,
       session,
+      setIntakeStep,
       setJanetModeStep,
       setVoiceHandoff,
       setVoiceListening,
@@ -3873,6 +4605,7 @@ export function VoiceExperience({
       submitCurrentIntake,
       queueDraftAndHandoffSync,
       queueDraftSync,
+      showAutoSaveAck,
       updateIntakeFields,
     ],
   );
@@ -3927,7 +4660,8 @@ export function VoiceExperience({
       await handleJanetTurn(
         normalizedTranscript,
         transcription.confidence,
-        state.voice.spellModeEnabled ? 'spell' : 'normal',
+        // Phase 4: honour per-field spell mode in addition to the global toggle.
+        state.voice.spellModeEnabled || perFieldSpellModeRef.current ? 'spell' : 'normal',
       );
     } catch (error) {
       setMicError(
@@ -4275,6 +5009,15 @@ export function VoiceExperience({
     }
 
     autoPlayedSessionRef.current = session.sessionId;
+
+    // Skip auto-playing the greeting TTS when VoiceScreen is resumed mid-flow.
+    // introAlreadySeenOnMountRef captures whether the flag was set at mount time
+    // so that subsequent turns within the same session still speak normally.
+    if (introAlreadySeenOnMountRef.current) {
+      introAlreadySeenOnMountRef.current = false;
+      return;
+    }
+
     void playPrompt(resolvedSpeechText);
   }, [
     isBootstrapping,
@@ -4346,7 +5089,12 @@ export function VoiceExperience({
       return;
     }
 
-    void bootstrapSession({ force: true });
+    void (async () => {
+      const result = await bootstrapSession({ force: true });
+      if (result && !state.voice.hasSeenJanetIntro) {
+        setJanetIntroSeen();
+      }
+    })();
   }, [
     bootstrapSession,
     isBootstrapping,
@@ -4354,11 +5102,13 @@ export function VoiceExperience({
     janetFlowMode,
     queueStepTransitionPrompt,
     resolvedVoiceStepState.isStepComplete,
+    setJanetIntroSeen,
     state.backend.draft.draftId,
     state.backend.draft.patientId,
     state.backend.draft.visitId,
     state.intake.form,
     state.janetMode.language,
+    state.voice.hasSeenJanetIntro,
     janetStep,
   ]);
 
@@ -4606,15 +5356,29 @@ export function VoiceExperience({
             </Pressable>
           </View>
 
-          <View style={styles.hero}>
-            <JanetAvatar containerStyle={styles.avatarWrap} size="lg" />
-            <View style={styles.heroCopy}>
-              <Text style={styles.heroTitle}>{janetCopy.greetingTitle}</Text>
-              <Text style={styles.heroSubtitle}>
-                {janetCopy.greetingSubtitle}
-              </Text>
+          {state.voice.hasSeenJanetIntro ? (
+            <View style={styles.hero}>
+              <JanetAvatar containerStyle={styles.avatarWrap} size="lg" />
+              <View style={styles.heroCopy}>
+                <Text style={styles.heroTitle}>
+                  {`Let's continue with ${
+                    intakeFlowSteps.find((step) => step.key === janetStep)?.title ??
+                    'your check-in'
+                  }.`}
+                </Text>
+              </View>
             </View>
-          </View>
+          ) : (
+            <View style={styles.hero}>
+              <JanetAvatar containerStyle={styles.avatarWrap} size="lg" />
+              <View style={styles.heroCopy}>
+                <Text style={styles.heroTitle}>{janetCopy.greetingTitle}</Text>
+                <Text style={styles.heroSubtitle}>
+                  {janetCopy.greetingSubtitle}
+                </Text>
+              </View>
+            </View>
+          )}
 
           <View style={styles.progressTrack}>
             <View
@@ -4656,6 +5420,12 @@ export function VoiceExperience({
           title="Low confidence capture"
           tone="warning"
         />
+      ) : null}
+
+      {autoSaveAck ? (
+        <Animated.View style={[styles.autoSaveAckWrap, { opacity: autoSaveAckAnim }]}>
+          <Text style={styles.autoSaveAckText}>Saved: {autoSaveAck}</Text>
+        </Animated.View>
       ) : null}
 
       {isSubmitted ? (
@@ -5765,5 +6535,20 @@ const styles = StyleSheet.create({
     ...typography.body,
     color: colors.warning,
     marginTop: spacing.sm,
+  },
+  autoSaveAckWrap: {
+    alignItems: 'center',
+    backgroundColor: colors.surfaceSoft,
+    borderColor: colors.border,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginTop: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  autoSaveAckText: {
+    ...typography.label,
+    color: colors.success,
+    fontWeight: '600',
   },
 });

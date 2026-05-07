@@ -22,6 +22,7 @@ export type JanetHandoff = {
 export type JanetVoiceDraft = {
   appliedToIntakeAt: string | null;
   handoff: JanetHandoff | null;
+  hasSeenJanetIntro: boolean;
   isEditing: boolean;
   isListening: boolean;
   lastUpdatedAt: string | null;
@@ -394,6 +395,7 @@ export function createInitialJanetVoiceDraft(): JanetVoiceDraft {
   return {
     appliedToIntakeAt: null,
     handoff: null,
+    hasSeenJanetIntro: false,
     isEditing: false,
     isListening: false,
     lastUpdatedAt: null,

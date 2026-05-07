@@ -310,6 +310,9 @@ type DraftStoreAction =
       };
     }
   | {
+      type: 'set_janet_intro_seen';
+    }
+  | {
       type: 'set_voice_editing';
       payload: boolean;
     }
@@ -366,6 +369,7 @@ type DraftStoreContextValue = {
   openJanetMode: (options?: { step?: IntakeStepKey }) => void;
   openReturningFlow: (reset?: boolean) => void;
   resumeSavedDraft: () => void;
+  setJanetIntroSeen: () => void;
   setJanetLanguage: (language: 'en' | 'es') => void;
   setJanetModeStep: (step: IntakeStepKey) => void;
   setJanetNoisyRoom: (enabled: boolean) => void;
@@ -1313,6 +1317,14 @@ function reducer(
             ...action.payload,
           },
           lastUpdatedAt: nowIso(),
+        },
+      };
+    case 'set_janet_intro_seen':
+      return {
+        ...state,
+        voice: {
+          ...state.voice,
+          hasSeenJanetIntro: true,
         },
       };
     case 'set_voice_editing':
@@ -2628,6 +2640,11 @@ export function DraftStoreProvider({ children }: { children: ReactNode }) {
       dispatch({
         type: 'set_active_flow_mode',
         payload: 'intake',
+      });
+    },
+    setJanetIntroSeen: () => {
+      dispatch({
+        type: 'set_janet_intro_seen',
       });
     },
     setJanetLanguage: (language) => {

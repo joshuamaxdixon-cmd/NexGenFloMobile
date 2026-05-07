@@ -518,13 +518,22 @@ function logApiDebug(
   phase: 'error' | 'request' | 'response',
   exchange: ApiDebugExchange,
 ) {
+  if (phase === 'error') {
+    console.warn('[NexGen Flo API] Request failed', {
+      endpoint: exchange.url,
+      method: exchange.method,
+      status: exchange.responseStatus,
+      error: exchange.errorMessage,
+      durationMs: exchange.durationMs,
+    });
+    return;
+  }
+
   if (!__DEV__) {
     return;
   }
 
-  const logger = phase === 'error' ? console.warn : console.info;
-
-  logger(`[NexGen Flo API] ${phase.toUpperCase()}`, exchange);
+  console.info(`[NexGen Flo API] ${phase.toUpperCase()}`, exchange);
 }
 
 function buildNetworkFailureMessage(method: string, requestUrl: string, fallback: string) {

@@ -19,6 +19,7 @@ import {
   validateIntakeStep,
 } from '../services';
 import { BasicInfoScreen } from './intake/BasicInfoScreen';
+import { CheckInCompleteScreen } from './intake/CheckInCompleteScreen';
 import { DocumentsScreen } from './intake/DocumentsScreen';
 import { PastMedicalHistoryScreen } from './intake/PastMedicalHistoryScreen';
 import { ReviewScreen } from './intake/ReviewScreen';
@@ -35,11 +36,13 @@ function hasFieldErrors(fieldErrors: IntakeFieldErrors) {
 export function IntakeScreen() {
   const navigation = useNavigation<BottomTabNavigationProp<RootTabParamList>>();
   const {
+    clearDraft,
     closeJanetMode,
     fetchRemoteDraft,
     openJanetMode,
     setUploadAsset,
     setIntakeStep,
+    startNewIntake,
     state,
     submitCurrentIntake,
     syncCurrentDraft,
@@ -204,14 +207,7 @@ export function IntakeScreen() {
     }
 
     if (isLastStep) {
-      const didSubmit = await submitCurrentIntake();
-
-      if (didSubmit) {
-        Alert.alert(
-          'Check-in complete',
-          'Your visit is now in NexGEN and ready for staff review.',
-        );
-      }
+      await submitCurrentIntake();
       return;
     }
 
@@ -355,12 +351,35 @@ export function IntakeScreen() {
   const showBackAction = currentStepIndex > 0 || isEditingFromReview;
   const shouldShowJanetVoiceMode = state.janetMode.active;
 
+  const handleClose = () => {
+    clearDraft('all');
+    navigation.navigate('Home');
+  };
+
+  const handleNewCheckIn = () => {
+    clearDraft('all');
+    startNewIntake({ prefill: {}, source: 'home', step: 'basicInfo' });
+  };
+
   if (shouldShowJanetVoiceMode) {
     return (
       <VoiceExperience
         onClose={closeJanetMode}
         onSwitchToTyping={closeJanetMode}
       />
+    );
+  }
+
+  if (isSubmitted) {
+    return (
+      <ScreenContainer>
+        <CheckInCompleteScreen
+          form={state.intake.form}
+          onClose={handleClose}
+          onNewCheckIn={handleNewCheckIn}
+          submittedAt={state.backend.submit.submittedAt}
+        />
+      </ScreenContainer>
     );
   }
 
